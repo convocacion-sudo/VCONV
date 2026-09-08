@@ -1,0 +1,29 @@
+{
+  "Medellín": {
+    "Popular": ["Barrio Popular", "Villa Torres", "Popular 1", "Popular 2"],
+    "Santa Cruz": ["Santa Cruz", "Picota", "Villa Nueva"],
+    "Manrique": ["Manrique", "La Honda", "San Miguel", "Alto de Naranitos"],
+    "Aranjuez": ["Aranjuez", "Buenos Aires", "San Diego", "Villa del Río"],
+    "Castilla": ["Castilla", "Obrero", "Alaska", "La Esperanza"],
+    "Doce de Octubre": ["Doce de Octubre", "Villa del Socorro", "Santa María"],
+    "Robledo": ["Robledo", "Campo Valdés", "El Compromiso", "Alejandría"],
+    "Villa Hermosa": ["Villa Hermosa", "La Ferrini", "Santa María de los Ángeles"],
+    "Buenos Aires": ["Buenos Aires", "Miraflores", "La Ladera", "Picota"],
+    "La Candelaria": ["La Candelaria", "Centro", "San Nicolás"],
+    "Laureles-Estadio": ["Laureles", "Estadio", "San Diego", "Nutibara"],
+    "La América": ["La América", "Suramericana", "Calasanz", "Fátima"],
+    "San Javier": ["San Javier", "Santa María", "El Salado", "Pan de Azúcar"],
+    "El Poblado": ["El Poblado", "Provenza", "Manila", "Los Balsos", "Castropol"],
+    "Guayabal": ["Guayabal", "La Iguaná", "El Nogal", "El Dorado"],
+    "Belén": ["Belén", "La Minerva", "San Bernardo", "Santillana"]
+  },
+  "Bello": ["Centro", "Naranjal", "San José", "Caribe"],
+  "Itagüí": ["Centro", "Santa Ana", "Sabaneta", "Puerto Valdivia"],
+  "Envigado": ["Centro", "Santa Ana", "El Dorado", "Villa Gutiérrez"],
+  "Sabaneta": ["Centro", "La Estancia", "Panamericana"],
+  "La Estrella": ["Centro", "La Barquereña", "Pitalito"],
+  "Caldas": ["Centro", "La María", "Santa Cecilia"],
+  "Copacabana": ["Centro", "La Cabaña"],
+  "Girardota": ["Centro", "San Pedro"],
+  "Barbosa": ["Centro", "Santa Bárbara"]
+}

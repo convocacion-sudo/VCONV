@@ -1,0 +1,30 @@
+{
+  "project_name": "Panel de Control VCONV",
+  "version": "1.0.0",
+  "firebase": {
+    "apiKey": "AIzaSyAYvbdS05f73i8h5yTbYhI1YnzP8gtUJOg",
+    "authDomain": "vconvocacion.firebaseapp.com",
+    "projectId": "vconvocacion",
+    "storageBucket": "vconvocacion.firebasestorage.app",
+    "messagingSenderId": "705488212528",
+    "appId": "1:705488212528:web:fda5f7affb6678741bd3f5"
+  },
+  "modules": [
+    {
+      "slug": "crm",
+      "label": "CRM",
+      "description": "Gestión de clientes y contactos",
+      "icon": "📊",
+      "active": true,
+      "path": "modules/crm/"
+    },
+    {
+      "slug": "cursos",
+      "label": "Cursos",
+      "description": "Administración de cursos y formación",
+      "icon": "📚",
+      "active": true,
+      "path": "modules/cursos/"
+    }
+  ]
+}

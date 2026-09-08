@@ -1,0 +1,100 @@
+{
+  "portal": {
+    "brand": "VCONV",
+    "nav": ["Inicio", "Pilares", "Contacto"],
+    "hero": {
+      "badge": "Plataforma de formación y acompañamiento",
+      "title": "Crece en lo personal, lo espiritual y lo comunitario",
+      "subtitle": "Formación integral, la Biblia resumida en audio, vida en comunidad, economía solidaria, apoyo en el dolor y participación ciudadana. Todo en un solo lugar.",
+      "ctaPrimary": "Comenzar ahora",
+      "ctaPrimaryTarget": "register",
+      "ctaSecondary": "Conocer los pilares",
+      "ctaSecondaryTarget": "blocks"
+    },
+    "sections": {
+      "blocks": {
+        "eyebrow": "Pilares",
+        "title": "Nuestros pilares institucionales",
+        "subtitle": "Seis frentes de trabajo para acompañar a las personas en todas las etapas de la vida."
+      },
+      "contact": {
+        "eyebrow": "Contacto",
+        "title": "Escríbenos",
+        "subtitle": "Cuéntanos cómo podemos acompañarte. Nuestro equipo te responderá a la brevedad."
+      }
+    }
+  },
+  "blocks": [
+    {
+      "icon": "🌱",
+      "accent": "green",
+      "title": "Crecimiento personal, espiritual y comunitario",
+      "text": "Recursos y formación para cultivar tu vida interior, fortalecer tu carácter e integrarte a una comunidad que camina contigo.",
+      "highlight": "Formación continua"
+    },
+    {
+      "icon": "🎧",
+      "accent": "blue",
+      "title": "La Biblia resumida en audio",
+      "text": "Accede a resúmenes claros y enriquecidos de los principales pasajes bíblicos en formato de audio, ideales para escuchar en cualquier lugar.",
+      "highlight": "Disponible para escuchar"
+    },
+    {
+      "icon": "🤝",
+      "accent": "teal",
+      "title": "Vida en comunidad",
+      "text": "Celebramos la convivencia, el servicio y el apoyo mutuo. Espacios y actividades que fortalecen los lazos entre las personas.",
+      "highlight": "Convivencia y servicio"
+    },
+    {
+      "icon": "🤲",
+      "accent": "amber",
+      "title": "Economía solidaria",
+      "text": "Promovemos prácticas de cooperación, ahorro colectivo y trabajo conjunto para el bienestar económico de las familias y la comunidad.",
+      "highlight": "Cooperación y bienestar"
+    },
+    {
+      "icon": "💚",
+      "accent": "rose",
+      "title": "Apoyo en el dolor y cuidados paliativos",
+      "text": "Acompañamiento humano y compasivo para quienes atraviesan el dolor, la enfermedad o la pérdida, junto a sus familias.",
+      "highlight": "Acompañamiento humano"
+    },
+    {
+      "icon": "🏛",
+      "accent": "indigo",
+      "title": "Liderazgo y participación ciudadana",
+      "text": "Formación para líderes que quieren incidir de forma positiva en su territorio, con herramientas de participación y gestión comunitaria.",
+      "highlight": "Liderazgo que transforma"
+    }
+  ],
+  "contact": {
+    "labels": {
+      "nombre": "Nombre",
+      "email": "Correo electrónico",
+      "asunto": "Asunto",
+      "mensaje": "Mensaje",
+      "submit": "Enviar mensaje"
+    },
+    "placeholders": {
+      "nombre": "Tu nombre",
+      "email": "tucorreo@ejemplo.com",
+      "mensaje": "Escribe aquí tu mensaje…"
+    },
+    "asuntos": [
+      "Información general",
+      "Crecimiento personal y espiritual",
+      "La Biblia resumida en audio",
+      "Vida en comunidad",
+      "Economía solidaria",
+      "Apoyo en el dolor y cuidados paliativos",
+      "Liderazgo y participación ciudadana",
+      "Otro"
+    ],
+    "successMessage": "¡Mensaje enviado! Gracias por escribirnos."
+  },
+  "footer": {
+    "text": "Una comunidad que forma, acompaña y transforma.",
+    "copyright": "© 2026 VCONV · Vida en Convocación"
+  }
+}

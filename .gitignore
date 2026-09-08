@@ -1,0 +1,21 @@
+# Firebase
+.firebase/
+.cache/
+
+# Dependencias
+node_modules/
+
+# Backups locales
+backup/
+
+# Entorno y secretos
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+
+# SO
+Thumbs.db
+.DS_Store

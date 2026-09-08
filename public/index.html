@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Gestor y visor de cursos conectado a Cloud Firestore con modo claro/oscuro y visor de contenido seguro.">
+  <title>VCONV · Gestor y Visor de Cursos</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <link rel="stylesheet" href="core/styles.css">
+  <link rel="stylesheet" href="modules/cursos/cursos.css">
+  <link rel="stylesheet" href="modules/crm/crm.css">
+  <link rel="stylesheet" href="modules/dashboard/dashboard.css">
+  <link rel="stylesheet" href="modules/comunidades/comunidades.css">
+  <link rel="stylesheet" href="modules/portal/portal.css">
+</head>
+<body>
+
+  <div id="appRoot" style="display:none;">
+  <header class="topbar">
+    <button type="button" class="hamburger" id="appBurger" aria-label="Abrir menú" aria-expanded="false" aria-controls="appSidebar">
+      <span></span><span></span><span></span>
+    </button>
+    <span class="topbar-title" id="sectionTitle">Escritorio</span>
+  </header>
+
+  <!-- ═══ MENÚ LATERAL (App Shell) ═══ -->
+  <aside class="sidebar" id="appSidebar" aria-hidden="true">
+    <div class="sidebar-head">
+      <a href="index.html" class="sidebar-brand" id="brandHome" title="Ir al portal público">
+        <img src="/logo.png" alt="Vida con Vocación" class="sidebar-logo">
+      </a>
+      <button type="button" class="sidebar-close" id="sidebarClose" aria-label="Cerrar menú">✕</button>
+    </div>
+    <nav class="sidebar-nav">
+      <p class="sidebar-group">Principal</p>
+      <a href="#" class="sidebar-link" data-nav="escritorio"><span class="sidebar-ico">🏠</span> Escritorio</a>
+      <a href="#" class="sidebar-link" data-nav="cursos"><span class="sidebar-ico">📚</span> Mis Cursos</a>
+      <a href="#" class="sidebar-link" data-nav="comunidades"><span class="sidebar-ico">🤝</span> Comunidades</a>
+
+      <p class="sidebar-group" id="sidebarGroupAdmin" style="display:none;">Administración</p>
+      <a href="#" class="sidebar-link" data-nav="admin" id="sidebarLinkAdmin" style="display:none;"><span class="sidebar-ico">🔐</span> Gestión de Usuarios</a>
+
+      <p class="sidebar-group">Próximamente</p>
+      <a href="#" class="sidebar-link is-disabled" tabindex="-1"><span class="sidebar-ico">📊</span> Reportes <span class="sidebar-tag">Pronto</span></a>
+      <a href="#" class="sidebar-link is-disabled" tabindex="-1"><span class="sidebar-ico">⚙️</span> Configuración <span class="sidebar-tag">Pronto</span></a>
+    </nav>
+
+    <div class="sidebar-settings" id="sidebarSettings">
+      <p class="sidebar-group">Modo de vista</p>
+      <div class="mode-switch">
+        <button class="mode-btn active" id="modeGestor">🛠 Gestor</button>
+        <button class="mode-btn" id="modeEstudiante">🎓 Estudiante</button>
+        <button class="mode-btn" id="modeAdmin" style="display:none;">🔐 Admin</button>
+      </div>
+      <div class="font-controls" id="fontControls" style="display:none;">
+        <button class="font-btn" id="fontDecrease" title="Reducir texto">A-</button>
+        <span class="font-label" id="fontLabel">100%</span>
+        <button class="font-btn" id="fontIncrease" title="Aumentar texto">A+</button>
+      </div>
+    </div>
+
+    <div class="sidebar-foot">
+      <div class="user-chip" id="userChip" style="display:none;">
+        <span class="avatar" id="userAvatar"></span>
+        <span class="user-id" id="userEmail"></span>
+      </div>
+      <div class="sidebar-actions">
+        <button class="icon-btn" id="themeToggle" title="Cambiar tema">🌙</button>
+        <button type="button" class="btn btn-outline btn-sm" id="btnLogout" title="Cerrar sesión">Salir</button>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <div class="app-body">
+  <div class="progress-bar-wrap" id="progressBarWrap" style="display:none;">
+    <div class="progress-info">
+      <span id="progressText">0 de 0 lecciones</span>
+      <span id="progressPct">0%</span>
+    </div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill" style="width:0%"></div>
+    </div>
+  </div>
+
+  <main class="main-wrap">
+    <div class="fb-banner" id="fbBanner"></div>
+
+    <!-- ═══ BREADCRUMB / NAVEGACIÓN ═══ -->
+    <div class="breadcrumb" id="breadcrumb" style="display:none;"></div>
+
+    <!-- ═══ MÓDULO ESCRITORIO (Dashboard) ═══ -->
+    <div class="view" id="viewDashboard">
+      <div class="dash-hero">
+        <div>
+          <h2>Hola, <span id="dashName">—</span> 👋</h2>
+          <p id="dashRole">Bienvenido a tu centro de control.</p>
+        </div>
+        <span class="dash-badge" id="dashRoleBadge">Estudiante</span>
+      </div>
+
+      <h3 class="dash-section-title">Accesos</h3>
+      <div class="dash-cards" id="dashCards"></div>
+
+      <div class="dash-section-title-row">
+        <h3 class="dash-section-title" style="margin-bottom:0;">Mi Perfil</h3>
+        <button type="button" class="btn btn-outline btn-sm" id="dashEditProfile">✏ Editar</button>
+      </div>
+      <div class="dash-panel" id="dashProfile">
+        <div class="dash-profile-view" id="dashProfileView"></div>
+        <form class="dash-profile-form" id="dashProfileForm" novalidate style="display:none;">
+          <div class="form-row">
+            <div class="field">
+              <label for="pfNombre">Nombre</label>
+              <input type="text" id="pfNombre" class="input" autocomplete="given-name">
+            </div>
+            <div class="field">
+              <label for="pfApellido">Apellido</label>
+              <input type="text" id="pfApellido" class="input" autocomplete="family-name">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label for="pfDocumento">Documento de identidad</label>
+              <input type="text" id="pfDocumento" class="input" placeholder="Ej: 1234567890">
+            </div>
+            <div class="field">
+              <label for="pfTelefono">Teléfono de contacto</label>
+              <input type="text" id="pfTelefono" class="input" placeholder="Ej: 300 123 4567">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label for="pfSexo">Sexo</label>
+              <select id="pfSexo" class="select">
+                <option value="">—</option>
+                <option value="Masculino">Masculino</option>
+                <option value="Femenino">Femenino</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="pfRangoEdad">Rango de edad</label>
+              <select id="pfRangoEdad" class="select">
+                <option value="">—</option>
+                <option value="Adolescente (12 - 15 años)">Adolescente (12 - 15 años)</option>
+                <option value="Joven adolescente (16 - 18 años)">Joven adolescente (16 - 18 años)</option>
+                <option value="Joven (19 - 25 años)">Joven (19 - 25 años)</option>
+                <option value="Joven adulto (26 - 35 años)">Joven adulto (26 - 35 años)</option>
+                <option value="Adulto (36 - 50 años)">Adulto (36 - 50 años)</option>
+                <option value="Adulto mayor (51 - 65 años)">Adulto mayor (51 - 65 años)</option>
+                <option value="Anciano (Más de 65 años)">Anciano (Más de 65 años)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field field-full" id="pfSexoOtroWrap" style="display:none;">
+              <label for="pfSexoOtro">Sexo (descripción)</label>
+              <input type="text" id="pfSexoOtro" class="input" placeholder="Describe cómo te identificas" autocomplete="off">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label for="pfFechaSuscripcion">Fecha de suscripción</label>
+              <input type="text" id="pfFechaSuscripcion" class="input" readonly placeholder="—">
+            </div>
+            <div class="field">
+              <label for="pfCiudad">Ciudad</label>
+              <select id="pfCiudad" class="select"></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field field-full" id="pfCiudadOtroWrap" style="display:none;">
+              <label for="pfCiudadOtro">Ciudad (texto libre)</label>
+              <input type="text" id="pfCiudadOtro" class="input" placeholder="Escribe el nombre de la ciudad">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field field-full">
+              <label for="pfBarrio">Barrio</label>
+              <input type="text" id="pfBarrio" class="input" list="pfBarrioList" placeholder="Escribe el nombre del barrio" autocomplete="off">
+              <datalist id="pfBarrioList"></datalist>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field field-full">
+              <label for="pfNotas">Notas o detalles adicionales</label>
+              <textarea id="pfNotas" class="textarea" placeholder="Escribe aquí cualquier información adicional (referencias, observaciones, etc.)"></textarea>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="btnSaveProfile">Guardar cambios</button>
+            <button type="button" class="btn btn-outline" id="btnCancelEditProfile">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ═══ MÓDULO CURSOS ═══ -->
+    <div class="view active" id="viewCatalog">
+      <div class="section-header">
+        <div>
+          <h2 id="catalogTitle">Mis Cursos</h2>
+          <p id="catalogSub">Selecciona un curso para comenzar o continuar tu aprendizaje.</p>
+        </div>
+        <button class="btn btn-primary" id="btnNewCourse" style="display:none;">+ Nuevo curso</button>
+      </div>
+      <div class="courses-grid" id="coursesGrid"></div>
+      <div class="empty-state" id="emptyCatalog" style="display:none;">
+        <span class="es-icon">📚</span>
+        <h3>No hay cursos disponibles</h3>
+        <p id="emptyText">Crea tu primer curso para comenzar.</p>
+      </div>
+    </div>
+
+    <div class="view" id="viewEditor">
+      <div class="section-header">
+        <div>
+          <h2 id="editorHeading">Nuevo Curso</h2>
+          <p>Los cambios se guardan en Firestore en la nube.</p>
+        </div>
+      </div>
+      <div class="editor-panel">
+        <h3>Datos del curso</h3>
+        <div class="field">
+          <label for="edTitle">Título</label>
+          <input type="text" id="edTitle" class="input" placeholder="Ej: Introducción a WordPress">
+        </div>
+        <div class="field">
+          <label for="edDesc">Descripción</label>
+          <textarea id="edDesc" class="textarea" placeholder="Breve descripción del curso"></textarea>
+        </div>
+        <div class="field" style="margin-top:1.25rem;">
+          <div class="editor-head">
+            <label style="margin-bottom:0;">Lecciones del curso (artículos de WordPress)</label>
+            <button type="button" class="btn btn-outline btn-sm" id="btnAddLesson">＋ Añadir / seleccionar lecciones</button>
+          </div>
+          <p class="field-hint">Carga los artículos de WordPress y marca con checkboxes los que forman parte del curso.</p>
+          <div id="lessonPickerList" class="lesson-picker"></div>
+        </div>
+        <div class="editor-actions">
+          <button class="btn btn-primary" id="btnSaveCourse">Guardar curso</button>
+          <button class="btn btn-outline" id="btnCancelEdit">Cancelar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="view" id="viewCourse">
+      <div class="section-header">
+        <div>
+          <h2 id="courseTitle"></h2>
+          <p id="courseDesc"></p>
+        </div>
+      </div>
+      <div class="lesson-list" id="lessonList"></div>
+    </div>
+
+    <div class="view" id="viewLesson">
+      <div class="reader-toolbar">
+        <div class="reader-toolbar-left">
+          <span class="reader-meta" id="readerLessonMeta"></span>
+        </div>
+        <div class="reader-toolbar-right">
+          <button class="icon-btn" id="readerFontDown" title="Reducir texto">A-</button>
+          <button class="icon-btn" id="readerFontUp" title="Aumentar texto">A+</button>
+          <button class="icon-btn" id="readerTheme" title="Modo claro/oscuro">🌓</button>
+        </div>
+      </div>
+      <h1 class="reader-title" id="readerTitle"></h1>
+      <div class="reader-content" id="readerContent"></div>
+      <div class="reader-nav">
+        <div class="btn-complete-wrap">
+          <button class="btn btn-success" id="btnCompleteLesson">✓ Marcar como completada</button>
+          <span class="complete-label" id="completeLabel"></span>
+        </div>
+        <div class="reader-nav-row">
+          <button class="btn btn-outline" id="btnPrevLesson" disabled>← Anterior</button>
+          <button class="btn btn-primary" id="btnNextLesson" disabled>Siguiente →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ MÓDULO CRM (superadmin) ═══ -->
+    <div class="view" id="viewAdmin">
+      <div class="section-header">
+        <div>
+          <h2>Gestión de Usuarios</h2>
+          <p>CRM — Administra perfiles, roles y estados de los usuarios.</p>
+        </div>
+      </div>
+
+      <div class="admin-stats" id="adminStats"></div>
+
+      <div class="admin-filters">
+        <input type="text" id="adminSearch" class="admin-search" placeholder="Buscar por nombre o correo…">
+        <select id="adminFilterRol" class="admin-filter-select">
+          <option value="">Todos los roles</option>
+          <option value="estudiante">Estudiante</option>
+          <option value="gestor">Gestor</option>
+          <option value="superadmin">Superadmin</option>
+        </select>
+        <select id="adminFilterEstado" class="admin-filter-select">
+          <option value="">Todos los estados</option>
+          <option value="Activo">Activo</option>
+          <option value="Inactivo">Inactivo</option>
+          <option value="Suspendido">Suspendido</option>
+        </select>
+        <select id="adminFilterPerfil" class="admin-filter-select">
+          <option value="">Todos los perfiles</option>
+        </select>
+      </div>
+
+      <div class="admin-bulk-bar" id="adminBulkBar">
+        <span class="bulk-count" id="adminBulkCount">0 seleccionados</span>
+        <button class="bulk-btn-cancel" id="adminBulkCancel">Cancelar</button>
+        <button class="bulk-btn-delete" id="adminBulkDelete">Eliminar seleccionados</button>
+      </div>
+
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th class="admin-check-cell"><input type="checkbox" class="admin-check" id="adminCheckAll"></th>
+              <th>Correo</th>
+              <th>Nombre</th>
+              <th>Documento</th>
+              <th>Teléfono</th>
+              <th>Ubicación</th>
+              <th>Rol</th>
+              <th>Estado</th>
+              <th>Perfil</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="adminTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="admin-profiles">
+        <h3>Perfiles Organizacionales</h3>
+        <div class="admin-profiles-list" id="adminProfilesList"></div>
+        <div class="admin-profiles-add">
+          <input type="text" id="adminProfileInput" class="input" placeholder="Nuevo perfil…">
+          <button class="btn btn-primary btn-sm" id="adminProfileAdd">Añadir</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ MÓDULO COMUNIDADES ═══ -->
+    <div class="view" id="viewComunidades">
+      <div class="section-header">
+        <div>
+          <h2>🤝 Comunidades</h2>
+          <p id="comunidadesSub">Gestión de precomunidades, comunidades de miembros y misioneras.</p>
+        </div>
+        <button type="button" id="btnNuevaComunidad" class="btn btn-primary" style="display:none;">➕ Nueva Comunidad</button>
+      </div>
+      <div id="comunidadesContent"></div>
+    </div>
+
+  </main>
+  </div><!-- /.app-body -->
+
+  </div><!-- /#appRoot -->
+
+  <!-- ═══ PORTAL PÚBLICO (visitantes no autenticados) ═══ -->
+  <div class="portal-screen" id="portalScreen">
+    <header class="portal-nav">
+      <div class="portal-nav-inner">
+        <a class="portal-brand" href="index.html"><img src="/logo.png" alt="Vida con Vocación" class="app-logo"></a>
+        <nav class="portal-links" id="portalNav">
+          <a href="#portalInicio">Inicio</a>
+          <a href="#portalBlocks">Pilares</a>
+          <a href="#portalContact">Contacto</a>
+        </nav>
+        <div class="portal-auth">
+          <button type="button" class="icon-btn" id="portalThemeToggle" title="Cambiar tema">🌙</button>
+          <button type="button" class="btn btn-outline btn-sm" id="portalLoginBtn">Iniciar Sesión</button>
+          <button type="button" class="btn btn-primary btn-sm" id="portalRegisterBtn">Registrarse</button>
+        </div>
+        <button type="button" class="portal-burger" id="portalBurger" aria-label="Abrir menú" aria-expanded="false" aria-controls="portalSidebar">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </header>
+
+    <div class="portal-sidebar-overlay" id="portalSidebarOverlay" hidden></div>
+    <aside class="portal-sidebar" id="portalSidebar" aria-hidden="true">
+      <div class="portal-sidebar-head">
+        <a class="portal-brand" href="index.html"><img src="/logo.png" alt="Vida con Vocación" class="app-logo"></a>
+        <button type="button" class="portal-sidebar-close" id="portalSidebarClose" aria-label="Cerrar menú">✕</button>
+      </div>
+      <nav class="portal-sidebar-links" id="portalSidebarNav">
+        <a href="#portalInicio">Inicio</a>
+        <a href="#portalBlocks">Pilares</a>
+        <a href="#portalContact">Contacto</a>
+      </nav>
+      <div class="portal-sidebar-actions">
+        <button type="button" class="icon-btn portal-sidebar-theme" id="portalSidebarThemeToggle" title="Cambiar tema">🌙</button>
+        <div class="portal-sidebar-buttons">
+          <button type="button" class="btn btn-outline" id="portalSidebarLoginBtn">Iniciar Sesión</button>
+          <button type="button" class="btn btn-primary" id="portalSidebarRegisterBtn">Registrarse</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="portal-main">
+      <section class="portal-hero" id="portalInicio">
+        <div class="portal-hero-inner">
+          <a href="index.html"><img src="/logo.png" alt="Vida con Vocación" class="app-logo"></a>
+          <span class="portal-badge" id="portalHeroBadge"></span>
+          <h1 id="portalHeroTitle"></h1>
+          <p id="portalHeroSubtitle"></p>
+          <div class="portal-hero-actions">
+            <button type="button" class="btn btn-primary" id="portalCtaPrimary"></button>
+            <button type="button" class="btn btn-outline" id="portalCtaSecondary"></button>
+          </div>
+        </div>
+      </section>
+
+      <section class="portal-section" id="portalBlocks">
+        <div class="portal-section-head">
+          <span class="portal-eyebrow" id="blocksEyebrow"></span>
+          <h2 id="blocksTitle"></h2>
+          <p id="blocksSubtitle"></p>
+        </div>
+        <div class="portal-blocks" id="portalBlocksGrid"></div>
+      </section>
+
+      <section class="portal-section portal-contact" id="portalContact">
+        <div class="portal-contact-grid">
+          <div class="portal-contact-info">
+            <span class="portal-eyebrow" id="contactEyebrow"></span>
+            <h2 id="contactTitle"></h2>
+            <p id="contactSubtitle"></p>
+          </div>
+          <form class="portal-contact-form" id="contactForm" novalidate>
+            <div class="form-row">
+              <div class="field">
+                <label for="ctNombre" id="lblNombre">Nombre</label>
+                <input type="text" id="ctNombre" class="input" autocomplete="name">
+              </div>
+              <div class="field">
+                <label for="ctEmail" id="lblEmail">Correo electrónico</label>
+                <input type="email" id="ctEmail" class="input" autocomplete="email">
+              </div>
+            </div>
+            <div class="field">
+              <label for="ctAsunto" id="lblAsunto">Asunto</label>
+              <select id="ctAsunto" class="select"></select>
+            </div>
+            <div class="field">
+              <label for="ctMensaje" id="lblMensaje">Mensaje</label>
+              <textarea id="ctMensaje" class="textarea" rows="5"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary" id="ctSubmit">Enviar mensaje</button>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <footer class="portal-footer">
+      <div class="portal-footer-inner">
+        <span class="brand" id="portalFooterBrand">VCONV<span>.</span></span>
+        <p id="portalFooterText"></p>
+        <p class="portal-copy" id="portalCopyright"></p>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ═══ FORMULARIO EXTENDIDO CRM (modal) ═══ -->
+  <div class="modal-overlay" id="crmFormOverlay">
+    <div class="modal-card">
+      <h3>Editar Perfil de Usuario</h3>
+      <form class="crm-form" id="crmForm" onsubmit="return false;">
+        <div class="form-row">
+          <div class="field">
+            <label for="crmNombre">Nombre</label>
+            <input type="text" id="crmNombre" class="input">
+          </div>
+          <div class="field">
+            <label for="crmApellido">Apellido</label>
+            <input type="text" id="crmApellido" class="input">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field field-readonly">
+            <label for="crmEmail">Correo electrónico</label>
+            <input type="email" id="crmEmail" class="input" readonly>
+          </div>
+          <div class="field">
+            <label for="crmDocumento">Documento de identidad</label>
+            <input type="text" id="crmDocumento" class="input" placeholder="Ej: 1234567890">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="crmTelefono">Teléfono de contacto</label>
+            <input type="text" id="crmTelefono" class="input" placeholder="Ej: 300 123 4567">
+          </div>
+          <div class="field">
+            <label for="crmRol">Rol</label>
+            <select id="crmRol" class="select">
+              <option value="estudiante">Estudiante</option>
+              <option value="gestor">Gestor</option>
+              <option value="superadmin">Superadmin</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="crmEstado">Estado de cuenta</label>
+            <select id="crmEstado" class="select">
+              <option value="Activo">Activo</option>
+              <option value="Inactivo">Inactivo</option>
+              <option value="Suspendido">Suspendido</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="crmPerfil">Perfil organizacional</label>
+            <select id="crmPerfil" class="select">
+              <option value="">—</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="crmCiudad">Ciudad</label>
+            <select id="crmCiudad" class="select"></select>
+          </div>
+          <div class="field">
+            <label for="crmMunicipio">Municipio / Comuna</label>
+            <select id="crmMunicipio" class="select"></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="crmBarrio">Barrio</label>
+            <select id="crmBarrio" class="select"></select>
+          </div>
+          <div class="field" style="display:none;" id="crmBarrioCustomWrap">
+            <label for="crmBarrioCustom">Barrio (texto libre)</label>
+            <input type="text" id="crmBarrioCustom" class="input" placeholder="Escribe el nombre del barrio">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field field-readonly">
+            <label>Fecha de registro</label>
+            <input type="text" id="crmCreado" class="input" readonly>
+          </div>
+          <div></div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" id="crmFormSave">Guardar cambios</button>
+          <button type="button" class="btn btn-outline" id="crmFormCancel">Cancelar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══ AUTH SCREEN ═══ -->
+  <div class="auth-overlay" id="authScreen">
+    <div class="auth-card">
+      <button type="button" class="auth-close" id="authClose" title="Cerrar">✕</button>
+      <span class="brand">VCONV<span>.</span></span>
+      <p class="auth-sub">Accede para gestionar y visualizar tus cursos.</p>
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" id="tabLogin" data-tab="login">Iniciar sesión</button>
+        <button type="button" class="auth-tab" id="tabRegister" data-tab="register">Registrarse</button>
+      </div>
+      <div class="auth-error" id="authError"></div>
+      <form class="auth-form active" id="loginForm" novalidate>
+        <div class="field">
+          <label for="loginEmail">Correo electrónico</label>
+          <input type="email" id="loginEmail" class="input" autocomplete="email" placeholder="tucorreo@ejemplo.com">
+        </div>
+        <div class="field">
+          <label for="loginPassword">Contraseña</label>
+          <div class="password-wrap">
+            <input type="password" id="loginPassword" class="input" autocomplete="current-password" placeholder="••••••••">
+            <button type="button" class="password-toggle" data-password="loginPassword" title="Mostrar u ocultar contraseña" tabindex="-1">
+              <i class="far fa-eye-slash"></i>
+            </button>
+          </div>
+        </div>
+        <p class="auth-forgot"><a href="#" id="forgotPasswordLink">¿Olvidaste tu contraseña?</a></p>
+        <button type="submit" class="btn btn-primary" id="btnLogin">Iniciar sesión</button>
+      </form>
+      <form class="auth-form" id="registerForm" novalidate>
+        <div class="field">
+          <label for="regName">Nombre</label>
+          <input type="text" id="regName" class="input" autocomplete="name" placeholder="Tu nombre">
+        </div>
+        <div class="field">
+          <label for="regEmail">Correo electrónico</label>
+          <input type="email" id="regEmail" class="input" autocomplete="email" placeholder="tucorreo@ejemplo.com">
+        </div>
+        <div class="field">
+          <label for="regPassword">Contraseña</label>
+          <div class="password-wrap">
+            <input type="password" id="regPassword" class="input" autocomplete="new-password" placeholder="Mínimo 6 caracteres">
+            <button type="button" class="password-toggle" data-password="regPassword" title="Mostrar u ocultar contraseña" tabindex="-1">
+              <i class="far fa-eye-slash"></i>
+            </button>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" id="btnRegister">Crear cuenta</button>
+      </form>
+      <p class="auth-switch" id="authSwitch">
+        <span id="switchText">¿No tienes cuenta?</span>
+        <a id="switchLink" data-tab="register">Regístrate</a>
+      </p>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- Firebase SDK (compat / v9) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <!-- Core -->
+  <script src="core/app.js"></script>
+  <!-- Módulos -->
+  <script src="modules/dashboard/dashboard.js"></script>
+  <script src="modules/cursos/cursos.js"></script>
+  <script src="modules/crm/crm.js"></script>
+  <script src="modules/comunidades/comunidades.js"></script>
+  <!-- Portal público -->
+  <script src="modules/portal/portal.js"></script>
+</body>
+</html>

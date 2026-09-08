@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isGestor() {
+      return signedIn() &&
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'gestor';
+    }
+    function isAdmin() {
+      return signedIn() &&
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'superadmin';
+    }
+    function canManageComunidades() {
+      return isGestor() || isAdmin();
+    }
+
+    /* ── USUARIOS (CRM y perfiles) ─────────────────────────── */
+    match /usuarios/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && (uid == request.auth.uid || isAdmin());
+    }
+
+    /* ── CURSOS Y PROGRESO ─────────────────────────────────── */
+    match /cursos/{id} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+
+      // Progreso del estudiante (subcolección de cada curso):
+      // cualquier usuario autenticado puede leer/escribir su avance.
+      match /progreso/{uid} {
+        allow read, write: if request.auth != null;
+      }
+    }
+    match /progreso/{uid} {
+      allow read, write: if request.auth != null;
+    }
+
+    /* ── CONFIG (perfiles organizacionales) ────────────────── */
+    match /config/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    /* ── COMUNIDADES ───────────────────────────────────────── */
+    match /comunidades/{id} {
+      allow read: if signedIn();
+      allow create, update: if canManageComunidades();
+      allow delete: if isAdmin();
+    }
+    match /comunidad_miembros/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if canManageComunidades();
+    }
+    match /reuniones/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if canManageComunidades();
+    }
+  }
+}

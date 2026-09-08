@@ -1,0 +1,169 @@
+/* ════════════════════════════════════════════════════════
+   VCONV · Módulo CRM — Estilos
+   ════════════════════════════════════════════════════════ */
+
+/* ── STATS CARDS ─────────────────────────────────────── */
+.admin-stats { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.admin-stat-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1rem 1.25rem; flex: 1; min-width: 130px;
+}
+.admin-stat-card .stat-value { font-size: 1.6rem; font-weight: 800; color: var(--accent); }
+.admin-stat-card .stat-label { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem; }
+
+/* ── FILTERS ─────────────────────────────────────────── */
+.admin-filters {
+  display: flex; gap: 0.6rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;
+}
+.admin-search {
+  flex: 1; min-width: 180px; padding: 0.55rem 0.85rem; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary);
+  font-size: 0.85rem; font-family: inherit; transition: border-color var(--transition);
+}
+.admin-search:focus { outline: none; border-color: var(--accent); }
+.admin-filter-select {
+  padding: 0.55rem 0.75rem; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--bg-primary); color: var(--text-primary); font-size: 0.82rem;
+  font-weight: 600; cursor: pointer; transition: border-color var(--transition);
+}
+.admin-filter-select:focus { outline: none; border-color: var(--accent); }
+
+/* ── BULK ACTION BAR ─────────────────────────────────── */
+.admin-bulk-bar {
+  display: none; align-items: center; gap: 0.75rem;
+  padding: 0.65rem 1rem; margin-bottom: 1rem;
+  background: var(--accent-glow); border: 1px solid var(--accent);
+  border-radius: var(--radius); animation: adminBulkSlideIn 0.2s ease;
+}
+.admin-bulk-bar.show { display: flex; }
+.admin-bulk-bar .bulk-count {
+  font-size: 0.85rem; font-weight: 700; color: var(--accent);
+}
+.admin-bulk-bar .bulk-btn-delete {
+  margin-left: auto; padding: 0.45rem 1rem; border-radius: 6px;
+  border: none; background: var(--danger); color: #fff;
+  font-size: 0.82rem; font-weight: 700; cursor: pointer;
+  transition: opacity var(--transition);
+}
+.admin-bulk-bar .bulk-btn-delete:hover { opacity: 0.85; }
+.admin-bulk-bar .bulk-btn-delete:disabled { opacity: 0.4; cursor: not-allowed; }
+.admin-bulk-bar .bulk-btn-cancel {
+  padding: 0.45rem 0.75rem; border-radius: 6px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-secondary); font-size: 0.8rem; font-weight: 600;
+  cursor: pointer; transition: all var(--transition);
+}
+.admin-bulk-bar .bulk-btn-cancel:hover { background: var(--bg-hover); }
+
+@keyframes adminBulkSlideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── TABLE ───────────────────────────────────────────── */
+.admin-table-wrap {
+  overflow-y: auto; overflow-x: auto; max-height: 60vh; border: 1px solid var(--border);
+  border-radius: var(--radius-lg); background: var(--bg-card);
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.admin-table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+.admin-table-wrap::-webkit-scrollbar-track { background: transparent; }
+.admin-table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.admin-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+.admin-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; table-layout: fixed; }
+.admin-table th {
+  background: var(--bg-tertiary); color: var(--text-secondary); font-weight: 700;
+  text-align: left; padding: 0.7rem 0.65rem; font-size: 0.72rem;
+  text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap;
+  position: sticky; top: 0; z-index: 2; border-bottom: 2px solid var(--border);
+}
+.admin-table td { padding: 0.6rem 0.65rem; border-top: 1px solid var(--border); vertical-align: middle; }
+.admin-table tr:hover td { background: var(--bg-hover); }
+.admin-table tr.admin-row-selected td { background: var(--accent-glow); }
+
+/* Column widths (must match table-layout: fixed) */
+.admin-table th:nth-child(1), .admin-table td:nth-child(1) { width: 34px; text-align: center; }
+.admin-table th:nth-child(2), .admin-table td:nth-child(2) { width: 19%; }
+.admin-table th:nth-child(3), .admin-table td:nth-child(3) { width: 13%; }
+.admin-table th:nth-child(4), .admin-table td:nth-child(4) { width: 11%; }
+.admin-table th:nth-child(5), .admin-table td:nth-child(5) { width: 11%; }
+.admin-table th:nth-child(6), .admin-table td:nth-child(6) { width: 12%; }
+.admin-table th:nth-child(7), .admin-table td:nth-child(7) { width: 9%; }
+.admin-table th:nth-child(8), .admin-table td:nth-child(8) { width: 9%; }
+.admin-table th:nth-child(9), .admin-table td:nth-child(9) { width: 8%; }
+.admin-table th:nth-child(10), .admin-table td:nth-child(10) { width: 74px; }
+
+.admin-table td.wrap { max-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── CHECKBOX ────────────────────────────────────────── */
+.admin-check-cell { padding: 0; text-align: center; }
+.admin-check {
+  width: 16px; height: 16px; accent-color: var(--accent);
+  cursor: pointer; border-radius: 3px;
+}
+
+.admin-role-select, .admin-status-select {
+  padding: 0.3rem 0.5rem; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg-primary); color: var(--text-primary); font-size: 0.78rem;
+  font-weight: 600; cursor: pointer; transition: border-color var(--transition);
+}
+.admin-role-select:focus, .admin-status-select:focus { outline: none; border-color: var(--accent); }
+
+.admin-actions { display: flex; gap: 0.35rem; }
+.admin-edit-btn, .admin-delete-btn {
+  padding: 0.25rem 0.55rem; border-radius: 6px; border: 1px solid var(--border);
+  background: transparent; font-size: 0.75rem; font-weight: 600;
+  cursor: pointer; transition: all var(--transition);
+}
+.admin-edit-btn { color: var(--accent); border-color: var(--accent); }
+.admin-edit-btn:hover { background: var(--accent); color: #fff; }
+.admin-delete-btn { color: var(--danger); border-color: var(--danger); }
+.admin-delete-btn:hover { background: var(--danger); color: #fff; }
+
+/* ── PROFILE TAG ─────────────────────────────────────── */
+.profile-tag {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;
+  background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent);
+}
+.profile-tag-delete {
+  width: 16px; height: 16px; border-radius: 50%; border: none; background: transparent;
+  color: var(--danger); cursor: pointer; font-size: 0.7rem; display: flex;
+  align-items: center; justify-content: center; transition: background var(--transition);
+}
+.profile-tag-delete:hover { background: var(--danger-bg); }
+
+/* ── PROFILE MANAGEMENT ──────────────────────────────── */
+.admin-profiles { margin-top: 1.5rem; }
+.admin-profiles h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.75rem; }
+.admin-profiles-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+.admin-profiles-add { display: flex; gap: 0.5rem; max-width: 360px; }
+.admin-profiles-add .input { flex: 1; padding: 0.5rem 0.75rem; font-size: 0.85rem; }
+
+/* ── CRM FORM (modal) ────────────────────────────────── */
+.crm-form .form-row { margin-bottom: 0; }
+.crm-form .field { margin-bottom: 0.75rem; }
+.crm-form .field label { font-size: 0.75rem; }
+.crm-form .input, .crm-form .select { padding: 0.55rem 0.75rem; font-size: 0.85rem; }
+.crm-form .field-readonly .input { opacity: 0.6; cursor: not-allowed; }
+
+/* ── EMPTY TABLE ─────────────────────────────────────── */
+.admin-empty { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); }
+.admin-empty-icon { font-size: 2.5rem; margin-bottom: 0.75rem; display: block; }
+
+/* ── RESPONSIVE ──────────────────────────────────────── */
+@media (max-width: 600px) {
+  .admin-stats { gap: 0.5rem; }
+  .admin-stat-card { min-width: 100px; padding: 0.75rem; }
+  .admin-stat-card .stat-value { font-size: 1.3rem; }
+  .admin-filters { flex-direction: column; }
+  .admin-search { min-width: 0; width: 100%; }
+  .admin-filter-select { width: 100%; }
+  .admin-table-wrap { max-height: 55vh; }
+  .admin-table { font-size: 0.75rem; table-layout: auto; }
+  .admin-table th, .admin-table td { padding: 0.5rem 0.5rem; }
+  .admin-table th:nth-child(n), .admin-table td:nth-child(n) { width: auto; }
+  .admin-table td.wrap { max-width: 120px; }
+  .admin-bulk-bar { flex-wrap: wrap; padding: 0.5rem 0.75rem; }
+}
