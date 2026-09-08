@@ -116,7 +116,7 @@ body.sidebar-open { overflow: hidden; }
 
 .sidebar-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 1rem; border-bottom: 1px solid var(--border);
+  padding: 1rem; border-bottom: 1px solid var(--border);
 }
 .sidebar-brand { display: flex; align-items: center; text-decoration: none; margin: 0; padding: 0; }
 .app-logo { height: 48px; width: auto; object-fit: contain; display: inline-block; vertical-align: middle; margin: 0; padding: 0; }
