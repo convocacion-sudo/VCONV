@@ -50,9 +50,9 @@
   var DEFAULT_CONFIG = {
     finanzasEnabled: true,
     porcentajeCoordinador: 30,
-    // Red MLM 5 niveles: 30% (N1) + 5% (N2–N5) = 55% de bolsa; el 45%
-    // restante se destina a la Caja Mayor / Fondo Estructura General.
-    porcentajes: { 1: 30, 2: 5, 3: 5, 4: 5, 5: 5 },
+    // Red MLM 5 niveles: 30% (N1) + 10% (N2) + 5% (N3–N5) = 55% de bolsa;
+    // el 45% restante se destina a la Caja Mayor / Fondo Estructura General.
+    porcentajes: { 1: 30, 2: 10, 3: 5, 4: 5, 5: 5 },
     porcentajeCaja: 45,
     categorias: [
       { id: 'diezmo', nombre: 'Diezmo', tipo: 'personal', activa: true },
@@ -2481,7 +2481,7 @@
      (por defecto 45%). El motor de cálculo y los reportes leen estos
      valores dinámicamente.                                          */
   function renderFinanzasAdmin() {
-    var panel = V.$('adminFinanzasPanel');
+    var panel = V.$('finanzasConfigArea');
     if (!panel) return;
     if (!isAdminUser() || !cfg) { panel.style.display = 'none'; return; }
     panel.style.display = '';

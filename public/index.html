@@ -538,20 +538,6 @@
           <button class="btn btn-primary btn-sm" id="adminBarrioAdd">Añadir</button>
         </div>
       </div>
-
-      <div class="admin-profiles" id="adminMlmPanel" style="display:none;">
-        <h3>Red de Referidos (MLM)</h3>
-        <p class="field-hint">Activa o desactiva toda la funcionalidad MLM y ajusta los porcentajes de comisión por nivel (1–5).</p>
-        <label class="mlm-switch">
-          <input type="checkbox" id="mlmEnabledToggle">
-          <span class="mlm-switch-slider"></span>
-          <span class="mlm-switch-label" id="mlmEnabledLabel">MLM desactivado</span>
-        </label>
-        <div class="mlm-levels" id="mlmLevelsList"></div>
-        <button class="btn btn-primary btn-sm" id="mlmConfigSave">Guardar configuración</button>
-      </div>
-
-      <div class="admin-profiles" id="adminFinanzasPanel" style="display:none;"></div>
     </div>
 
     <!-- ═══ MÓDULO COMUNIDADES ═══ -->
@@ -582,6 +568,7 @@
         </div>
       </div>
       <div id="finanzasContent"></div>
+      <div id="finanzasConfigArea" style="display:none;"></div>
     </div>
 
     <!-- ═══ MÓDULO REPORTES FINANCIEROS (superadmin) ═══ -->

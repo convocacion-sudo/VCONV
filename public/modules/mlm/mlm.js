@@ -17,10 +17,10 @@
 
   var DEFAULT_CONFIG = {
     mlmEnabled: true,
-    // Red 5 niveles: 30% para el nivel 1 y 5% para los niveles 2–5.
-    // Total de la bolsa de comisiones = 55%; el resto (45% por defecto)
-    // se destina a la Caja Mayor / Fondo Estructura General.
-    porcentajes: { 1: 30, 2: 5, 3: 5, 4: 5, 5: 5 }
+    // Red 5 niveles: 30% (N1) + 10% (N2) + 5% (N3–N5) = 55% de bolsa;
+    // el 45% restante se destina a la Caja Mayor / Fondo Estructura
+    // General. Editable desde el panel de configuración del módulo.
+    porcentajes: { 1: 30, 2: 10, 3: 5, 4: 5, 5: 5 }
   };
 
   var cfg = null;
@@ -82,7 +82,6 @@
         cfg = next;
         cfgPromise = null;
         applyMlmUiState();
-        renderMlmAdmin();
         return cfg;
       });
   }
@@ -467,76 +466,6 @@
     if (input && input.value === '') input.value = leerRefDeUrl().trim().toUpperCase();
   }
 
-  /* ─── UI: PANEL ADMIN (config) ─────────────────────────────── */
-  function renderMlmAdmin() {
-    var panel = V.$('adminMlmPanel');
-    if (!panel) return;
-    if (V.userRole !== 'superadmin' || !cfg) { panel.style.display = 'none'; return; }
-    panel.style.display = '';
-
-    var toggle = V.$('mlmEnabledToggle');
-    if (toggle) toggle.checked = !!cfg.mlmEnabled;
-    var label = V.$('mlmEnabledLabel');
-    if (label) label.textContent = cfg.mlmEnabled ? 'MLM activado' : 'MLM desactivado';
-
-    var list = V.$('mlmLevelsList');
-    if (!list) return;
-    list.innerHTML = '';
-    for (var n = 1; n <= MAX_NIVELES; n++) {
-      var row = V.el('div', 'mlm-level-row');
-      row.appendChild(V.el('span', 'mlm-level-name', 'Nivel ' + n));
-      var wrap = V.el('div', 'mlm-level-input');
-      var inp = document.createElement('input');
-      inp.type = 'number';
-      inp.min = '0';
-      inp.max = '100';
-      inp.step = '1';
-      inp.value = cfg.porcentajes[n] || 0;
-      inp.dataset.nivel = String(n);
-      wrap.appendChild(inp);
-      wrap.appendChild(V.el('span', 'mlm-level-pct', '%'));
-      row.appendChild(wrap);
-      list.appendChild(row);
-    }
-  }
-
-  function recogerConfigAdmin() {
-    var mlmEnabled = !!(V.$('mlmEnabledToggle') && V.$('mlmEnabledToggle').checked);
-    var porcentajes = {};
-    var inputs = document.querySelectorAll('#mlmLevelsList input[type="number"]');
-    Array.prototype.forEach.call(inputs, function (inp) {
-      var nivel = parseInt(inp.dataset.nivel, 10);
-      var v = parseFloat(inp.value);
-      porcentajes[nivel] = isFinite(v) ? Math.min(100, Math.max(0, v)) : 0;
-    });
-    return { mlmEnabled: mlmEnabled, porcentajes: porcentajes };
-  }
-
-  function bindAdminEvents() {
-    var toggle = V.$('mlmEnabledToggle');
-    if (toggle) toggle.addEventListener('change', function () {
-      var label = V.$('mlmEnabledLabel');
-      if (label) label.textContent = this.checked ? 'MLM activado' : 'MLM desactivado';
-    });
-    var btn = V.$('mlmConfigSave');
-    if (btn) btn.addEventListener('click', function () {
-      var cfgBtn = V.$('mlmConfigSave');
-      cfgBtn.disabled = true;
-      cfgBtn.textContent = '⏳ Guardando…';
-      guardarConfig(recogerConfigAdmin())
-        .then(function () {
-          V.toast('Configuración MLM guardada ✓');
-        })
-        .catch(function (e) {
-          V.toast('Error al guardar: ' + (e && e.message ? e.message : e), true);
-        })
-        .then(function () {
-          cfgBtn.disabled = false;
-          cfgBtn.textContent = 'Guardar configuración';
-        });
-    });
-  }
-
   /* ─── ESTADO GLOBAL DE LA UI ───────────────────────────────── */
   function applyMlmUiState() {
     var enabled = isEnabled();
@@ -544,7 +473,6 @@
     if (regWrap) regWrap.style.display = enabled ? '' : 'none';
     var mlmPanel = V.$('dashMlmPanel');
     if (mlmPanel) mlmPanel.style.display = (enabled && !V.isAnon) ? '' : 'none';
-    renderMlmAdmin();
   }
 
   /* ─── TARJETA INTERACTIVA MLM (5 NIVELES) ──────────────────── */
@@ -1017,6 +945,9 @@
 
     card.appendChild(el('p', 'mlm-global-note', 'Administrador general · métricas de toda la plataforma. El dinero proviene de Finanzas (finanzas_comisiones y finanzas_pagos); la estructura, de los perfiles por sponsorId.'));
 
+    // ── Panel de configuración de porcentajes (solo superadmin) ──
+    renderConfigPanel(card);
+
     container.appendChild(card);
   }
 
@@ -1129,6 +1060,212 @@
     overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
   }
 
+  /* ─── PANEL DE CONFIGURACIÓN DE PORCENTAJES (superadmin) ──────
+     Permite ajustar la distribución financiera N1–N5 y la Caja
+     Mayor directamente desde la página global. La fuente de verdad
+     es config/finanzas (porcentajes + porcentajeCaja); config/mlm
+     se sincroniza best-effort tras cada guardado. La fórmula de
+     distribución en tiempo real (distribucionTx de Finanzas) lee
+     cfg.porcentajes y calcula la Caja Mayor como 100 − Σ(N1..N5).
+     Al guardar, se resetean los caches de ambos módulos para que
+     los nuevos valores surtan efecto inmediatamente en Finanzas,
+     Reportes y liquidación de comisiones MLM.                    */
+  var CFG_DEFAULTS_MLM = { 1: 30, 2: 10, 3: 5, 4: 5, 5: 5 };
+
+  function renderConfigPanel(card) {
+    var section = el('div', 'mlm-config-section');
+    section.appendChild(el('h5', 'mlm-global-section-title', '⚙️ Configuración de porcentajes'));
+    section.appendChild(el('p', 'mlm-global-section-sub', 'Edita la distribución financiera de la red MLM (N1–N5) y la Caja Mayor. La suma debe ser 100%.'));
+
+    var sw = el('label', 'mlm-switch');
+    var toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.id = 'mlmGlobalEnabledToggle';
+    sw.appendChild(toggle);
+    sw.appendChild(el('span', 'mlm-switch-slider', ''));
+    var swLabel = el('span', 'mlm-switch-label', 'MLM desactivado');
+    sw.appendChild(swLabel);
+    toggle.addEventListener('change', function () {
+      swLabel.textContent = this.checked ? 'MLM activado' : 'MLM desactivado';
+    });
+    section.appendChild(sw);
+
+    var form = el('div', 'mlm-config-form');
+
+    var levelsWrap = el('div', 'mlm-config-levels');
+    for (var n = 1; n <= MAX_NIVELES; n++) {
+      var row = el('div', 'mlm-config-row');
+      var lbl = el('label', 'mlm-config-label', 'Nivel ' + n);
+      lbl.setAttribute('for', 'mlmCfgN' + n);
+      row.appendChild(lbl);
+      var inputWrap = el('div', 'mlm-config-input');
+      var inp = document.createElement('input');
+      inp.type = 'number';
+      inp.id = 'mlmCfgN' + n;
+      inp.className = 'mlm-config-input-field';
+      inp.min = '0';
+      inp.max = '100';
+      inp.step = '1';
+      inp.dataset.nivel = String(n);
+      inputWrap.appendChild(inp);
+      inputWrap.appendChild(el('span', 'mlm-config-pct', '%'));
+      row.appendChild(inputWrap);
+      levelsWrap.appendChild(row);
+    }
+    form.appendChild(levelsWrap);
+
+    var divider = el('div', 'mlm-config-divider');
+    form.appendChild(divider);
+
+    var bolsaRow = el('div', 'mlm-config-row mlm-config-total');
+    bolsaRow.appendChild(el('span', 'mlm-config-label', 'Bolsa de comisiones'));
+    var bolsaVal = el('span', 'mlm-config-value', '—');
+    bolsaVal.id = 'mlmCfgBolsa';
+    bolsaRow.appendChild(bolsaVal);
+    form.appendChild(bolsaRow);
+
+    var cajaRow = el('div', 'mlm-config-row mlm-config-total');
+    cajaRow.appendChild(el('span', 'mlm-config-label', 'Caja Mayor'));
+    var cajaVal = el('span', 'mlm-config-value', '—');
+    cajaVal.id = 'mlmCfgCaja';
+    cajaRow.appendChild(cajaVal);
+    form.appendChild(cajaRow);
+
+    var validation = el('div', 'mlm-config-validation');
+    validation.id = 'mlmCfgValidation';
+    form.appendChild(validation);
+
+    section.appendChild(form);
+
+    var actions = el('div', 'mlm-config-actions');
+    var btnSave = el('button', 'btn btn-primary', '💾 Guardar configuración');
+    btnSave.type = 'button';
+    btnSave.id = 'mlmCfgSave';
+    btnSave.addEventListener('click', function () { guardarConfigPanel(btnSave); });
+    actions.appendChild(btnSave);
+    section.appendChild(actions);
+    card.appendChild(section);
+
+    // Cargar valores actuales desde Firestore y activar live preview
+    cargarConfigPanel();
+  }
+
+  function cargarConfigPanel() {
+    if (!V.db) return;
+    V.db.collection('config').doc('finanzas').get().then(function (doc) {
+      var raw = doc && doc.exists ? doc.data() : {};
+      var pcts = raw.porcentajes || CFG_DEFAULTS_MLM;
+      for (var n = 1; n <= MAX_NIVELES; n++) {
+        var inp = V.$('mlmCfgN' + n);
+        if (inp) inp.value = (typeof pcts[n] === 'number' && isFinite(pcts[n])) ? pcts[n] : (CFG_DEFAULTS_MLM[n] || 0);
+      }
+      return V.db.collection('config').doc('mlm').get().then(function (doc2) {
+        var raw2 = doc2 && doc2.exists ? doc2.data() : {};
+        var toggle = V.$('mlmGlobalEnabledToggle');
+        if (toggle) {
+          toggle.checked = !!raw2.mlmEnabled;
+          var lbl = toggle.closest('.mlm-switch') ? toggle.closest('.mlm-switch').querySelector('.mlm-switch-label') : null;
+          if (lbl) lbl.textContent = raw2.mlmEnabled ? 'MLM activado' : 'MLM desactivado';
+        }
+        liveUpdateConfig();
+        bindConfigInputs();
+      });
+    }).catch(function () {
+      for (var n = 1; n <= MAX_NIVELES; n++) {
+        var inp = V.$('mlmCfgN' + n);
+        if (inp) inp.value = CFG_DEFAULTS_MLM[n] || 0;
+      }
+      liveUpdateConfig();
+      bindConfigInputs();
+    });
+  }
+
+  function bindConfigInputs() {
+    for (var n = 1; n <= MAX_NIVELES; n++) {
+      var inp = V.$('mlmCfgN' + n);
+      if (inp && !inp._bound) {
+        inp._bound = true;
+        inp.addEventListener('input', liveUpdateConfig);
+      }
+    }
+  }
+
+  function liveUpdateConfig() {
+    var sum = 0;
+    for (var n = 1; n <= MAX_NIVELES; n++) {
+      var v = parseFloat((V.$('mlmCfgN' + n) || {}).value);
+      sum += isFinite(v) ? Math.max(0, Math.round(v)) : 0;
+    }
+    var caja = Math.max(0, 100 - sum);
+    var bolsaEl = V.$('mlmCfgBolsa');
+    var cajaEl = V.$('mlmCfgCaja');
+    var valEl = V.$('mlmCfgValidation');
+    if (bolsaEl) bolsaEl.textContent = sum + '%';
+    if (cajaEl) cajaEl.textContent = caja + '%';
+    if (valEl) {
+      if (sum > 100) {
+        valEl.textContent = '⚠️ La suma de porcentajes (' + sum + '%) excede el 100%. Ajusta los valores.';
+        valEl.className = 'mlm-config-validation mlm-config-validation--error';
+      } else if (sum === 100) {
+        valEl.textContent = '✅ Los porcentajes suman exactamente 100% — distribución válida.';
+        valEl.className = 'mlm-config-validation mlm-config-validation--ok';
+      } else {
+        valEl.textContent = 'ℹ️ Los porcentajes suman ' + sum + '%. La Caja Mayor recibirá el ' + caja + '% restante.';
+        valEl.className = 'mlm-config-validation mlm-config-validation--info';
+      }
+    }
+    var btnSave = V.$('mlmCfgSave');
+    if (btnSave) btnSave.disabled = sum > 100;
+  }
+
+  function guardarConfigPanel(btn) {
+    if (!V.db || !V.esAdmin()) {
+      V.toast('Acceso restringido a administradores.', true);
+      return;
+    }
+    var pcts = {};
+    var sum = 0;
+    for (var n = 1; n <= MAX_NIVELES; n++) {
+      var v = parseFloat((V.$('mlmCfgN' + n) || {}).value);
+      var val = isFinite(v) ? Math.min(100, Math.max(0, Math.round(v))) : 0;
+      pcts[n] = val;
+      sum += val;
+    }
+    if (sum > 100) {
+      V.toast('La suma de porcentajes (' + sum + '%) excede el 100%. Ajusta antes de guardar.', true);
+      return;
+    }
+    var caja = Math.max(0, 100 - sum);
+    var mlmEnabled = !!(V.$('mlmGlobalEnabledToggle') && V.$('mlmGlobalEnabledToggle').checked);
+    btn.disabled = true;
+    btn.textContent = '⏳ Guardando…';
+
+    return V.db.collection('config').doc('finanzas')
+      .set({ porcentajes: pcts, porcentajeCaja: caja }, { merge: true })
+    .then(function () {
+      return V.db.collection('config').doc('mlm')
+        .set({ mlmEnabled: mlmEnabled, porcentajes: pcts }, { merge: true })
+        .catch(function () {});
+    })
+    .then(function () {
+      cfg = { mlmEnabled: mlmEnabled, porcentajes: pcts };
+      cfgPromise = null;
+      if (V.finanzas && typeof V.finanzas.loadConfig === 'function') {
+        V.finanzas.loadConfig(true);
+      }
+      applyMlmUiState();
+      V.toast('Configuración de porcentajes guardada ✓');
+    })
+    .catch(function (e) {
+      V.toast('Error al guardar: ' + (e && e.message ? e.message : e), true);
+    })
+    .then(function () {
+      if (!document.body.contains(btn)) return;
+      btn.disabled = false;
+      btn.textContent = '💾 Guardar configuración';
+    });
+  }
+
   var GLOBAL_ACCENTS = ['1', '2', '3', '4', '5'];
 
   function bindGlobalEvents() {
@@ -1184,7 +1321,6 @@
   V.registerModule(MlmModule);
 
   function init() {
-    bindAdminEvents();
     bindGlobalEvents();
     loadConfig().then(function (c) {
       V.mlm._initialConfig = c;
