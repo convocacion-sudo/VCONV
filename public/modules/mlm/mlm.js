@@ -547,6 +547,261 @@
     renderMlmAdmin();
   }
 
+  /* ─── TARJETA INTERACTIVA MLM (5 NIVELES) ──────────────────── */
+  var LEVEL_META = {
+    1: { label: 'Referidos Directos', accent: 'gold', commission: 10, icon: '⭐' },
+    2: { label: 'Indirectos', accent: 'blue', commission: 5, icon: '🔵' },
+    3: { label: 'Red Extendida', accent: 'purple', commission: 3, icon: '🟣' },
+    4: { label: 'Profundidad Avanzada', accent: 'emerald', commission: 2, icon: '🟢' },
+    5: { label: 'Red Global', accent: 'coral', commission: 1, icon: '🟠' }
+  };
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function renderMlmCard(container) {
+    if (!container) return;
+    container.innerHTML = '';
+    var loading = el('p', 'mlm-level-empty', 'Consultando tu red…');
+    container.appendChild(loading);
+
+    if (V.isAnon || !V.userId || !V.mlm || typeof V.mlm.redArbol !== 'function') {
+      loading.textContent = 'Inicia sesión para ver tu red de referidos.';
+      return;
+    }
+
+    V.mlm.redArbol(5).then(function (niveles) {
+      container.innerHTML = '';
+      buildMlmCard(container, niveles);
+    }).catch(function () {
+      loading.textContent = 'No se pudo cargar tu red en este momento.';
+    });
+  }
+
+  function buildMlmCard(container, niveles) {
+    var totalMiembros = 0;
+    var nivelesActivos = 0;
+    var directos = 0;
+
+    niveles.forEach(function (n) {
+      totalMiembros += n.miembros.length;
+      if (n.miembros.length > 0) nivelesActivos++;
+      if (n.nivel === 1) directos = n.miembros.length;
+    });
+
+    var card = el('div', 'mlm-card');
+
+    // ── Header ──
+    var header = el('div', 'mlm-card-header');
+    var iconChip = el('span', 'icon-chip sm gold', '🌐');
+    header.appendChild(iconChip);
+    header.appendChild(el('h4', '', 'Mi Red MLM'));
+    card.appendChild(header);
+
+    // ── Métricas ──
+    var metrics = el('div', 'mlm-metrics');
+    metrics.appendChild(buildMetric(totalMiembros, 'Miembros totales'));
+    metrics.appendChild(buildMetric(nivelesActivos, 'Niveles activos'));
+    metrics.appendChild(buildMetric(directos, 'Referidos directos'));
+    card.appendChild(metrics);
+
+    // ── Acordeón ──
+    var accordion = el('div', 'mlm-accordion');
+    for (var i = 0; i < niveles.length; i++) {
+      accordion.appendChild(buildLevelAccordion(niveles[i]));
+    }
+    card.appendChild(accordion);
+
+    // ── Refresh ──
+    var refreshWrap = el('div', 'mlm-refresh');
+    var btnRefresh = el('button', 'btn btn-outline btn-sm', '↻ Actualizar red');
+    btnRefresh.type = 'button';
+    btnRefresh.addEventListener('click', function () {
+      renderMlmCard(container);
+    });
+    refreshWrap.appendChild(btnRefresh);
+    card.appendChild(refreshWrap);
+
+    container.appendChild(card);
+  }
+
+  function buildMetric(value, label) {
+    var metric = el('div', 'mlm-metric');
+    metric.appendChild(el('span', 'mlm-metric-value', String(value)));
+    metric.appendChild(el('span', 'mlm-metric-label', label));
+    return metric;
+  }
+
+  function buildLevelAccordion(nivel) {
+    var n = nivel.nivel;
+    var meta = LEVEL_META[n] || LEVEL_META[1];
+    var count = nivel.miembros.length;
+
+    var details = document.createElement('details');
+    details.className = 'mlm-level mlm-level-' + n;
+    if (n === 1) details.open = true;
+
+    // ── Summary ──
+    var summary = document.createElement('summary');
+    summary.className = 'mlm-level-summary';
+
+    summary.appendChild(el('span', 'mlm-level-badge', meta.icon + ' Nivel ' + n + ' · ' + meta.commission + '%'));
+    summary.appendChild(el('span', '', meta.label));
+    summary.appendChild(el('span', 'mlm-level-count', String(count)));
+    summary.appendChild(el('span', 'mlm-level-chevron', '▾'));
+    details.appendChild(summary);
+
+    // ── Body ──
+    var body = el('div', 'mlm-level-body');
+
+    if (nivel.denegado) {
+      body.appendChild(el('p', 'mlm-level-denied', 'No se pudieron cargar los niveles más profundos de tu red.'));
+    } else if (count === 0) {
+      body.appendChild(el('p', 'mlm-level-empty', 'Sin referidos en este nivel.'));
+    } else if (n === 1) {
+      buildLevel1Body(body, nivel.miembros);
+    } else {
+      buildLevelSummaryBody(body, nivel.miembros, n, meta);
+    }
+
+    details.appendChild(body);
+    return details;
+  }
+
+  function buildLevel1Body(body, miembros) {
+    miembros.forEach(function (m) {
+      var row = el('div', 'mlm-member');
+      row.appendChild(el('span', 'mlm-member-name', memberName(m)));
+      row.appendChild(el('span', 'mlm-member-email', m.email || '—'));
+      var statusKey = String(m.estado || 'activo').toLowerCase().replace(/[^a-záéíóúñ]+/g, '-');
+      var statusCls = statusKey === 'activo' || statusKey === 'completo' ? 'activo'
+        : statusKey === 'inactivo' || statusKey === 'suspendido' ? 'inactivo' : 'otro';
+      row.appendChild(el('span', 'mlm-member-status ' + statusCls, m.estado || 'Activo'));
+      var btn = el('button', 'mlm-member-view', 'Ver');
+      btn.type = 'button';
+      btn.addEventListener('click', function () { openMlmMemberModal(m); });
+      row.appendChild(btn);
+      body.appendChild(row);
+    });
+  }
+
+  function buildLevelSummaryBody(body, miembros, n, meta) {
+    var activos = 0;
+    var inactivos = 0;
+    miembros.forEach(function (m) {
+      var st = String(m.estado || '').toLowerCase();
+      if (st === 'activo' || st === 'completo') activos++;
+      else inactivos++;
+    });
+
+    var grid = el('div', 'mlm-level-summary-grid');
+    grid.appendChild(buildSummaryItem('Total miembros', String(miembros.length)));
+    grid.appendChild(buildSummaryItem('Comisión', meta.commission + '%'));
+    grid.appendChild(buildSummaryItem('Activos', String(activos)));
+    grid.appendChild(buildSummaryItem('Inactivos', String(inactivos)));
+    body.appendChild(grid);
+
+    // Toggle para listar miembros
+    var toggleId = 'mlm-toggle-' + n + '-' + Math.random().toString(36).slice(2, 6);
+    var toggle = document.createElement('button');
+    toggle.className = 'mlm-level-members-toggle';
+    toggle.type = 'button';
+    toggle.id = toggleId;
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.innerHTML = '<i class="fas fa-chevron-right"></i> Ver miembros (' + miembros.length + ')';
+
+    var membersList = el('div', 'mlm-level-members-list');
+    membersList.style.display = 'none';
+
+    miembros.forEach(function (m) {
+      var row = el('div', 'mlm-member');
+      row.appendChild(el('span', 'mlm-member-name', memberName(m)));
+      row.appendChild(el('span', 'mlm-member-email', m.email || '—'));
+      var statusKey = String(m.estado || 'activo').toLowerCase().replace(/[^a-záéíóúñ]+/g, '-');
+      var statusCls = statusKey === 'activo' || statusKey === 'completo' ? 'activo'
+        : statusKey === 'inactivo' || statusKey === 'suspendido' ? 'inactivo' : 'otro';
+      row.appendChild(el('span', 'mlm-member-status ' + statusCls, m.estado || 'Activo'));
+      var btn = el('button', 'mlm-member-view', 'Ver');
+      btn.type = 'button';
+      btn.addEventListener('click', function () { openMlmMemberModal(m); });
+      row.appendChild(btn);
+      membersList.appendChild(row);
+    });
+
+    toggle.addEventListener('click', function () {
+      var expanded = toggle.getAttribute('aria-expanded') === 'true';
+      toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      membersList.style.display = expanded ? 'none' : '';
+      toggle.innerHTML = (expanded ? '<i class="fas fa-chevron-right"></i> Ver miembros (' + miembros.length + ')' : '<i class="fas fa-chevron-down"></i> Ocultar miembros');
+    });
+
+    body.appendChild(toggle);
+    body.appendChild(membersList);
+  }
+
+  function buildSummaryItem(label, value) {
+    var item = el('div', 'mlm-level-summary-item');
+    item.appendChild(el('span', 'mlm-level-summary-item-label', label));
+    item.appendChild(el('span', 'mlm-level-summary-item-value', value));
+    return item;
+  }
+
+  function memberName(m) {
+    return (((m.nombre || '') + ' ' + (m.apellido || '')).trim()) || (m.email || 'Usuario');
+  }
+
+  function openMlmMemberModal(m) {
+    var overlay = el('div', 'modal-overlay');
+    var card = el('div', 'modal-card');
+    var nivelLabel = m.nivel && m.nivel > 1 ? 'Referido nivel ' + m.nivel : 'Referido directo';
+    card.appendChild(el('h3', '', '👤 ' + nivelLabel));
+
+    var grid = el('div', 'dash-red-modal-grid');
+    grid.appendChild(profileRowModal('Nombre', memberName(m)));
+    grid.appendChild(profileRowModal('Correo', m.email));
+    grid.appendChild(profileRowModal('Estado', m.estado || 'Activo'));
+    grid.appendChild(profileRowModal('Rol', m.rol || '—'));
+    grid.appendChild(profileRowModal('Fecha de registro', V.fmtDate(m.creado)));
+    grid.appendChild(profileRowModal('Teléfono', m.telefono));
+    card.appendChild(grid);
+
+    card.appendChild(el('p', 'dash-red-modal-note', 'Solo ves perfiles de tu propia red de referidos. Las reglas de Firestore aíslan cada red.'));
+
+    var actions = el('div', 'form-actions');
+    if (m.email) {
+      var btnMail = el('button', 'btn btn-primary', '✉️ Escribir');
+      btnMail.type = 'button';
+      btnMail.addEventListener('click', function () { window.location.href = 'mailto:' + encodeURIComponent(m.email); });
+      actions.appendChild(btnMail);
+    }
+    var btnClose = el('button', 'btn btn-outline', 'Cerrar');
+    btnClose.type = 'button';
+    actions.appendChild(btnClose);
+    card.appendChild(actions);
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    overlay.classList.add('show');
+
+    function close() {
+      overlay.classList.remove('show');
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+    btnClose.addEventListener('click', close);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+  }
+
+  function profileRowModal(label, value) {
+    var row = el('div', 'dash-profile-row');
+    row.appendChild(el('span', 'dash-profile-label', label));
+    row.appendChild(el('span', 'dash-profile-value', value || '—'));
+    return row;
+  }
+
   /* ─── API ──────────────────────────────────────────────────── */
   V.mlm = {
     _initialConfig: null,
@@ -567,7 +822,8 @@
     crearReferralCode: crearReferralCode,
     calcularPayload: calcularPayload,
     calcularPayloadCon: calcularPayloadCon,
-    applyMlmUiState: applyMlmUiState
+    applyMlmUiState: applyMlmUiState,
+    renderMlmCard: renderMlmCard
   };
 
   /* ─── MODULE INTERFACE ─────────────────────────────────────── */

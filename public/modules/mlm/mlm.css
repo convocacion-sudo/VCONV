@@ -1,0 +1,272 @@
+/* ════════════════════════════════════════════════════════
+   VCONV · Módulo MLM — Tarjeta interactiva de red (5 niveles)
+   ════════════════════════════════════════════════════════ */
+
+/* ── TOKENS DE COLOR POR NIVEL ──────────────────────── */
+:root {
+  --mlm-gold: #e2a008;
+  --mlm-gold-bg: rgba(226, 160, 8, 0.12);
+  --mlm-gold-border: rgba(226, 160, 8, 0.35);
+  --mlm-blue: #3b82f6;
+  --mlm-blue-bg: rgba(59, 130, 246, 0.12);
+  --mlm-blue-border: rgba(59, 130, 246, 0.35);
+  --mlm-purple: #a855f7;
+  --mlm-purple-bg: rgba(168, 85, 247, 0.12);
+  --mlm-purple-border: rgba(168, 85, 247, 0.35);
+  --mlm-emerald: #10b981;
+  --mlm-emerald-bg: rgba(16, 185, 129, 0.12);
+  --mlm-emerald-border: rgba(16, 185, 129, 0.35);
+  --mlm-coral: #f97316;
+  --mlm-coral-bg: rgba(249, 115, 22, 0.12);
+  --mlm-coral-border: rgba(249, 115, 22, 0.35);
+}
+
+/* ── PANEL DE MÉTRICAS ──────────────────────────────── */
+.mlm-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin-top: 1.25rem;
+}
+
+.mlm-card-header {
+  display: flex; align-items: center; gap: 0.65rem;
+  padding: 1rem 1.25rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+}
+.mlm-card-header h4 { font-size: 1rem; font-weight: 800; margin: 0; color: var(--text-primary); }
+
+.mlm-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.mlm-metric {
+  text-align: center;
+  padding: 1rem 0.5rem;
+  position: relative;
+}
+.mlm-metric + .mlm-metric::before {
+  content: '';
+  position: absolute; left: 0; top: 20%; height: 60%;
+  width: 1px; background: var(--border);
+}
+.mlm-metric-value {
+  display: block;
+  font-size: 1.6rem; font-weight: 800; line-height: 1.2;
+  color: var(--text-primary);
+}
+.mlm-metric-label {
+  display: block;
+  font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text-muted);
+  margin-top: 0.2rem;
+}
+
+/* ── ACORDEÓN DE NIVELES ────────────────────────────── */
+.mlm-accordion { padding: 0.35rem 0.5rem 0.5rem; }
+
+.mlm-level {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 0.4rem 0;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+.mlm-level[open] { border-color: var(--border-hover); }
+
+.mlm-level-summary {
+  display: flex; align-items: center; gap: 0.7rem;
+  padding: 0.7rem 0.9rem;
+  cursor: pointer; list-style: none; user-select: none;
+  font-weight: 700; font-size: 0.85rem;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  transition: background 0.2s ease;
+}
+.mlm-level-summary::-webkit-details-marker { display: none; }
+.mlm-level-summary::marker { display: none; content: ''; }
+.mlm-level-summary:hover { background: var(--bg-hover); }
+
+.mlm-level-chevron {
+  margin-left: auto; color: var(--text-muted);
+  font-size: 0.75rem; transition: transform 0.25s ease;
+  flex-shrink: 0;
+}
+.mlm-level[open] .mlm-level-chevron { transform: rotate(180deg); }
+
+.mlm-level-badge {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.04em; padding: 0.2rem 0.55rem;
+  border-radius: 99px; white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.mlm-level-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; height: 20px; padding: 0 0.4rem;
+  font-size: 0.68rem; font-weight: 800; border-radius: 99px;
+  flex-shrink: 0;
+}
+
+/* Colores por nivel */
+.mlm-level-1 .mlm-level-badge { color: var(--mlm-gold); background: var(--mlm-gold-bg); border: 1px solid var(--mlm-gold-border); }
+.mlm-level-1 .mlm-level-count { color: var(--mlm-gold); background: var(--mlm-gold-bg); }
+.mlm-level-1 .mlm-level-summary { border-left: 3px solid var(--mlm-gold); }
+
+.mlm-level-2 .mlm-level-badge { color: var(--mlm-blue); background: var(--mlm-blue-bg); border: 1px solid var(--mlm-blue-border); }
+.mlm-level-2 .mlm-level-count { color: var(--mlm-blue); background: var(--mlm-blue-bg); }
+.mlm-level-2 .mlm-level-summary { border-left: 3px solid var(--mlm-blue); }
+
+.mlm-level-3 .mlm-level-badge { color: var(--mlm-purple); background: var(--mlm-purple-bg); border: 1px solid var(--mlm-purple-border); }
+.mlm-level-3 .mlm-level-count { color: var(--mlm-purple); background: var(--mlm-purple-bg); }
+.mlm-level-3 .mlm-level-summary { border-left: 3px solid var(--mlm-purple); }
+
+.mlm-level-4 .mlm-level-badge { color: var(--mlm-emerald); background: var(--mlm-emerald-bg); border: 1px solid var(--mlm-emerald-border); }
+.mlm-level-4 .mlm-level-count { color: var(--mlm-emerald); background: var(--mlm-emerald-bg); }
+.mlm-level-4 .mlm-level-summary { border-left: 3px solid var(--mlm-emerald); }
+
+.mlm-level-5 .mlm-level-badge { color: var(--mlm-coral); background: var(--mlm-coral-bg); border: 1px solid var(--mlm-coral-border); }
+.mlm-level-5 .mlm-level-count { color: var(--mlm-coral); background: var(--mlm-coral-bg); }
+.mlm-level-5 .mlm-level-summary { border-left: 3px solid var(--mlm-coral); }
+
+/* ── CONTENIDO DEL NIVEL ────────────────────────────── */
+.mlm-level-body {
+  padding: 0.4rem 0.6rem 0.6rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-primary);
+  animation: mlmSlideDown 0.2s ease;
+}
+
+@keyframes mlmSlideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.mlm-level-empty {
+  text-align: center; padding: 1rem 0.5rem;
+  font-size: 0.8rem; color: var(--text-muted);
+}
+
+.mlm-level-denied {
+  text-align: center; padding: 0.8rem 0.5rem;
+  font-size: 0.78rem; color: var(--text-muted);
+  background: var(--bg-secondary); border-radius: var(--radius);
+}
+
+/* ── FILA DE MIEMBRO ────────────────────────────────── */
+.mlm-member {
+  display: grid;
+  grid-template-columns: 2fr 2fr auto auto;
+  gap: 0.6rem; align-items: center;
+  padding: 0.5rem 0.3rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.82rem;
+}
+.mlm-member:last-child { border-bottom: none; }
+
+.mlm-member-name {
+  font-weight: 600; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mlm-member-email {
+  color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.mlm-member-status {
+  display: inline-block; font-size: 0.68rem; font-weight: 700;
+  padding: 0.18rem 0.5rem; border-radius: 99px; white-space: nowrap;
+}
+.mlm-member-status.activo {
+  background: rgba(34, 197, 94, 0.14); color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+.mlm-member-status.inactivo {
+  background: rgba(239, 68, 68, 0.12); color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+.mlm-member-status.otro {
+  background: var(--bg-tertiary); color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.mlm-member-view {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-secondary); padding: 0.25rem 0.55rem;
+  border-radius: var(--radius); font-size: 0.72rem; font-weight: 600;
+  cursor: pointer; transition: all var(--transition); white-space: nowrap;
+}
+.mlm-member-view:hover {
+  border-color: var(--border-hover); color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* ── RESUMEN (niveles 2-5) ──────────────────────────── */
+.mlm-level-summary-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;
+  padding: 0.3rem 0;
+}
+.mlm-level-summary-item {
+  display: flex; flex-direction: column; gap: 0.1rem;
+  padding: 0.5rem 0.6rem;
+  background: var(--bg-secondary); border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.mlm-level-summary-item-label {
+  font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-muted);
+}
+.mlm-level-summary-item-value {
+  font-size: 0.95rem; font-weight: 800; color: var(--text-primary);
+}
+
+/* ── LISTA DE MIEMBROS (niveles 2-5 colapsables) ────── */
+.mlm-level-members-toggle {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  background: transparent; border: none; color: var(--accent);
+  font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  padding: 0.4rem 0.2rem; margin-top: 0.3rem;
+  transition: color var(--transition);
+}
+.mlm-level-members-toggle:hover { color: var(--accent-hover); text-decoration: underline; }
+.mlm-level-members-toggle i { font-size: 0.65rem; transition: transform 0.2s ease; }
+.mlm-level-members-toggle[aria-expanded="true"] i { transform: rotate(90deg); }
+
+.mlm-level-members-list {
+  margin-top: 0.3rem;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* ── BOTÓN REFRESCAR ────────────────────────────────── */
+.mlm-refresh {
+  display: flex; justify-content: flex-end;
+  padding: 0.5rem 0.6rem 0.2rem;
+}
+
+/* ── RESPONSIVE ─────────────────────────────────────── */
+@media (max-width: 700px) {
+  .mlm-metrics { grid-template-columns: 1fr; gap: 0; }
+  .mlm-metric + .mlm-metric::before { display: none; }
+  .mlm-metric { padding: 0.6rem 0.5rem; }
+
+  .mlm-member {
+    display: flex; flex-wrap: wrap; gap: 0.4rem;
+    padding: 0.65rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 0.4rem;
+  }
+  .mlm-member::before { display: none; }
+  .mlm-member-name { width: 100%; font-size: 0.85rem; }
+  .mlm-member-email { width: 100%; font-size: 0.78rem; }
+  .mlm-member-status { margin-right: auto; }
+  .mlm-member-view { width: 100%; text-align: center; margin-top: 0.2rem; }
+
+  .mlm-level-summary-grid { grid-template-columns: 1fr; }
+}
