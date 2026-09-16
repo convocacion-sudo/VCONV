@@ -270,3 +270,130 @@
 
   .mlm-level-summary-grid { grid-template-columns: 1fr; }
 }
+
+/* ════════════════════════════════════════════════════════
+   VCONV · Red Global — panel admin (superadmin, página propia)
+   ════════════════════════════════════════════════════════ */
+
+.mlm-metrics--4 { grid-template-columns: repeat(4, 1fr); }
+
+/* Encabezado de datos: red + dinero */
+.mlm-global-hero {
+  padding: 0.9rem 1.25rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+.mlm-global-money { border-top: 1px dashed var(--border); }
+.mlm-global-hero-label {
+  margin: 0;
+  font-size: 0.78rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--accent);
+  display: flex; align-items: center; gap: 0.4rem;
+}
+.mlm-global-hero-label::before { content: '●'; font-size: 0.6rem; }
+.mlm-global-money .mlm-global-hero-label { color: #22c55e; }
+.mlm-global-hero-sub {
+  display: block; font-size: 0.72rem; color: var(--text-muted);
+  margin: 0.1rem 0 0.5rem;
+}
+.mlm-global-hero .mlm-metrics { border-bottom: none; }
+.mlm-global-hero .mlm-metric-value { font-size: 1.35rem; }
+.mlm-global-hero .mlm-metric-label { letter-spacing: 0.04em; }
+
+/* Secciones */
+.mlm-global-section-title {
+  margin: 0.9rem 1.25rem 0; font-size: 0.95rem; font-weight: 800;
+  color: var(--text-primary);
+}
+.mlm-global-section-sub {
+  margin: 0.1rem 1.25rem 0.4rem; font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* Top patrocinadores */
+.mlm-global-top {
+  margin: 0.55rem 1.25rem;
+  padding: 0.6rem 0.7rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.mlm-global-top-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem; font-weight: 800;
+  color: var(--text-primary);
+}
+.mlm-global-top-list { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.mlm-global-top-chip {
+  display: inline-flex; align-items: baseline; gap: 0.25rem;
+  font-size: 0.74rem; color: var(--text-secondary);
+  padding: 0.3rem 0.6rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 99px; white-space: nowrap;
+}
+.mlm-global-top-chip b { color: var(--accent); font-weight: 700; }
+
+/* Acordeón global: reutiliza clases .mlm-level-1..5 (colores fijos) */
+.mlm-global-accordion { padding: 0.35rem 1.25rem 0.6rem; }
+
+/* Fila de miembro global (5 columnas) */
+.mlm-global-accordion .mlm-member {
+  grid-template-columns: 2fr 2fr 2fr auto auto;
+}
+.mlm-global-sponsor {
+  color: var(--text-muted); font-size: 0.74rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mlm-global-sponsor::before { content: '· '; color: var(--text-muted); }
+
+.mlm-global-note {
+  padding: 0.55rem 1.25rem 0.9rem;
+  font-size: 0.72rem; color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+
+.mlm-global-quick-badge {
+  margin-left: auto;
+  font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--accent);
+  padding: 0.2rem 0.6rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 99px; white-space: nowrap;
+}
+
+/* Modal global: cadena de patrocinio */
+.mlm-modal-subtitle { font-size: 0.82rem; color: var(--text-muted); margin-top: 0.25rem; }
+.mlm-global-chain-title { margin: 1rem 0 0.4rem; font-size: 0.82rem; font-weight: 800; color: var(--text-primary); }
+.mlm-global-chain {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem;
+  padding: 0.6rem 0.7rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.mlm-global-chain-chip {
+  font-size: 0.74rem; font-weight: 600;
+  color: var(--text-secondary);
+  padding: 0.22rem 0.55rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 99px;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mlm-global-chain-chip.is-me { color: var(--accent); border-color: var(--accent); font-weight: 800; }
+.mlm-global-chain-arr { color: var(--text-muted); font-size: 0.7rem; }
+
+@media (max-width: 900px) {
+  .mlm-metrics--4 { grid-template-columns: repeat(2, 1fr); }
+  .mlm-global-accordion .mlm-member {
+    grid-template-columns: 2fr 2fr auto auto;
+  }
+  .mlm-global-sponsor { grid-column: 1 / -1; }
+  .mlm-global-sponsor::before { content: ''; }
+}
+
+@media (max-width: 700px) {
+  .mlm-metrics--4 { grid-template-columns: 1fr; }
+  .mlm-global-hero { padding: 0.8rem 1rem 0.4rem; }
+  .mlm-global-accordion { padding: 0.35rem 1rem 0.6rem; }
+  .mlm-global-accordion .mlm-member { display: flex; flex-wrap: wrap; }
+}

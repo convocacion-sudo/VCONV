@@ -759,7 +759,7 @@
     var top = _navHistory[_navHistory.length - 1];
     if (top !== id) _navHistory.push(id);
     if (_navHistory.length > 20) _navHistory.shift();
-    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewFinanzas', 'viewReportes'];
+    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewFinanzas', 'viewReportes', 'viewRedGlobal'];
     allViews.forEach(function (v) {
       var node = $(v);
       if (node) node.classList.toggle('active', v === id);
@@ -805,6 +805,8 @@
         return [dash, { label: 'Finanzas' }];
       case 'viewReportes':
         return [dash, { label: 'Reportes Financieros' }];
+      case 'viewRedGlobal':
+        return [dash, { label: 'Red MLM Global' }];
       default:
         return [dash, { label: id }];
     }
@@ -882,6 +884,20 @@
     }
   }
 
+  function showRedGlobal() {
+    if (!esAdmin()) {
+      toast('Acceso restringido a administradores.', true);
+      goDashboard();
+      return;
+    }
+    showView('viewRedGlobal');
+    try {
+      if (typeof V.onRedGlobalShow === 'function') V.onRedGlobalShow();
+    } catch (e) {
+      toast('No se pudo cargar la Red Global: ' + (e && e.message ? e.message : e), true);
+    }
+  }
+
   /* ─── APP SHELL / SIDEBAR ─────────────────────────────────── */
   function updateSidebarAccess() {
     var isAdmin = esAdmin();
@@ -896,6 +912,9 @@
     if (linkFinanzas) linkFinanzas.style.display = isAdmin ? '' : 'none';
     var linkReportes = $('sidebarLinkReportes');
     if (linkReportes) linkReportes.style.display = isAdmin ? '' : 'none';
+    // Red MLM Global: página independiente del multinivel, solo superadmin.
+    var linkRedGlobal = $('sidebarLinkRedGlobal');
+    if (linkRedGlobal) linkRedGlobal.style.display = isAdmin ? '' : 'none';
     var settings = $('sidebarSettings');
     if (settings) settings.style.display = userRole === 'estudiante' ? 'none' : '';
     // Configuración: pendiente; visible como "Próximamente" para gestores
@@ -916,7 +935,8 @@
       viewComunidades: 'comunidades',
       viewAdmin: 'admin',
       viewFinanzas: 'finanzas',
-      viewReportes: 'reportes'
+      viewReportes: 'reportes',
+      viewRedGlobal: 'redglobal'
     };
     var key = navMap[current] || '';
     var links = document.querySelectorAll('.sidebar-link[data-nav]');
@@ -937,6 +957,7 @@
       case 'viewComunidades': label = 'Comunidades'; break;
       case 'viewFinanzas': label = 'Finanzas'; break;
       case 'viewReportes': label = 'Reportes Financieros'; break;
+      case 'viewRedGlobal': label = 'Red MLM Global'; break;
       case 'viewCatalog': label = ($('catalogTitle') && $('catalogTitle').textContent) || 'Cursos'; break;
       case 'viewCourse': label = ($('courseTitle') && $('courseTitle').textContent) || 'Curso'; break;
       case 'viewLesson': label = ($('readerTitle') && $('readerTitle').textContent) || 'Lección'; break;
@@ -992,6 +1013,7 @@
       case 'admin': setMode('admin'); break;
       case 'finanzas': showFinanzas(); break;
       case 'reportes': showReportes(); break;
+      case 'redglobal': showRedGlobal(); break;
       default: break;
     }
   }
@@ -1167,6 +1189,7 @@
   V.showComunidades = showComunidades;
   V.showFinanzas = showFinanzas;
   V.showReportes = showReportes;
+  V.showRedGlobal = showRedGlobal;
   V.showPortal = showPortal;
   V.showPublicPortal = showPublicPortal;
   V.showApp = showApp;

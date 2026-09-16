@@ -62,6 +62,9 @@
       cards.push({ icon: '🔐', title: 'Gestión de Usuarios', tag: 'Admin', desc: 'Administra perfiles, roles y estados.', action: function () { V.setMode('admin'); } });
       cards.push({ icon: '💰', title: 'Finanzas', tag: 'Contable', desc: 'Registra aportes y ofrendas, configura porcentajes MLM.', action: function () { if (V.showFinanzas) V.showFinanzas(); } });
       cards.push({ icon: '📊', title: 'Reportes Financieros', tag: 'Contable', desc: 'Ingresos, bolsa de comisiones y Caja Mayor.', action: function () { if (V.showReportes) V.showReportes(); } });
+      // Ficha MLM exclusiva del administrador: abre la página independiente
+      // con el multinivel global (red + dinero) y la estructura de 5 niveles.
+      cards.push({ icon: '🌐', title: 'Red MLM Global', tag: 'MLM', desc: 'Multinivel y comisiones de toda la red, estructura de 5 niveles.', action: function () { if (V.showRedGlobal) V.showRedGlobal(); } });
     }
 
     // Las comunidades requieren cuenta registrada.

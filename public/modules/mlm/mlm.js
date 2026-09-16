@@ -802,6 +802,344 @@
     return row;
   }
 
+  /* ─── VISIÓN GLOBAL DE LA RED (solo superadmin) ────────────────
+     Página independiente abierta desde la ficha de acceso del
+     Escritorio. Consulta TODOS los perfiles (reglas: isAdmin()),
+     construye el mapa de hijos por sponsorId, calcula la profundidad
+     de cada miembro subiendo por su cadena de patrocinio y agrupa la
+     red en niveles globales. El encabezado muestra los datos del
+     multinivel (red) y el dinero (comisiones MLM desde Finanzas):
+       · Red — usuarios totales, miembros vinculados, profundidad
+         máxima y árboles/raíces.
+       · Dinero — comisiones generadas (Σ finanzas_comisiones),
+         desembolsado (Σ finanzas_pagos) y saldo disponible de la
+         bolsa. La estructura se presenta en los 5 niveles de
+         comisión con acordeones desplegables; los miembros más
+         profundos (fuera de comisión) se resumen en una nota.         */
+  function computarRedGlobal(users) {
+    var byId = {};
+    var i, u;
+    for (i = 0; i < users.length; i++) {
+      u = users[i];
+      if (u && u.uid) byId[u.uid] = u;
+    }
+    var children = {};
+    var roots = [];
+    var conSponsor = 0;
+    var sponsorValido = {};
+    for (i = 0; i < users.length; i++) {
+      u = users[i];
+      var sid = u.sponsorId ? String(u.sponsorId) : '';
+      if (sid && byId[sid]) {
+        conSponsor++;
+        sponsorValido[u.uid] = sid;
+        (children[sid] = children[sid] || []).push(u);
+      } else {
+        roots.push(u);
+      }
+    }
+    var depthById = {};
+    var maxDepth = 0;
+    for (i = 0; i < users.length; i++) {
+      u = users[i];
+      var seen = {};
+      var cur = u;
+      var d = 0;
+      while (sponsorValido[cur.uid] && !seen[cur.uid] && d < 500) {
+        seen[cur.uid] = true;
+        cur = byId[sponsorValido[cur.uid]];
+        if (!cur) break;
+        d++;
+      }
+      if (d > maxDepth) maxDepth = d;
+      depthById[u.uid] = d;
+    }
+    var niveles = [];
+    for (i = 1; i <= MAX_NIVELES; i++) niveles[i] = { nivel: i, miembros: [] };
+    var masProfundos = 0;
+    for (i = 0; i < users.length; i++) {
+      u = users[i];
+      var d = depthById[u.uid];
+      if (d > 0 && niveles[d]) {
+        u._profundidad = d;
+        var sid = sponsorValido[u.uid];
+        u._sponsorNombre = byId[sid] ? memberName(byId[sid]) : '';
+        niveles[d].miembros.push(u);
+      } else if (d > MAX_NIVELES) {
+        masProfundos++;
+      }
+    }
+    var topReferrers = users.map(function (us) {
+      return { uid: us.uid, nombre: memberName(us), directos: (children[us.uid] || []).length, email: us.email || '' };
+    }).filter(function (r) { return r.directos > 0; })
+      .sort(function (a, b) { return b.directos - a.directos; })
+      .slice(0, 10);
+    return {
+      total: users.length,
+      conSponsor: conSponsor,
+      raices: roots.length,
+      maxDepth: maxDepth,
+      fueraDeComision: masProfundos,
+      niveles: niveles.filter(Boolean),
+      topReferrers: topReferrers,
+      nombreDe: function (uid) { return byId[uid] ? memberName(byId[uid]) : (uid || '—'); },
+      cadenaDe: function (uid) {
+        var cadena = [];
+        var cur = uid;
+        var vistos = {};
+        for (var g = 0; g < 500; g++) {
+          if (!cur || byId[cur] === undefined) break;
+          cadena.push({ uid: cur, nombre: memberName(byId[cur]) });
+          if (vistos[cur]) break;
+          vistos[cur] = true;
+          cur = sponsorValido[cur] || '';
+        }
+        return cadena;
+      }
+    };
+  }
+
+  function renderMlmGlobalPanel(container) {
+    if (!container) return;
+    if (!V.esAdmin()) {
+      container.innerHTML = '';
+      container.appendChild(el('p', 'mlm-level-empty', 'Acceso restringido a administradores.'));
+      return;
+    }
+    container.innerHTML = '';
+    container.appendChild(el('p', 'mlm-level-empty', 'Analizando la red global…'));
+    cargarRedGlobal(container);
+  }
+
+  function cargarRedGlobal(container) {
+    if (!V.db) { return; }
+    var usuariosP = V.db.collection(V.COL_USUARIOS).get().then(function (snap) {
+      var users = [];
+      snap.forEach(function (doc) {
+        var d = doc.data() || {};
+        d.uid = doc.id;
+        users.push(d);
+      });
+      return users;
+    }).catch(function () { return []; });
+
+    var dineroDefault = { generadas: 0, pagado: 0, saldo: 0, ok: false };
+    var dineroP = Promise.all([
+      V.db.collection('finanzas_comisiones').get(),
+      V.db.collection('finanzas_pagos').get()
+    ]).then(function (res) {
+      var generadas = 0, pagado = 0;
+      res[0].forEach(function (doc) { generadas += Number((doc.data() || {}).monto) || 0; });
+      res[1].forEach(function (doc) { pagado += Number((doc.data() || {}).monto) || 0; });
+      return { generadas: generadas, pagado: pagado, saldo: +(generadas - pagado).toFixed(2), ok: true };
+    }).catch(function () { return dineroDefault; });
+
+    Promise.all([usuariosP, dineroP]).then(function (res) {
+      var net = computarRedGlobal(res[0]);
+      container.innerHTML = '';
+      pintarRedGlobal(container, net, res[1]);
+    }).catch(function () {
+      container.innerHTML = '';
+      container.appendChild(el('p', 'mlm-level-empty', 'No se pudo cargar la red global en este momento.'));
+    });
+  }
+
+  function fmtMoneda(v) {
+    try {
+      var n = Number(v) || 0;
+      return n.toLocaleString('es-CO', { style: 'currency', currency: 'COP', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    } catch (e) {
+      return '$' + (Number(v) || 0).toLocaleString();
+    }
+  }
+
+  function pintarRedGlobal(container, net, dinero) {
+    var card = el('div', 'mlm-card mlm-card-global');
+
+    var header = el('div', 'mlm-card-header');
+    header.appendChild(el('span', 'icon-chip sm gold', '🌐'));
+    header.appendChild(el('h4', '', 'Multinivel · Visión global'));
+    header.appendChild(el('span', 'mlm-global-quick-badge', 'Admin'));
+    card.appendChild(header);
+
+    // ── Encabezado de datos: red + dinero ──
+    var hero = el('div', 'mlm-global-hero');
+    hero.appendChild(el('h5', 'mlm-global-hero-label', 'Red · Multinivel'));
+    hero.appendChild(el('span', 'mlm-global-hero-sub', 'Toda la plataforma por patrocinio'));
+    var heroRed = el('div', 'mlm-metrics mlm-metrics--4');
+    heroRed.appendChild(buildMetric(net.total, 'Usuarios totales'));
+    heroRed.appendChild(buildMetric(net.conSponsor, 'Miembros en red'));
+    heroRed.appendChild(buildMetric(net.raices, 'Árboles / raíces'));
+    heroRed.appendChild(buildMetric(net.maxDepth, 'Profundidad total'));
+    hero.appendChild(heroRed);
+    card.appendChild(hero);
+
+    var heroDinero = el('div', 'mlm-global-hero mlm-global-money');
+    heroDinero.appendChild(el('h5', 'mlm-global-hero-label', 'Dinero · Comisiones MLM'));
+    heroDinero.appendChild(el('span', 'mlm-global-hero-sub', 'Distribución de la bolsa N1–N5 contra los desembolsos'));
+    var moneyGrid = el('div', 'mlm-metrics');
+    moneyGrid.appendChild(buildMetric(fmtMoneda(dinero.generadas), 'Comisiones generadas'));
+    moneyGrid.appendChild(buildMetric(fmtMoneda(dinero.pagado), 'Desembolsado'));
+    moneyGrid.appendChild(buildMetric(fmtMoneda(dinero.saldo), 'Saldo de bolsa'));
+    heroDinero.appendChild(moneyGrid);
+    card.appendChild(heroDinero);
+
+    // ── Top patrocinadores ──
+    if (net.topReferrers.length) {
+      var topSection = el('div', 'mlm-global-top');
+      topSection.appendChild(el('h5', 'mlm-global-top-title', '🏆 Top patrocinadores (referidos directos)'));
+      var topList = el('div', 'mlm-global-top-list');
+      net.topReferrers.forEach(function (r, idx) {
+        var chip = el('span', 'mlm-global-top-chip');
+        chip.appendChild(el('b', '', (idx + 1) + '. ' + r.nombre));
+        chip.appendChild(el('span', '', ' · ' + r.directos + ' directo' + (r.directos === 1 ? '' : 's')));
+        topList.appendChild(chip);
+      });
+      topSection.appendChild(topList);
+      card.appendChild(topSection);
+    }
+
+    // ── Estructura completa de los 5 niveles ──
+    card.appendChild(el('h5', 'mlm-global-section-title', 'Estructura de los 5 niveles'));
+    card.appendChild(el('p', 'mlm-global-section-sub', 'Acordeones desplegables con la distribución completa de la red.'));
+    if (!net.conSponsor && !net.niveles.some(function (n) { return n.miembros.length; })) {
+      card.appendChild(el('p', 'mlm-level-empty', 'Aún no hay miembros vinculados a la red.'));
+    } else {
+      var accordion = el('div', 'mlm-accordion mlm-global-accordion');
+      net.niveles.forEach(function (n) {
+        accordion.appendChild(buildGlobalLevel(n, net));
+      });
+      card.appendChild(accordion);
+      if (net.fueraDeComision > 0) {
+        card.appendChild(el('p', 'mlm-global-note', '🔻 +' + net.fueraDeComision + ' miembros en niveles más profundos (fuera de la comisión N1–N5).'));
+      }
+    }
+
+    card.appendChild(el('p', 'mlm-global-note', 'Administrador general · métricas de toda la plataforma. El dinero proviene de Finanzas (finanzas_comisiones y finanzas_pagos); la estructura, de los perfiles por sponsorId.'));
+
+    container.appendChild(card);
+  }
+
+  function buildGlobalLevel(nivel, net) {
+    var n = nivel.nivel;
+    var accent = GLOBAL_ACCENTS[(n - 1) % GLOBAL_ACCENTS.length];
+    var count = nivel.miembros.length;
+
+    var details = document.createElement('details');
+    details.className = 'mlm-level mlm-level-' + accent + ' mlm-level-global';
+    if (n === 1) details.open = true;
+
+    var summary = document.createElement('summary');
+    summary.className = 'mlm-level-summary';
+    summary.appendChild(el('span', 'mlm-level-badge', '📍 Nivel ' + n));
+    summary.appendChild(el('span', '', count + ' miembro' + (count === 1 ? '' : 's')));
+    summary.appendChild(el('span', 'mlm-level-count', String(count)));
+    summary.appendChild(el('span', 'mlm-level-chevron', '▾'));
+    details.appendChild(summary);
+
+    var body = el('div', 'mlm-level-body');
+    if (count === 0) {
+      body.appendChild(el('p', 'mlm-level-empty', 'Sin miembros en este nivel.'));
+    } else {
+      nivel.miembros.slice().sort(function (a, b) { return (b.creado || '').localeCompare(a.creado || ''); }).forEach(function (m) {
+        var row = el('div', 'mlm-member');
+        row.appendChild(el('span', 'mlm-member-name', memberName(m)));
+        row.appendChild(el('span', 'mlm-member-email', m.email || '—'));
+        row.appendChild(el('span', 'mlm-global-sponsor', '⬆ ' + (m._sponsorNombre || net.nombreDe(m.sponsorId))));
+        var statusKey = String(m.estado || 'activo').toLowerCase().replace(/[^a-záéíóúñ]+/g, '-');
+        var statusCls = statusKey === 'activo' || statusKey === 'completo' ? 'activo'
+          : statusKey === 'inactivo' || statusKey === 'suspendido' ? 'inactivo' : 'otro';
+        row.appendChild(el('span', 'mlm-member-status ' + statusCls, m.estado || 'Activo'));
+        var btn = el('button', 'mlm-member-view', 'Ver');
+        btn.type = 'button';
+        btn.addEventListener('click', (function (mem) {
+          return function () { openGlobalMemberModal(mem, net); };
+        })(m));
+        row.appendChild(btn);
+        body.appendChild(row);
+      });
+    }
+    details.appendChild(body);
+    return details;
+  }
+
+  function openGlobalMemberModal(m, net) {
+    var overlay = el('div', 'modal-overlay');
+    var card = el('div', 'modal-card');
+    card.appendChild(el('h3', '', '👤 ' + memberName(m)));
+    card.appendChild(el('p', 'mlm-modal-subtitle', m.email || 'Miembro de la red MLM'));
+
+    var directos = 0;
+    if (net && net.cadenaDe) {
+      try {
+        // El conteo de referidos directos se deduce de la cadena de la red.
+        directos = net.topReferrers.filter(function (r) { return r.uid === m.uid; })[0];
+        directos = directos ? directos.directos : 0;
+      } catch (e) { directos = 0; }
+    }
+
+    var grid = el('div', 'dash-red-modal-grid');
+    grid.appendChild(profileRowModal('Nombre', memberName(m)));
+    grid.appendChild(profileRowModal('Nivel', m._profundidad ? 'Nivel ' + m._profundidad : 'Raíz'));
+    grid.appendChild(profileRowModal('Estado', m.estado || 'Activo'));
+    grid.appendChild(profileRowModal('Rol', m.rol || '—'));
+    grid.appendChild(profileRowModal('Referidos directos', String(directos)));
+    grid.appendChild(profileRowModal('Fecha de registro', V.fmtDate(m.creado)));
+    grid.appendChild(profileRowModal('Teléfono', m.telefono));
+    if (m.referralCode) grid.appendChild(profileRowModal('Código referido', m.referralCode));
+    card.appendChild(grid);
+
+    card.appendChild(el('h5', 'mlm-global-chain-title', '⬆ Cadena de patrocinio'));
+    var chain = net.cadenaDe(m.uid);
+    if (chain.length) {
+      var chips = el('div', 'mlm-global-chain');
+      chain.forEach(function (c, idx) {
+        if (idx > 0) chips.appendChild(el('span', 'mlm-global-chain-arr', '→'));
+        var cchip = el('span', 'mlm-global-chain-chip' + (c.uid === m.uid ? ' is-me' : ''), c.nombre);
+        chips.appendChild(cchip);
+      });
+      card.appendChild(chips);
+    } else {
+      card.appendChild(el('p', 'mlm-level-empty', 'Sin patrocinador (raíz de su árbol).'));
+    }
+
+    card.appendChild(el('p', 'dash-red-modal-note', 'Vista de administrador general. Solo se muestran datos del perfil dentro de la red.'));
+
+    var actions = el('div', 'form-actions');
+    if (m.email) {
+      var btnMail = el('button', 'btn btn-primary', '✉️ Escribir');
+      btnMail.type = 'button';
+      btnMail.addEventListener('click', function () { window.location.href = 'mailto:' + encodeURIComponent(m.email); });
+      actions.appendChild(btnMail);
+    }
+    var btnClose = el('button', 'btn btn-outline', 'Cerrar');
+    btnClose.type = 'button';
+    actions.appendChild(btnClose);
+    card.appendChild(actions);
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    overlay.classList.add('show');
+
+    function close() {
+      overlay.classList.remove('show');
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+    btnClose.addEventListener('click', close);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+  }
+
+  var GLOBAL_ACCENTS = ['1', '2', '3', '4', '5'];
+
+  function bindGlobalEvents() {
+    var btn = V.$('btnRedGlobalRefresh');
+    if (btn) btn.addEventListener('click', function () {
+      var content = V.$('redGlobalContent');
+      if (content) renderMlmGlobalPanel(content);
+      else if (typeof V.showRedGlobal === 'function') V.showRedGlobal();
+    });
+  }
+
   /* ─── API ──────────────────────────────────────────────────── */
   V.mlm = {
     _initialConfig: null,
@@ -823,7 +1161,15 @@
     calcularPayload: calcularPayload,
     calcularPayloadCon: calcularPayloadCon,
     applyMlmUiState: applyMlmUiState,
-    renderMlmCard: renderMlmCard
+    renderMlmCard: renderMlmCard,
+    computarRedGlobal: computarRedGlobal,
+    renderMlmGlobalPanel: renderMlmGlobalPanel
+  };
+
+  V.onRedGlobalShow = function () {
+    var content = V.$('redGlobalContent');
+    if (!content) return;
+    renderMlmGlobalPanel(content);
   };
 
   /* ─── MODULE INTERFACE ─────────────────────────────────────── */
@@ -839,6 +1185,7 @@
 
   function init() {
     bindAdminEvents();
+    bindGlobalEvents();
     loadConfig().then(function (c) {
       V.mlm._initialConfig = c;
       aplicarEstadoRegistro();

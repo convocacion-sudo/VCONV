@@ -43,6 +43,7 @@
       <a href="#" class="sidebar-link" data-nav="admin" id="sidebarLinkAdmin" style="display:none;"><span class="sidebar-ico">🔐</span> Gestión de Usuarios</a>
       <a href="#" class="sidebar-link" data-nav="finanzas" id="sidebarLinkFinanzas" style="display:none;"><span class="sidebar-ico">💰</span> Finanzas</a>
       <a href="#" class="sidebar-link" data-nav="reportes" id="sidebarLinkReportes" style="display:none;"><span class="sidebar-ico">📊</span> Reportes Financieros</a>
+      <a href="#" class="sidebar-link" data-nav="redglobal" id="sidebarLinkRedGlobal" style="display:none;"><span class="sidebar-ico">🌐</span> Red MLM Global</a>
 
       <p class="sidebar-group" id="sidebarGroupProximamente" style="display:none;">Próximamente</p>
       <a href="#" class="sidebar-link is-disabled" tabindex="-1" id="sidebarLinkConfig"><span class="sidebar-ico">⚙️</span> Configuración <span class="sidebar-tag">Pronto</span></a>
@@ -595,6 +596,23 @@
         </div>
       </div>
       <div id="reportesContent"></div>
+    </div>
+
+    <!-- ═══ MÓDULO RED MLM GLOBAL (superadmin) ═══ -->
+    <div class="view" id="viewRedGlobal">
+      <div class="section-header">
+        <div class="section-header-ttl">
+          <span class="icon-chip gold">🌐</span>
+          <div>
+            <h2>Red MLM Global</h2>
+            <p>Multinivel y dinero de toda la plataforma: métricas globales, comisiones MLM y estructura completa de los 5 niveles.</p>
+          </div>
+        </div>
+        <div class="section-header-acciones">
+          <button type="button" class="btn btn-outline" id="btnRedGlobalRefresh">🔄 Recargar</button>
+        </div>
+      </div>
+      <div id="redGlobalContent"></div>
     </div>
 
   </main>
