@@ -15,27 +15,45 @@
   };
 
   var COL_USUARIOS = 'usuarios';
+  var COL_CATEGORIAS = 'categorias';
   var COL_CURSOS   = 'cursos';
+  var COL_MODULOS  = 'modulos';
+  var COL_BLOQUES  = 'bloques';
+  var COL_LECCIONES = 'lecciones';
   var COL_PROGRESO = 'progreso';
   var COL_COMUNIDADES = 'comunidades';
   var COL_COMUNIDAD_MIEMBROS = 'comunidad_miembros';
   var COL_REUNIONES = 'reuniones';
+  var COL_COMUNIDAD_CATEGORIAS = 'comunidad_categorias';
 
   /* ─── GLOBAL NAMESPACE ────────────────────────────────────── */
   var V = window.VCONV = window.VCONV || {};
   V.COL_USUARIOS = COL_USUARIOS;
+  V.COL_CATEGORIAS = COL_CATEGORIAS;
   V.COL_CURSOS   = COL_CURSOS;
+  V.COL_MODULOS  = COL_MODULOS;
+  V.COL_BLOQUES  = COL_BLOQUES;
+  V.COL_LECCIONES = COL_LECCIONES;
   V.COL_PROGRESO = COL_PROGRESO;
   V.COL_COMUNIDADES = COL_COMUNIDADES;
   V.COL_COMUNIDAD_MIEMBROS = COL_COMUNIDAD_MIEMBROS;
   V.COL_REUNIONES = COL_REUNIONES;
+  V.COL_COMUNIDAD_CATEGORIAS = COL_COMUNIDAD_CATEGORIAS;
 
   /* ─── STATE ───────────────────────────────────────────────── */
   var db = null;
   var auth = null;
+  var storage = null;
   var userId = localStorage.getItem('vconv_user_id') || '';
   var currentUser = null;
+  var isAnon = false;             // sesión de visitante (Firebase Auth anónimo)
   var userRole = 'estudiante';
+  // Superadmin: control absoluto. esAdmin()/V.esAdmin marcan la sesión con
+  // rol superadmin; los módulos (finanzas, MLM, CRM) y las reglas de
+  // Firestore lo tratan como bypass total de validaciones de parentesco,
+  // cadenas de patrocinio, límites de asignación y restricciones de edición.
+  function esAdmin() { return userRole === 'superadmin'; }
+  function canManage() { return userRole === 'superadmin' || userRole === 'gestor'; }
   var mode = localStorage.getItem('vconv_mode') || 'gestor';
   var theme = localStorage.getItem('vconv_theme') || 'dark';
   var fontScale = parseFloat(localStorage.getItem('vconv_font') || '1');
@@ -79,6 +97,7 @@
       db = firebase.firestore();
       db.settings({ ignoreUndefinedProperties: true });
       auth = firebase.auth();
+      storage = firebase.storage();
     } catch (e) {
       showFbError('Error al inicializar Firebase: ' + e.message);
     }
@@ -113,9 +132,21 @@
     var portal = $('portalScreen');
     if (portal) portal.style.display = '';
   }
+  function showPublicPortal() {
+    // Muestra la landing pública aunque haya sesión activa (clic en el logo),
+    // sin cerrar sesión. El usuario puede volver al escritorio con otro clic.
+    var app = $('appRoot');
+    if (app) app.style.display = 'none';
+    var authSc = $('authScreen');
+    if (authSc) authSc.classList.remove('show');
+    var portal = $('portalScreen');
+    if (portal) portal.style.display = '';
+  }
   function openAuth(tab) {
     if (tab) setAuthTab(tab);
     if (authInitFailure) showAuthError(authInitFailure);
+    var hint = $('authHint');
+    if (hint) hint.style.display = isAnon ? '' : 'none';
     $('authScreen').classList.add('show');
   }
   function closeAuth() { $('authScreen').classList.remove('show'); }
@@ -133,31 +164,310 @@
       'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres.',
       'auth/operation-not-allowed': 'Esta operación no está habilitada.',
       'auth/too-many-requests': 'Demasiados intentos. Espera y vuelve a intentarlo.',
-      'auth/network-request-failed': 'Error de red. Comprueba tu conexión.'
+      'auth/network-request-failed': 'Error de red. Comprueba tu conexión.',
+      'auth/account-exists-with-different-credential': 'Ya existe una cuenta con ese correo usando otro método de acceso.',
+      'auth/credential-already-in-use': 'Ya existe una cuenta vinculada a esa credencial.',
+      'auth/provider-already-linked': 'Ya tienes vinculado ese método de acceso.',
+      'auth/requires-recent-login': 'Por seguridad, vuelve a iniciar sesión para completar esta acción.'
     };
     return map[code] || (err && err.message) || 'Ocurrió un error de autenticación.';
   }
 
+  /* ─── ACCESOS (SOLO PROVEEDORES NATIVOS) ───────────────────
+     Autenticación formal única con correo/contraseña y Google.
+     Facebook, Instagram y TikTok se retiran por no tener soporte
+     nativo en el proyecto (sin SDK/credenciales operativas).     */
+  var SOCIAL_PROVIDERS = {
+    google: { authId: 'google.com', label: 'Google' }
+  };
+  var socialPending = false;
+
+  // UID anónimo capturado antes de una fusión con cuenta existente.
+  var _anonUidToMerge = null;
+
+  function buildSocialAuthProvider(key) {
+    var cfg = SOCIAL_PROVIDERS[key];
+    if (!cfg || !firebase || !firebase.auth || !auth) return null;
+    if (key === 'google' && firebase.auth.GoogleAuthProvider) {
+      try { return new firebase.auth.GoogleAuthProvider(); } catch (e) { /* noop */ }
+    }
+    return null;
+  }
+
+  function isAccountConflict(code) {
+    return code === 'auth/account-exists-with-different-credential' ||
+           code === 'auth/credential-already-in-use' ||
+           code === 'auth/email-already-in-use';
+  }
+
+  function handleSocialLogin(key, btn) {
+    if (!auth) { showAuthError('Firebase Authentication no está disponible. Recarga la página.'); return; }
+    if (socialPending) return;
+    var provider = buildSocialAuthProvider(key);
+    if (!provider) {
+      showAuthError('No se pudo preparar el acceso con ' + (SOCIAL_PROVIDERS[key] ? SOCIAL_PROVIDERS[key].label : key) + '.');
+      return;
+    }
+    clearAuthError();
+    socialPending = true;
+    setAuthLoading(btn, true);
+
+    var current = auth.currentUser;
+    var anonUid = (current && current.isAnonymous) ? current.uid : null;
+    // Si hay sesión de visitante, la vinculamos (account linking); si
+    // la fusión con una cuenta existente fuera necesaria, guardamos el
+    // UID anónimo para transferir el progreso.
+    if (anonUid) _anonUidToMerge = anonUid;
+
+    var op = anonUid ? current.linkWithPopup(provider) : auth.signInWithPopup(provider);
+
+    op.then(function (result) {
+      // Mismo UID (caso típico de account linking): el progreso ya se
+      // conserva por construcción, no hay nada que copiar.
+      if (anonUid && result.user && result.user.uid === anonUid) _anonUidToMerge = null;
+      return adoptAnonymousData(result.user)
+        .then(function () { return finalizeLinking(result.user, 'google', null, !!anonUid); })
+        .then(function () {
+          closeAuth();
+          if (anonUid) toast('Sesión vinculada con Google. Tu progreso se conservó.');
+        });
+    })
+      .catch(function (err) {
+        var code = err && err.code ? err.code : '';
+        if (code === 'auth/popup-closed-by-user') return;
+        if (code === 'auth/cancelled-popup-request') return;
+        if (code === 'auth/popup-blocked') {
+          showAuthError('El navegador bloqueó la ventana emergente. Permite las ventanas emergentes para este sitio e inténtalo de nuevo.');
+          return;
+        }
+        if (code === 'auth/operation-not-allowed' || code === 'auth/unauthorized-domain') {
+          showAuthError('Este acceso aún no está habilitado. Actívalo y configura sus credenciales en Firebase Console → Authentication.');
+          return;
+        }
+        if (isAccountConflict(code)) {
+          // El correo de la cuenta Google ya pertenece a otra cuenta:
+          // se inicia sesión con Google y se FUSIONA el progreso de la
+          // sesión anónima en la cuenta formal.
+          var anon = _anonUidToMerge;
+          return auth.signInWithPopup(provider)
+            .then(function (r) {
+              if (anon) _anonUidToMerge = anon;
+              return adoptAnonymousData(r.user)
+                .then(function () { return finalizeLinking(r.user, 'google', null, true); })
+                .then(function () {
+                  closeAuth();
+                  toast('Cuenta fusionada. Tu progreso de visitante se transfirió a tu cuenta.');
+                });
+            })
+            .catch(function (e2) { showAuthError(authErrorMessage(e2)); });
+        }
+        showAuthError(authErrorMessage(err));
+      })
+      .then(function () {
+        socialPending = false;
+        setAuthLoading(btn, false);
+      });
+  }
+
+  /* ─── FUSIÓN DE CUENTAS (ACCOUNT LINKING) ──────────────────
+     El UID de la sesión anónima es temporal y el progreso vive en
+     subcolecciones {cursos|modulos}/.../progreso/{uid}. Dos escenarios:
+
+     1) CUENTA NUEVA (linkWithCredential/linkWithPopup): el UID
+        anónimo se CONVIERTE en el UID de la cuenta formal. Como el
+        identificador no cambia, todo el progreso (y el documento de
+        perfil) continúa apuntando al mismo sitio: transferencia
+        completa sin pérdida de datos y sin operaciones de copia.
+
+     2) CUENTA EXISTENTE (mismo correo): el enlace falla con
+        credential-already-in-use. Se inicia sesión con la cuenta
+        formal y se MIGRA el progreso de la sesión anónima (copiando
+        las subcolecciones de progreso y los campos de perfil). El UID
+        anónimo huérfano queda marcado y es eliminado por la limpieza
+        automática de cuentas anónimas (30 días) configurada en
+        Firebase Console.                                             */
+
+  // Marca la cuenta destino como vinculada/migrada y limpia la bandera.
+  function finalizeLinking(user, proveedor, nombre, viaAnon) {
+    if (!user) return Promise.resolve();
+    isAnon = false;
+    var upd = {
+      anonimo: false,
+      proveedor: proveedor
+    };
+    if (viaAnon) {
+      upd.fusionado = true;
+      upd.fusionadoFecha = new Date().toISOString();
+    }
+    if (user.email) upd.email = user.email;
+    if (nombre) upd.nombre = nombre;
+    var ref = db.collection(COL_USUARIOS).doc(user.uid);
+    // Solo actualiza si el perfil ya existe; nunca crea documentos aquí.
+    return ref.get().then(function (doc) {
+      if (!doc.exists) return user;
+      return ref.set(upd, { merge: true }).catch(function () {}).then(function () { return user; });
+    });
+  }
+
+  // Copia los datos de la sesión anónima a la cuenta destino (escenario 2).
+  function adoptAnonymousData(targetUser) {
+    var anonUid = _anonUidToMerge || null;
+    _anonUidToMerge = null;
+    if (!anonUid || !targetUser || anonUid === targetUser.uid) return Promise.resolve();
+    return Promise.all([
+      copyUserProfile(anonUid, targetUser.uid),
+      copyAllProgreso(anonUid, targetUser.uid)
+    ]).then(function () {
+      // Auditoría: solo si el perfil anónimo existía se marca como fusionado.
+      // Nunca se crea un documento nuevo aquí (el anónimo que abandonó el
+      // registro no debe dejar rastro en la colección).
+      return db.collection(COL_USUARIOS).doc(anonUid).get().then(function (doc) {
+        if (!doc.exists) return null;
+        return db.collection(COL_USUARIOS).doc(anonUid).set({
+          fusionadoCon: targetUser.uid,
+          fusionadoFecha: new Date().toISOString(),
+          estado: 'Fusionado'
+        }, { merge: true }).catch(function () {});
+      });
+    });
+  }
+
+  function copyUserProfile(anonUid, targetUid) {
+    var src = db.collection(COL_USUARIOS).doc(anonUid);
+    var dst = db.collection(COL_USUARIOS).doc(targetUid);
+    return Promise.all([src.get(), dst.get()]).then(function (res) {
+      var a = res[0], t = res[1];
+      if (!a.exists) return null;
+      var ad = a.data() || {};
+      var upd = {};
+      ['nombre', 'apellido', 'documento', 'telefono', 'sexo', 'sexoCustom',
+        'rangoEdad', 'departamento', 'ciudad', 'barrio', 'notas', 'perfil', 'profesion'].forEach(function (k) {
+        if (ad[k] && (ad[k] + '').trim() !== '') upd[k] = ad[k];
+      });
+      if (t.exists) {
+        var td = t.data() || {};
+        Object.keys(upd).forEach(function (k) { if (td[k]) delete upd[k]; });
+      }
+      if (!Object.keys(upd).length) return null;
+      return dst.set(upd, { merge: true });
+    }).catch(function () {});
+  }
+
+  // Une sin duplicar el progreso (union de completados + max indice).
+  function mergeProgressData(srcData, dstData) {
+    var list = (dstData && dstData.completed) ? dstData.completed.slice() : [];
+    (srcData.completed || []).forEach(function (id) {
+      if (list.indexOf(String(id)) === -1) list.push(String(id));
+    });
+    return {
+      completed: list,
+      indice: Math.max((srcData.indice || 0), ((dstData && dstData.indice) || 0)),
+      fusionado: true
+    };
+  }
+
+  function copyProgresoForCourse(courseRef, anonUid, targetUid) {
+    var src = courseRef.collection(COL_PROGRESO).doc(anonUid);
+    var dst = courseRef.collection(COL_PROGRESO).doc(targetUid);
+    return src.get().then(function (doc) {
+      if (!doc.exists) return null;
+      return dst.get().then(function (tdoc) {
+        return dst.set(mergeProgressData(doc.data(), tdoc.exists ? tdoc.data() : null), { merge: true });
+      });
+    }).catch(function () {});
+  }
+
+  // Recorre el progreso en las dos rutas de curso existentes: raíz
+  // legacy (cursos/{id}/progreso) y anidada (categorias/…/cursos/…).
+  function copyAllProgreso(anonUid, targetUid) {
+    if (!db) return Promise.resolve();
+    var tasks = [];
+    tasks.push(db.collection(COL_CURSOS).get()
+      .then(function (cs) {
+        var ops = [];
+        cs.forEach(function (c) { ops.push(copyProgresoForCourse(c.ref, anonUid, targetUid)); });
+        return Promise.all(ops);
+      }).catch(function () {}));
+    tasks.push(db.collection(COL_CATEGORIAS).get()
+      .then(function (cats) {
+        var ops = [];
+        cats.forEach(function (cat) {
+          ops.push(cat.ref.collection(COL_CURSOS).get()
+            .then(function (cs) {
+              var ops2 = [];
+              cs.forEach(function (c) { ops2.push(copyProgresoForCourse(c.ref, anonUid, targetUid)); });
+              return Promise.all(ops2);
+            }).catch(function () {}));
+        });
+        return Promise.all(ops);
+      }).catch(function () {}));
+    return Promise.all(tasks);
+  }
+
+  function bindSocialAuthButtons() {
+    var btns = document.querySelectorAll('.auth-social-btn');
+    Array.prototype.forEach.call(btns, function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        handleSocialLogin(btn.getAttribute('data-auth-provider'), btn);
+      });
+    });
+  }
+
+  // Único punto de creación del perfil en Firestore (solo dentro de
+  // handleRegister). Aquí únicamente se LEE el documento existente: si no
+  // existe (p. ej. visitante anónimo o sesión a medio formar) no se crea
+  // nada; se devuelve el rol por defecto 'estudiante' y la app funciona
+  // leyendo el perfil de forma tolerante (dashboard, MLM, etc.).
   function ensureUserDoc(user) {
     var ref = db.collection(COL_USUARIOS).doc(user.uid);
     return ref.get().then(function (doc) {
       if (doc.exists) return { rol: doc.data().rol || 'estudiante' };
-      // Nuevos usuarios: rol por defecto siempre 'estudiante', sin permisos de gestor.
-      var rol = 'estudiante';
-      return ref.set({
-        email: user.email || '',
-        nombre: '',
-        rol: rol,
-        estado: 'Activo',
-        creado: new Date().toISOString()
-      }, { merge: true }).then(function () { return { rol: rol }; });
+      return { rol: 'estudiante' };
     });
+  }
+
+  // Crea/actualiza el perfil de usuario exclusivamente dentro del cierre de
+  // handleRegister, cuando el formulario ya fue enviado. Un documento NUEVO
+  // nace completo: nombre, correo, rol inicial, estado, proveedor y, si el
+  // MLM está activo, el sponsorId (el referralCode lo asegura aplicarPatrocinio,
+  // que se encadena en el mismo cierre). Si el documento YA existe (fusión
+  // con una cuenta previa) solo se actualizan los datos personales sin tocar
+  // rol, estado ni fecha de creación.
+  function crearPerfilRegistro(user, datos) {
+    var ref = db.collection(COL_USUARIOS).doc(user.uid);
+    return ref.get().then(function (doc) {
+      if (doc.exists) {
+        var upd = { anonimo: false, proveedor: datos.proveedor || 'correo' };
+        if (user.email) upd.email = user.email;
+        if (datos.nombre) upd.nombre = datos.nombre;
+        return ref.set(upd, { merge: true });
+      }
+      var data = {
+        nombre: datos.nombre || '',
+        email: datos.email || user.email || '',
+        rol: datos.rol || 'estudiante',
+        estado: 'Activo',
+        creado: new Date().toISOString(),
+        anonimo: false,
+        proveedor: datos.proveedor || 'correo'
+      };
+      if (datos.sponsorId) data.sponsorId = datos.sponsorId;
+      return ref.set(data, { merge: true });
+    }).catch(function () { return null; });
   }
 
   function setupUserChip(user) {
     var email = (user && user.email) || '';
     $('userEmail').textContent = email;
     $('userAvatar').textContent = email ? email.charAt(0) : '?';
+    $('userChip').style.display = '';
+  }
+
+  // Chip para visitantes anónimos: sin correo, con aviso de invitado.
+  function setupGuestChip(user) {
+    $('userEmail').textContent = 'Visitante';
+    $('userAvatar').textContent = (user && user.email) ? user.email.charAt(0) : '?';
     $('userChip').style.display = '';
   }
 
@@ -181,7 +491,30 @@
     clearAuthError();
     var btn = $('btnLogin');
     setAuthLoading(btn, true);
+
+    // Login con sesión real activa: no hace nada (flujo anónimo aparte).
+    if (auth.currentUser && !auth.currentUser.isAnonymous) {
+      closeAuth();
+      setAuthLoading(btn, false);
+      return;
+    }
+    // Si el visitante anónimo inicia sesión con un correo existente, la
+    // cuenta anónima se FUSIONA con la formal (migración de progreso).
+    var anonUid = (auth.currentUser && auth.currentUser.isAnonymous) ? auth.currentUser.uid : null;
+    if (anonUid) _anonUidToMerge = anonUid;
+
     auth.signInWithEmailAndPassword(email, pass)
+      .then(function (cred) {
+        if (anonUid && cred.user && cred.user.uid !== anonUid) {
+          return adoptAnonymousData(cred.user);
+        }
+        if (anonUid) _anonUidToMerge = null;
+        return null;
+      })
+      .then(function () {
+        closeAuth();
+        toast('Bienvenido de nuevo.');
+      })
       .catch(function (err) { showAuthError(authErrorMessage(err)); })
       .then(function () { setAuthLoading(btn, false); });
   }
@@ -204,6 +537,38 @@
       });
   }
 
+  // Vincula la sesión anónima con un nuevo correo/contraseña. Si el correo
+  // ya pertenece a una cuenta formal, la fusiona migrando el progreso.
+  function linkOrMergeEmail(email, pass, nombre) {
+    var current = auth.currentUser;
+    var anonUid = (current && current.isAnonymous) ? current.uid : null;
+    if (anonUid) _anonUidToMerge = anonUid;
+    return current.linkWithCredential(firebase.auth.EmailAuthProvider.credential(email, pass))
+      .then(function (result) {
+        // Mismo UID: el progreso de la sesión anónima queda en el mismo
+        // documento; nada que copiar.
+        if (result.user && result.user.uid === anonUid) _anonUidToMerge = null;
+        return finalizeLinking(result.user, 'correo', nombre, true);
+      })
+      .catch(function (err) {
+        var code = err && err.code ? err.code : '';
+        if (isAccountConflict(code)) {
+          var anon = anonUid;
+          return auth.signInWithEmailAndPassword(email, pass)
+            .then(function (cred) {
+              if (anon) _anonUidToMerge = anon;
+              return adoptAnonymousData(cred.user).then(function () { return cred.user; });
+            })
+            .then(function (u) { return finalizeLinking(u, 'correo', nombre, true); })
+            .then(function (u) {
+              toast('Ya existía una cuenta con este correo. Se fusionó el progreso de tu sesión.');
+              return u;
+            });
+        }
+        throw err;
+      });
+  }
+
   function handleRegister(e) {
     if (e) e.preventDefault();
     if (!auth) { showAuthError('Firebase Authentication no está disponible. Recarga la página.'); return; }
@@ -215,57 +580,82 @@
     clearAuthError();
     var btn = $('btnRegister');
     setAuthLoading(btn, true);
-    auth.createUserWithEmailAndPassword(email, pass)
-      .then(function (cred) {
-        if (nombre) {
-          db.collection(COL_USUARIOS).doc(cred.user.uid)
-            .set({ nombre: nombre, email: email, rol: 'estudiante' }, { merge: true })
-            .catch(function (e) { showAuthError('No se pudo crear tu perfil en Firestore: ' + (e.message || e)); });
+
+    // Sesión formal ya activa: no hay nada que registrar.
+    if (auth.currentUser && !auth.currentUser.isAnonymous) {
+      closeAuth();
+      setAuthLoading(btn, false);
+      return;
+    }
+
+    // Referido capturado manualmente o desde ?ref= de la URL. El módulo
+    // MLM valida el código y lo asocia como sponsor solo si mlmEnabled.
+    var refInput = $('regReferido');
+    var codigoRef = refInput ? refInput.value.trim().toUpperCase() : '';
+    var sponsorTask = Promise.resolve(null);
+    if (codigoRef && V.mlm) {
+      sponsorTask = V.mlm.resolverSponsor(codigoRef).then(function (sponsorId) {
+        if (!sponsorId) {
+          return V.mlm.getConfig().then(function (mlmConfig) {
+            if (mlmConfig.mlmEnabled) V.toast('El código de referido no es válido.', true);
+            return null;
+          });
         }
-      })
-      .catch(function (err) {
-        if (err && err.code === 'auth/email-already-in-use') {
-          // El correo ya existe en Firebase Auth: intenta iniciar sesión para verificar
-          // y regenerar/verificar el documento en Firestore, permitiendo el acceso sin conflictos.
-          auth.signInWithEmailAndPassword(email, pass)
-            .then(function (cred) {
-              var uid = cred.user.uid;
-              var ref = db.collection(COL_USUARIOS).doc(uid);
-              return ref.get().then(function (doc) {
-                if (doc.exists) {
-                  return ref.update({
-                    nombre: (nombre || doc.data().nombre || '').trim(),
-                    email: email,
-                    rol: doc.data().rol || 'estudiante'
-                  }).catch(function (e) { showAuthError('No se pudo sincronizar tu perfil: ' + (e.message || e)); });
-                }
-                return ref.set({
-                  email: email,
-                  nombre: nombre || '',
-                  rol: 'estudiante',
-                  estado: 'Activo',
-                  creado: new Date().toISOString()
-                }, { merge: true });
-              }).then(function () {
-                clearAuthError();
-                toast('Tu correo ya estaba registrado. Acceso sincronizado correctamente.');
-              });
-            })
-            .catch(function (loginErr) {
-              if (loginErr && loginErr.code === 'auth/wrong-password') {
-                showAuthError('Este correo ya está registrado, pero la contraseña es incorrecta. Usa "¿Olvidaste tu contraseña?" para recuperarla.');
-              } else {
-                showAuthError(authErrorMessage(loginErr));
+        return sponsorId;
+      });
+    }
+
+    sponsorTask.then(function (sponsorId) {
+      var op;
+      if (auth.currentUser && auth.currentUser.isAnonymous) {
+        // CUENTA NUEVA sobre una sesión de visitante → account linking:
+        // se preserva el UID (y con él todo el progreso ya acumulado). El
+        // perfil se crea a continuación en crearPerfilRegistro.
+        op = linkOrMergeEmail(email, pass, nombre);
+      } else {
+        // Sin sesión previa (proveedor anónimo deshabilitado): regístrase
+        // de forma estándar. La autenticación aquí NO escribe en Firestore;
+        // el perfil se crea abajo, solo tras el envío exitoso del formulario.
+        op = auth.createUserWithEmailAndPassword(email, pass);
+      }
+      return op.then(function (user) {
+        if (user && user.uid) {
+          // Escritura atómica del perfil: único punto de creación del
+          // documento. Nace con correo, nombre, rol inicial y proveedor;
+          // el referralCode (y el sponsorId si el MLM está activo) los
+          // asegura aplicarPatrocinio en la misma cadena.
+          return crearPerfilRegistro(user, {
+            nombre: nombre,
+            email: email,
+            rol: 'estudiante',
+            proveedor: 'correo',
+            sponsorId: sponsorId
+          }).then(function () {
+            var mlmApply = V.mlm ? V.mlm.aplicarPatrocinio(user.uid, sponsorId) : Promise.resolve();
+            return mlmApply.then(function () {
+              if (typeof V.onDashboardShow === 'function') {
+                try { V.onDashboardShow(); } catch (er) { /* noop */ }
               }
+              return user;
             });
-        } else {
-          showAuthError(authErrorMessage(err));
+          });
         }
+        return user;
+      });
+    })
+      .then(function () {
+        closeAuth();
+        toast('¡Cuenta creada! Bienvenido a VCONV.');
       })
+      .catch(function (err) { showAuthError(authErrorMessage(err)); })
       .then(function () { setAuthLoading(btn, false); });
   }
 
   function handleLogout() {
+    // Un visitante anónimo nunca "cierra sesión": salir destruiría su UID
+    // temporal y con él el progreso de las lecciones de prueba. Se le
+    // ofrece registrarse/vincular para conservarlo.
+    if (isAnon) { openAuth('login'); return; }
     auth.signOut()
       .then(function () { location.reload(); })
       .catch(function (e) { showAuthError('No se pudo cerrar sesión: ' + (e.message || e)); });
@@ -312,6 +702,34 @@
     $('switchLink').setAttribute('data-tab', 'register');
     $('authClose').addEventListener('click', closeAuth);
     bindPasswordToggles();
+    bindSocialAuthButtons();
+  }
+
+  /* ─── SESIÓN ANÓNIMA AUTOMÁTICA ────────────────────────────
+     Todo visitante sin sesión recibe al instante un UID temporal de
+     Firebase Authentication (signInAnonymously). Con él puede ver el
+     catálogo general y las lecciones de prueba; al registrarse con
+     correo o Google la sesión se vincula (account linking) y el
+     progreso se conserva. La limpieza de cuentas anónimas inactivas
+     se configura en Firebase Console → Authentication → Settings
+     (limpieza automática a los 30 días).                             */
+  var anonSignInPending = false;
+
+  function initAnonymousSession() {
+    if (!auth || anonSignInPending) return;
+    anonSignInPending = true;
+    auth.signInAnonymously()
+      .then(function () { anonSignInPending = false; })
+      .catch(function (err) {
+        anonSignInPending = false;
+        var code = err && err.code ? err.code : '';
+        if (code === 'auth/operation-not-allowed' || code === 'auth/admin-restricted-operation') {
+          showFbError('El acceso de visitantes no está habilitado. Actívalo en Firebase Console → Authentication → Sign-in method (Anónimo).');
+        } else {
+          showFbError('No se pudo iniciar la sesión de visitante: ' + (err.message || err));
+        }
+        showPortal();
+      });
   }
 
   function initAuth() {
@@ -319,14 +737,17 @@
       if (user) {
         currentUser = user;
         userId = user.uid;
+        isAnon = !!user.isAnonymous;
         ensureUserDoc(user)
           .then(function (r) { startApp(r.rol); })
           .catch(function () {
+            showFbError('No se pudo inicializar tu perfil. Recarga la página.');
             showPortal();
           });
       } else {
         currentUser = null;
-        showPortal();
+        isAnon = false;
+        initAnonymousSession();
       }
     });
   }
@@ -338,7 +759,7 @@
     var top = _navHistory[_navHistory.length - 1];
     if (top !== id) _navHistory.push(id);
     if (_navHistory.length > 20) _navHistory.shift();
-    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades'];
+    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewFinanzas', 'viewReportes'];
     allViews.forEach(function (v) {
       var node = $(v);
       if (node) node.classList.toggle('active', v === id);
@@ -380,6 +801,10 @@
         return [dash, { label: 'Gestión de Usuarios' }];
       case 'viewComunidades':
         return [dash, { label: 'Comunidades' }];
+      case 'viewFinanzas':
+        return [dash, { label: 'Finanzas' }];
+      case 'viewReportes':
+        return [dash, { label: 'Reportes Financieros' }];
       default:
         return [dash, { label: id }];
     }
@@ -439,15 +864,46 @@
     }
   }
 
+  function showFinanzas() {
+    showView('viewFinanzas');
+    try {
+      if (typeof V.onFinanzasShow === 'function') V.onFinanzasShow();
+    } catch (e) {
+      toast('No se pudo cargar Finanzas: ' + (e && e.message ? e.message : e), true);
+    }
+  }
+
+  function showReportes() {
+    showView('viewReportes');
+    try {
+      if (typeof V.onReportesShow === 'function') V.onReportesShow();
+    } catch (e) {
+      toast('No se pudo cargar Reportes: ' + (e && e.message ? e.message : e), true);
+    }
+  }
+
   /* ─── APP SHELL / SIDEBAR ─────────────────────────────────── */
   function updateSidebarAccess() {
-    var isAdmin = userRole === 'superadmin';
+    var isAdmin = esAdmin();
     var linkAdmin = $('sidebarLinkAdmin');
     var grpAdmin = $('sidebarGroupAdmin');
     if (linkAdmin) linkAdmin.style.display = isAdmin ? '' : 'none';
     if (grpAdmin) grpAdmin.style.display = isAdmin ? '' : 'none';
+    // Finanzas y Reportes Financieros: módulo centralizado de superadmin
+    // (control absoluto, bypass total). Acceso exclusivo desde el menú
+    // lateral y el escritorio de superadmin.
+    var linkFinanzas = $('sidebarLinkFinanzas');
+    if (linkFinanzas) linkFinanzas.style.display = isAdmin ? '' : 'none';
+    var linkReportes = $('sidebarLinkReportes');
+    if (linkReportes) linkReportes.style.display = isAdmin ? '' : 'none';
     var settings = $('sidebarSettings');
     if (settings) settings.style.display = userRole === 'estudiante' ? 'none' : '';
+    // Configuración: pendiente; visible como "Próximamente" para gestores
+    // y superadmin, oculto para visitantes y estudiantes.
+    var linkConfig = $('sidebarLinkConfig');
+    var grpProx = $('sidebarGroupProximamente');
+    if (linkConfig) linkConfig.style.display = canManage() ? '' : 'none';
+    if (grpProx) grpProx.style.display = canManage() ? '' : 'none';
   }
 
   function updateSidebarActive() {
@@ -458,7 +914,9 @@
       viewDashboard: 'escritorio',
       viewCatalog: 'cursos', viewCourse: 'cursos', viewLesson: 'cursos', viewEditor: 'cursos',
       viewComunidades: 'comunidades',
-      viewAdmin: 'admin'
+      viewAdmin: 'admin',
+      viewFinanzas: 'finanzas',
+      viewReportes: 'reportes'
     };
     var key = navMap[current] || '';
     var links = document.querySelectorAll('.sidebar-link[data-nav]');
@@ -477,6 +935,8 @@
       case 'viewDashboard': label = 'Escritorio'; break;
       case 'viewAdmin': label = 'Gestión de Usuarios'; break;
       case 'viewComunidades': label = 'Comunidades'; break;
+      case 'viewFinanzas': label = 'Finanzas'; break;
+      case 'viewReportes': label = 'Reportes Financieros'; break;
       case 'viewCatalog': label = ($('catalogTitle') && $('catalogTitle').textContent) || 'Cursos'; break;
       case 'viewCourse': label = ($('courseTitle') && $('courseTitle').textContent) || 'Curso'; break;
       case 'viewLesson': label = ($('readerTitle') && $('readerTitle').textContent) || 'Lección'; break;
@@ -530,6 +990,8 @@
       case 'cursos': setMode(userRole === 'estudiante' ? 'estudiante' : 'gestor'); break;
       case 'comunidades': showComunidades(); break;
       case 'admin': setMode('admin'); break;
+      case 'finanzas': showFinanzas(); break;
+      case 'reportes': showReportes(); break;
       default: break;
     }
   }
@@ -588,6 +1050,10 @@
   }
 
   /* ─── START APP ───────────────────────────────────────────── */
+  // Arranque completo de la aplicación. Puede re-emitirse cuando la
+  // sesión cambia (p.ej. fusión anónimo→real): en ese caso solo se
+  // refresca la UI sin volver a vincular eventos ni inicializar módulos.
+  var appStarted = false;
   function startApp(rol) {
     userRole = rol;
     V.userRole = rol;
@@ -595,8 +1061,14 @@
     V.currentUser = currentUser;
     V.db = db;
     V.auth = auth;
+    V.storage = storage;
+    V.isAnon = isAnon;
 
-    if (rol === 'gestor') mode = 'gestor';
+    if (isAnon) {
+      // Visitantes: siempre modo estudiante y sin permisos de gestión.
+      userRole = 'estudiante';
+      mode = 'estudiante';
+    } else if (rol === 'gestor') mode = 'gestor';
     else if (rol === 'estudiante') mode = 'estudiante';
     else if (rol === 'superadmin') mode = 'gestor';
     localStorage.setItem('vconv_mode', mode);
@@ -604,13 +1076,20 @@
     showApp();
     applyTheme();
     applyFont();
-    setupUserChip(currentUser);
+    if (isAnon) setupGuestChip(currentUser); else setupUserChip(currentUser);
+    var logoutBtn = $('btnLogout');
+    if (logoutBtn) logoutBtn.textContent = isAnon ? '🔐 Crear cuenta' : 'Salir';
     if (localStorage.getItem('vconv_sidebar') === 'collapsed') updateSidebarCollapsed(true);
+
+    if (appStarted) {
+      refreshAuthUi();
+      return;
+    }
+    appStarted = true;
     bindEvents();
+    $('modeAdmin').style.display = userRole === 'superadmin' ? '' : 'none';
     setMode(mode);
     goDashboard();
-
-    $('modeAdmin').style.display = userRole === 'superadmin' ? '' : 'none';
 
     // Initialize modules
     if (V._modules) {
@@ -618,6 +1097,13 @@
         if (mod.onReady) mod.onReady();
       });
     }
+  }
+
+  function refreshAuthUi() {
+    $('modeAdmin').style.display = userRole === 'superadmin' ? '' : 'none';
+    updateSidebarAccess();
+    setMode(mode);
+    goDashboard();
   }
 
   /* ─── EVENTS ──────────────────────────────────────────────── */
@@ -628,7 +1114,7 @@
     var brandHome = $('brandHome');
     if (brandHome) brandHome.addEventListener('click', function (e) {
       e.preventDefault();
-      V.showPortal();
+      V.showPublicPortal();
     });
     $('fontIncrease').addEventListener('click', function () { changeFont(0.05); });
     $('fontDecrease').addEventListener('click', function () { changeFont(-0.05); });
@@ -679,7 +1165,11 @@
   V.goDashboard = goDashboard;
   V.goBack = goBack;
   V.showComunidades = showComunidades;
+  V.showFinanzas = showFinanzas;
+  V.showReportes = showReportes;
   V.showPortal = showPortal;
+  V.showPublicPortal = showPublicPortal;
+  V.showApp = showApp;
   V.openAuth = openAuth;
   V.closeAuth = closeAuth;
   V.setMode = setMode;
@@ -688,12 +1178,16 @@
   V.applyTheme = applyTheme;
   V.applyFont = applyFont;
   V.clearFbError = clearFbError;
+  V.esAdmin = esAdmin;
+  V.canManage = canManage;
   V.userRole = userRole;
   V.userId = userId;
   V.currentUser = currentUser;
   V.db = db;
   V.auth = auth;
+  V.storage = storage;
   V.mode = mode;
+  V.isAnon = isAnon;
 
   /* ─── INIT ────────────────────────────────────────────────── */
   function init() {

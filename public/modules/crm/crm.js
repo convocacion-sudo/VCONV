@@ -10,26 +10,232 @@
   if (!V) { console.error('VCONV core not loaded'); return; }
 
   /* ─── STATE ───────────────────────────────────────────────── */
+  var CONFIG_COLLECTION = 'config';
+  var PROFILES_DOC = 'perfiles';
+  var PROFESIONES_DOC = 'profesiones';
+  var UBICACION_DOC = 'ubicacion';
+  var DEFAULT_PROFESIONES = ['Abogado', 'Administrador', 'Docente', 'Líder religioso', 'Enfermero/a', 'Médico', 'Chef'];
+  var DEFAULT_UBICACION = {
+    departamentos: ['Antioquia', 'Bogotá D.C.', 'Valle del Cauca'],
+    ciudades: {
+      'Antioquia': ['Medellín', 'Envigado', 'Bello', 'Sabaneta'],
+      'Bogotá D.C.': ['Bogotá'],
+      'Valle del Cauca': ['Cali', 'Palmira']
+    },
+    barrios: {
+      'Medellín': ['El Poblado', 'Laureles', 'La Candelaria', 'Buenos Aires'],
+      'Envigado': ['El Dorado', 'Santa Ana', 'La Magnolia'],
+      'Bello': ['Centro', 'Naranjal', 'San José'],
+      'Sabaneta': ['Centro', 'La Doctora', 'Ancón Sur'],
+      'Bogotá': ['Chapinero', 'Usaquén', 'Suba'],
+      'Cali': ['San Antonio', 'Granada', 'El Peñón'],
+      'Palmira': ['Centro', 'La Carbonera']
+    }
+  };
   var usuariosUnsub = null;
   var usuariosCache = [];
-  var perfilesCache = ['Líder 1', 'Líder 2', 'Líder 3', 'Prospecto', 'Miembro'];
+  var perfilesCache = [];
   var perfilesUnsub = null;
-  var barriosData = null;
+  var profesionesCache = [];
+  var profesionesUnsub = null;
+  var ubicacionData = { departamentos: [], ciudades: {}, barrios: {} };
+  var ubicacionUnsub = null;
   var editingUser = null;
-  var filters = { search: '', rol: '', estado: '', perfil: '' };
+  var editingProfileIndex = null;
+  var editingProfesionIndex = null;
+  var editingDeptoIndex = null;
+  var editingCiudadDepto = null;
+  var editingCiudadIndex = null;
+  var editingBarrioCiudad = null;
+  var editingBarrioIndex = null;
+  var filters = { search: '', rol: '', estado: '', perfil: '', profesion: '', ciudad: '', barrio: '' };
   var selectedUids = new Set();
 
   /* ─── HELPERS ─────────────────────────────────────────────── */
   function $(id) { return V.$(id); }
   function el(tag, cls, text) { return V.el(tag, cls, text); }
 
-  /* ─── LOAD BARRIOS DATA ───────────────────────────────────── */
-  function loadBarrios() {
-    if (barriosData) return Promise.resolve(barriosData);
-    return fetch('modules/crm/data/barrios.json')
-      .then(function (r) { return r.json(); })
-      .then(function (d) { barriosData = d; return d; })
-      .catch(function () { barriosData = {}; return {}; });
+  function toggleFilter(key, val) {
+    filters[key] = filters[key] === val ? '' : val;
+  }
+
+  function clearAllFilters() {
+    filters.search = ''; filters.rol = ''; filters.estado = '';
+    filters.perfil = ''; filters.profesion = ''; filters.ciudad = ''; filters.barrio = '';
+  }
+
+  function syncFilterDropdowns() {
+    var s = $('adminSearch'); if (s) s.value = filters.search;
+    var r = $('adminFilterRol'); if (r) r.value = filters.rol;
+    var e = $('adminFilterEstado'); if (e) e.value = filters.estado;
+    var p = $('adminFilterPerfil'); if (p) p.value = filters.perfil;
+    var pr = $('adminFilterProfesion'); if (pr) pr.value = filters.profesion;
+  }
+
+  function normFieldVal(field, val) {
+    if (field === 'estado') return (!val || !val.trim()) ? 'Activo' : val.trim();
+    return (!val || !val.trim()) ? '—' : val.trim();
+  }
+
+  function computeFieldCounts(field, limit) {
+    var counts = {};
+    usuariosCache.forEach(function (u) {
+      var val = normFieldVal(field, u[field]);
+      counts[val] = (counts[val] || 0) + 1;
+    });
+    return Object.keys(counts)
+      .map(function (k) { return { value: k, count: counts[k] }; })
+      .sort(function (a, b) { return b.count - a.count; })
+      .slice(0, limit || 6);
+  }
+
+  function countUniqueValues(field) {
+    var seen = {};
+    usuariosCache.forEach(function (u) {
+      seen[normFieldVal(field, u[field])] = true;
+    });
+    return Object.keys(seen).length;
+  }
+
+  function filterUpdate() {
+    renderStats();
+    renderAnalytics();
+    renderActiveFiltersBar();
+    renderTable();
+  }
+
+  /* ─── UBICACION (3 niveles: Departamento → Ciudad → Barrio) ─ */
+  function normalizeUbicacion() {
+    var ok = {};
+    ok.departamentos = [];
+    ok.ciudades = {};
+    ok.barrios = {};
+    if (ubicacionData && Array.isArray(ubicacionData.departamentos)) {
+      ok.departamentos = ubicacionData.departamentos.filter(function (d) { return typeof d === 'string' && d.trim(); }).map(function (d) { return d.trim(); });
+    }
+    if (ubicacionData && ubicacionData.ciudades && typeof ubicacionData.ciudades === 'object') {
+      Object.keys(ubicacionData.ciudades).forEach(function (depto) {
+        var list = ubicacionData.ciudades[depto];
+        if (Array.isArray(list)) {
+          ok.ciudades[depto] = list.filter(function (c) { return typeof c === 'string' && c.trim(); }).map(function (c) { return c.trim(); });
+        }
+      });
+    }
+    if (ubicacionData && ubicacionData.barrios && typeof ubicacionData.barrios === 'object') {
+      Object.keys(ubicacionData.barrios).forEach(function (ciudad) {
+        var list = ubicacionData.barrios[ciudad];
+        if (Array.isArray(list)) {
+          ok.barrios[ciudad] = list.filter(function (b) { return typeof b === 'string' && b.trim(); }).map(function (b) { return b.trim(); });
+        }
+      });
+    }
+    return ok;
+  }
+
+  function applyUbicacion(data) {
+    ubicacionData = data;
+    return ubicacionData;
+  }
+
+  function defaultsUbicacionIfEmpty(data) {
+    var norm = normalizeUbicacion();
+    if (!norm.departamentos.length && !Object.keys(norm.ciudades).length && !Object.keys(norm.barrios).length) {
+      var copy = JSON.parse(JSON.stringify(DEFAULT_UBICACION));
+      applyUbicacion(copy);
+      saveUbicacion();
+      return ubicacionData;
+    }
+    applyUbicacion(norm);
+    return ubicacionData;
+  }
+
+  function subscribeUbicacion() {
+    if (!V.db) return;
+    if (V.userRole !== 'superadmin') return;
+    if (ubicacionUnsub) return;
+    try {
+      ubicacionUnsub = V.db.collection(CONFIG_COLLECTION).doc(UBICACION_DOC).onSnapshot(function (doc) {
+        var raw = doc.exists ? doc.data() : {};
+        defaultsUbicacionIfEmpty(raw);
+        renderAll();
+        var overlay = $('crmFormOverlay');
+        if (overlay && overlay.classList.contains('show') && editingUser) {
+          populateDeptoSelect(editingUser.departamento);
+          populateCiudadSelect(editingUser.ciudad);
+          populateBarrioSelect(editingUser.barrio);
+        }
+      }, function () {
+        defaultsUbicacionIfEmpty({});
+        renderAll();
+      });
+    } catch (e) {
+      defaultsUbicacionIfEmpty({});
+      renderAll();
+    }
+  }
+
+  function saveUbicacion() {
+    if (!V.db) return;
+    V.db.collection(CONFIG_COLLECTION).doc(UBICACION_DOC).set({
+      departamentos: ubicacionData.departamentos,
+      ciudades: ubicacionData.ciudades,
+      barrios: ubicacionData.barrios
+    }, { merge: true })
+      .then(function () { })
+      .catch(function (e) {
+        V.toast('Error al guardar ubicación: ' + e.message, true);
+      });
+  }
+
+  function loadUbicacion() {
+    if (!V.db) { return Promise.resolve(ubicacionData); }
+    return V.db.collection(CONFIG_COLLECTION).doc(UBICACION_DOC).get()
+      .then(function (doc) {
+        var raw = doc.exists ? doc.data() : {};
+        return defaultsUbicacionIfEmpty(raw);
+      })
+      .catch(function () {
+        return defaultsUbicacionIfEmpty({});
+      });
+  }
+
+  function addBarrioToList(ciudad, name) {
+    if (!ciudad || !name) return false;
+    var list = ubicacionData.barrios[ciudad] || (ubicacionData.barrios[ciudad] = []);
+    if (list.indexOf(name) !== -1) return false;
+    list.push(name);
+    saveUbicacion();
+    return true;
+  }
+
+  function clearUsersField(field, value) {
+    if (!value) return;
+    V.db.collection(V.COL_USUARIOS).where(field, '==', value).get()
+      .then(function (snap) {
+        var updates = [];
+        var clearObj;
+        snap.forEach(function (doc) {
+          if (field === 'departamento') clearObj = { departamento: '', ciudad: '', barrio: '' };
+          else if (field === 'ciudad') clearObj = { ciudad: '', barrio: '' };
+          else clearObj = { barrio: '' };
+          updates.push(doc.ref.update(clearObj));
+        });
+        return Promise.all(updates);
+      })
+      .catch(function () {});
+  }
+
+  function updateUsersField(field, oldValue, newValue) {
+    if (!oldValue || !newValue) return;
+    var upd = {};
+    upd[field] = newValue;
+    V.db.collection(V.COL_USUARIOS).where(field, '==', oldValue).get()
+      .then(function (snap) {
+        var updates = [];
+        snap.forEach(function (doc) { updates.push(doc.ref.update(upd)); });
+        return Promise.all(updates);
+      })
+      .catch(function () {});
   }
 
   /* ─── SUBSCRIBE USUARIOS ──────────────────────────────────── */
@@ -69,66 +275,237 @@
     if (!show) return;
     var tr = el('tr');
     var td = el('td', 'admin-empty');
-    td.setAttribute('colspan', '10');
+    td.setAttribute('colspan', '11');
     td.textContent = message || 'No se pudieron cargar los usuarios.';
     tr.appendChild(td);
     tbody.appendChild(tr);
   }
 
   /* ─── SUBSCRIBE PERFILES ──────────────────────────────────── */
+  function normalizePerfiles(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(function (p) { return typeof p === 'string' && p.trim(); })
+      .map(function (p) { return p.trim(); });
+  }
+
+  function applyPerfiles(next) {
+    perfilesCache = next;
+    return perfilesCache;
+  }
+
   function subscribePerfiles() {
-    if (!V.db || V.userRole !== 'superadmin') return;
+    if (!V.db) { return; }
+    if (V.userRole !== 'superadmin') { return; }
     if (perfilesUnsub) return;
     try {
-      perfilesUnsub = V.db.collection('config').doc('perfiles').onSnapshot(function (doc) {
-        if (doc.exists && doc.data().categorias) {
-          perfilesCache = doc.data().categorias;
-        }
+      perfilesUnsub = V.db.collection(CONFIG_COLLECTION).doc(PROFILES_DOC).onSnapshot(function (doc) {
+        var raw = doc.exists ? (doc.data().categorias || doc.data().perfiles || []) : [];
+        applyPerfiles(normalizePerfiles(raw));
         renderAll();
-      }, function (e) {
-        // Error no bloqueante: se mantienen los perfiles por defecto.
+        var overlay = $('crmFormOverlay');
+        if (overlay && overlay.classList.contains('show') && editingUser) populatePerfilSelect(editingUser.perfil);
+      }, function () {
+        applyPerfiles([]);
         renderAll();
       });
     } catch (e) {
+      applyPerfiles([]);
       renderAll();
     }
   }
 
   function savePerfiles() {
     if (!V.db) return;
-    V.db.collection('config').doc('perfiles').set({ categorias: perfilesCache }, { merge: true })
-      .catch(function (e) { V.toast('Error al guardar perfiles: ' + e.message, true); });
+    V.db.collection(CONFIG_COLLECTION).doc(PROFILES_DOC).set({ categorias: perfilesCache }, { merge: true })
+      .then(function () { })
+      .catch(function (e) {
+        V.toast('Error al guardar perfiles: ' + e.message, true);
+      });
+  }
+
+  /* ─── SUBSCRIBE PROFESIONES ───────────────────────────────── */
+  function normalizeProfesiones(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(function (p) { return typeof p === 'string' && p.trim(); })
+      .map(function (p) { return p.trim(); });
+  }
+
+  function applyProfesiones(next) {
+    profesionesCache = next;
+    return profesionesCache;
+  }
+
+  function defaultsProfesionesIfEmpty(next) {
+    if (!next.length) {
+      profesionesCache = DEFAULT_PROFESIONES.slice();
+      saveProfesiones();
+      return profesionesCache;
+    }
+    profesionesCache = next;
+    return profesionesCache;
+  }
+
+  function subscribeProfesiones() {
+    if (!V.db) { return; }
+    if (V.userRole !== 'superadmin') { return; }
+    if (profesionesUnsub) return;
+    try {
+      profesionesUnsub = V.db.collection(CONFIG_COLLECTION).doc(PROFESIONES_DOC).onSnapshot(function (doc) {
+        var raw = doc.exists ? (doc.data().categorias || []) : [];
+        defaultsProfesionesIfEmpty(normalizeProfesiones(raw));
+        renderAll();
+        var overlay = $('crmFormOverlay');
+        if (overlay && overlay.classList.contains('show') && editingUser) populateProfesionSelect(editingUser.profesion);
+      }, function () {
+        defaultsProfesionesIfEmpty([]);
+        renderAll();
+      });
+    } catch (e) {
+      defaultsProfesionesIfEmpty([]);
+      renderAll();
+    }
+  }
+
+  function saveProfesiones() {
+    if (!V.db) return;
+    V.db.collection(CONFIG_COLLECTION).doc(PROFESIONES_DOC).set({ categorias: profesionesCache }, { merge: true })
+      .then(function () { })
+      .catch(function (e) {
+        V.toast('Error al guardar profesiones: ' + e.message, true);
+      });
+  }
+
+  function loadProfesionesFromDb() {
+    if (!V.db) { return Promise.resolve(profesionesCache); }
+    return V.db.collection(CONFIG_COLLECTION).doc(PROFESIONES_DOC).get()
+      .then(function (doc) {
+        var raw = doc.exists ? (doc.data().categorias || []) : [];
+        return defaultsProfesionesIfEmpty(normalizeProfesiones(raw));
+      })
+      .catch(function () {
+        return defaultsProfesionesIfEmpty([]);
+      });
+  }
+
+  function addProfesionToList(name) {
+    if (!name || profesionesCache.indexOf(name) !== -1) return false;
+    profesionesCache.push(name);
+    saveProfesiones();
+    return true;
   }
 
   /* ─── RENDER ALL ──────────────────────────────────────────── */
   function renderAll() {
     renderStats();
+    renderAnalytics();
+    renderActiveFiltersBar();
     renderTable();
     renderProfiles();
+    renderProfesiones();
+    renderUbicacion();
   }
 
-  /* ─── STATS ───────────────────────────────────────────────── */
+  /* ─── STATS (row 1: summary — clickable to filter) ───────── */
   function renderStats() {
-    var stats = $('adminStats');
+    var stats = $('adminSummaryStats');
     if (!stats) return;
     var total = usuariosCache.length;
+    var activos = usuariosCache.filter(function (u) { return (u.estado || 'Activo') === 'Activo'; }).length;
     var estudiantes = usuariosCache.filter(function (u) { return u.rol === 'estudiante'; }).length;
     var gestores = usuariosCache.filter(function (u) { return u.rol === 'gestor'; }).length;
     var admins = usuariosCache.filter(function (u) { return u.rol === 'superadmin'; }).length;
-    var activos = usuariosCache.filter(function (u) { return (u.estado || 'Activo') === 'Activo'; }).length;
+
     stats.innerHTML = '';
     [
-      { value: total, label: 'Total' },
-      { value: activos, label: 'Activos' },
-      { value: estudiantes, label: 'Estudiantes' },
-      { value: gestores, label: 'Gestores' },
-      { value: admins, label: 'Admins' }
+      { value: total, label: 'Total', filterKey: null },
+      { value: activos, label: 'Activos', filterKey: 'estado', filterVal: 'Activo' },
+      { value: estudiantes, label: 'Estudiantes', filterKey: 'rol', filterVal: 'estudiante' },
+      { value: gestores, label: 'Gestores', filterKey: 'rol', filterVal: 'gestor' },
+      { value: admins, label: 'Admins', filterKey: 'rol', filterVal: 'superadmin' }
     ].forEach(function (c) {
       var card = el('div', 'admin-stat-card');
+      var isActive = c.filterKey && filters[c.filterKey] === c.filterVal;
+      if (isActive) card.classList.add('active');
       card.appendChild(el('div', 'stat-value', String(c.value)));
       card.appendChild(el('div', 'stat-label', c.label));
+      card.style.cursor = 'pointer';
+      card.addEventListener('click', function () {
+        if (c.filterKey) { toggleFilter(c.filterKey, c.filterVal); }
+        else { clearAllFilters(); }
+        syncFilterDropdowns();
+        filterUpdate();
+      });
       stats.appendChild(card);
     });
+  }
+
+  /* ─── ANALYTICS (row 2: dimension breakdowns — pills to filter) ── */
+  function renderAnalytics() {
+    var container = $('adminAnalyticsStats');
+    if (!container) return;
+    container.innerHTML = '';
+    [
+      { key: 'perfil', label: 'Perfiles', filterKey: 'perfil' },
+      { key: 'profesion', label: 'Profesiones', filterKey: 'profesion' },
+      { key: 'estado', label: 'Estados', filterKey: 'estado' },
+      { key: 'ciudad', label: 'Ciudades', filterKey: 'ciudad' },
+      { key: 'barrio', label: 'Barrios', filterKey: 'barrio' }
+    ].forEach(function (cat) {
+      var counts = computeFieldCounts(cat.key, 5);
+      var card = el('div', 'admin-analytics-card');
+      var hdr = el('div', 'analytics-header');
+      hdr.appendChild(el('span', 'analytics-title', cat.label));
+      hdr.appendChild(el('span', 'analytics-count', String(countUniqueValues(cat.key))));
+      card.appendChild(hdr);
+      var pills = el('div', 'analytics-pills');
+      counts.forEach(function (item) {
+        var pill = el('span', 'analytics-pill');
+        if (filters[cat.filterKey] === item.value) pill.classList.add('active');
+        pill.appendChild(document.createTextNode(item.value === '—' ? 'Sin asignar' : item.value));
+        var badge = el('span', 'pill-count', String(item.count));
+        pill.appendChild(badge);
+        pill.addEventListener('click', function (e) {
+          e.stopPropagation();
+          toggleFilter(cat.filterKey, item.value);
+          syncFilterDropdowns();
+          filterUpdate();
+        });
+        pills.appendChild(pill);
+      });
+      card.appendChild(pills);
+      container.appendChild(card);
+    });
+  }
+
+  /* ─── ACTIVE FILTERS BAR ───────────────────────────────────── */
+  function renderActiveFiltersBar() {
+    var bar = $('adminActiveFilters');
+    if (!bar) return;
+    var active = [];
+    function labelOf(key, val) { return val === '—' ? 'Sin asignar' : val; }
+    if (filters.rol) active.push({ label: 'Rol: ' + labelOf('rol', filters.rol), key: 'rol' });
+    if (filters.estado) active.push({ label: 'Estado: ' + labelOf('estado', filters.estado), key: 'estado' });
+    if (filters.perfil) active.push({ label: 'Perfil: ' + labelOf('perfil', filters.perfil), key: 'perfil' });
+    if (filters.profesion) active.push({ label: 'Profesión: ' + labelOf('profesion', filters.profesion), key: 'profesion' });
+    if (filters.ciudad) active.push({ label: 'Ciudad: ' + labelOf('ciudad', filters.ciudad), key: 'ciudad' });
+    if (filters.barrio) active.push({ label: 'Barrio: ' + labelOf('barrio', filters.barrio), key: 'barrio' });
+    if (filters.search) active.push({ label: 'Búsqueda: "' + filters.search + '"', key: 'search' });
+    bar.style.display = active.length ? 'flex' : 'none';
+    bar.innerHTML = '';
+    if (!active.length) return;
+    bar.appendChild(el('span', 'active-filters-label', 'Filtros activos:'));
+    active.forEach(function (a) {
+      var pill = el('span', 'active-filter-pill', a.label + ' \u2715');
+      pill.addEventListener('click', function () {
+        if (a.key === 'search') { filters.search = ''; var si = $('adminSearch'); if (si) si.value = ''; }
+        else { filters[a.key] = ''; syncFilterDropdowns(); }
+        filterUpdate();
+      });
+      bar.appendChild(pill);
+    });
+    var clearBtn = el('button', 'btn-clear-filters', 'Limpiar todo');
+    clearBtn.addEventListener('click', function () { clearAllFilters(); syncFilterDropdowns(); filterUpdate(); });
+    bar.appendChild(clearBtn);
   }
 
   /* ─── FILTER ──────────────────────────────────────────────── */
@@ -136,12 +513,15 @@
     return usuariosCache.filter(function (u) {
       if (filters.search) {
         var q = filters.search.toLowerCase();
-        var match = ((u.email || '') + ' ' + (u.nombre || '') + ' ' + (u.apellido || '')).toLowerCase();
+        var match = ((u.email || '') + ' ' + (u.nombre || '') + ' ' + (u.apellido || '') + ' ' + (u.documento || '') + ' ' + (u.telefono || '') + ' ' + (u.departamento || '') + ' ' + (u.ciudad || '') + ' ' + (u.barrio || '') + ' ' + (u.profesion || '') + ' ' + (u.perfil || '')).toLowerCase();
         if (match.indexOf(q) === -1) return false;
       }
       if (filters.rol && u.rol !== filters.rol) return false;
       if (filters.estado && (u.estado || 'Activo') !== filters.estado) return false;
-      if (filters.perfil && u.perfil !== filters.perfil) return false;
+      if (filters.perfil && (u.perfil || '—') !== filters.perfil) return false;
+      if (filters.profesion && (u.profesion || '—') !== filters.profesion) return false;
+      if (filters.ciudad && (u.ciudad || '—') !== filters.ciudad) return false;
+      if (filters.barrio && (u.barrio || '—') !== filters.barrio) return false;
       return true;
     });
   }
@@ -156,7 +536,7 @@
     if (!filtered.length) {
       var tr = el('tr');
       var td = el('td', 'admin-empty', usuariosCache.length ? 'Sin resultados para los filtros aplicados.' : 'No hay usuarios registrados.');
-      td.setAttribute('colspan', '10');
+td.setAttribute('colspan', '12');
       tr.appendChild(td);
       tbody.appendChild(tr);
       renderCheckAll();
@@ -181,12 +561,47 @@
       tr.appendChild(tdCheck);
 
       tr.appendChild(el('td', 'wrap', u.email || '—'));
-      tr.appendChild(el('td', 'wrap', ((u.nombre || '') + ' ' + (u.apellido || '')).trim() || '—'));
+      // Nombre: clic = ficha completa
+      var nameFull = ((u.nombre || '') + ' ' + (u.apellido || '')).trim() || '—';
+      var tdName = el('td', 'wrap');
+      var nameBtn = el('button', 'admin-name-link', nameFull);
+      nameBtn.type = 'button';
+      nameBtn.title = 'Ver ficha completa';
+      nameBtn.addEventListener('click', function () { openView(u); });
+      tdName.appendChild(nameBtn);
+      tr.appendChild(tdName);
+
+      // Código de referido: visible y copiable
+      var tdRef = el('td', 'wrap');
+      var refCode = u.referralCode || '';
+      if (refCode) {
+        var refWrap = document.createElement('div');
+        refWrap.className = 'admin-ref';
+        var refSpan = el('span', 'admin-ref-code', refCode);
+        refSpan.title = refCode;
+        var copyBtn = el('button', 'admin-copy-btn', '⧉');
+        copyBtn.type = 'button';
+        copyBtn.title = 'Copiar código de referido';
+        copyBtn.addEventListener('click', function () {
+          var btn = this;
+          V.mlm.copiarAlPortapapeles(refCode).then(function () {
+            var old = btn.textContent;
+            btn.textContent = '✓';
+            setTimeout(function () { btn.textContent = old; }, 1200);
+          });
+        });
+        refWrap.appendChild(refSpan);
+        refWrap.appendChild(copyBtn);
+        tdRef.appendChild(refWrap);
+      } else {
+        tdRef.textContent = '--';
+      }
+      tr.appendChild(tdRef);
       tr.appendChild(el('td', 'wrap', u.documento || '—'));
       tr.appendChild(el('td', 'wrap', u.telefono || '—'));
 
       // Ubicación
-      var ubicacion = [u.ciudad, u.municipio, u.barrio === 'Otro' ? (u.barrioCustom || 'Otro') : u.barrio].filter(Boolean).join(', ');
+      var ubicacion = [u.departamento, u.ciudad, u.barrio].filter(Boolean).join(', ');
       tr.appendChild(el('td', 'wrap', ubicacion || '—'));
 
       // Rol
@@ -235,14 +650,35 @@
       tdPerfil.appendChild(selPerfil);
       tr.appendChild(tdPerfil);
 
-      // Acciones
+      // Profesión
+      var tdProfesion = el('td');
+      var selProfesion = document.createElement('select');
+      selProfesion.className = 'admin-role-select';
+      var optNoneProf = document.createElement('option');
+      optNoneProf.value = ''; optNoneProf.textContent = '—';
+      selProfesion.appendChild(optNoneProf);
+      profesionesCache.forEach(function (p) {
+        var opt = document.createElement('option');
+        opt.value = p; opt.textContent = p;
+        opt.selected = u.profesion === p;
+        selProfesion.appendChild(opt);
+      });
+      selProfesion.addEventListener('change', function () { updateField(u.uid, 'profesion', this.value); });
+      tdProfesion.appendChild(selProfesion);
+      tr.appendChild(tdProfesion);
+
+      <!-- Acciones -->
       var tdActions = el('td', 'admin-actions');
+      var viewBtn = el('button', 'admin-edit-btn', '👁');
+      viewBtn.title = 'Ver ficha';
+      viewBtn.addEventListener('click', function () { openView(u); });
       var editBtn = el('button', 'admin-edit-btn', '✏');
       editBtn.title = 'Editar perfil';
       editBtn.addEventListener('click', function () { openForm(u); });
       var delBtn = el('button', 'admin-delete-btn', '✕');
       delBtn.title = 'Eliminar usuario';
       delBtn.addEventListener('click', function () { deleteUser(u.uid, u.email); });
+      tdActions.appendChild(viewBtn);
       tdActions.appendChild(editBtn);
       tdActions.appendChild(delBtn);
       tr.appendChild(tdActions);
@@ -376,33 +812,379 @@
       .catch(function (e) { V.toast('Error: ' + e.message, true); });
   }
 
+  /* ─── VIEW USER (ficha de solo lectura) ───────────────────── */
+  function rolLabel(r) {
+    if (r === 'gestor') return 'Gestor';
+    if (r === 'superadmin') return 'Superadmin';
+    return 'Estudiante';
+  }
+
+  function viewBlock(icon, chipClass, title, rows) {
+    var block = el('div', 'form-block');
+    var head = el('div', 'form-block-head');
+    head.appendChild(el('span', 'icon-chip sm' + (chipClass ? ' ' + chipClass : ''), icon));
+    head.appendChild(el('h4', null, title));
+    block.appendChild(head);
+    rows.forEach(function (r) {
+      var row = el('div', 'crm-view-row');
+      row.appendChild(el('span', 'crm-view-label', r[0]));
+      row.appendChild(el('span', 'crm-view-value', r[1] || '—'));
+      block.appendChild(row);
+    });
+    return block;
+  }
+
+  function openView(user) {
+    editingUser = user;
+    var nombre = ((user.nombre || '') + ' ' + (user.apellido || '')).trim() || 'Usuario';
+    $('crmViewTitle').textContent = nombre;
+    $('crmViewSub').textContent = user.email || '';
+    $('crmViewRol').textContent = 'Rol: ' + rolLabel(user.rol || 'estudiante');
+    $('crmViewEstado').textContent = 'Estado: ' + (user.estado || 'Activo');
+
+    var body = $('crmViewBody');
+    body.innerHTML = '';
+
+    var subDate = user.fechaSuscripcion || user.createdAt || user.creado;
+    var sexo = user.sexo === 'Otro' ? (user.sexoCustom || 'Otro') : user.sexo;
+    body.appendChild(viewBlock('👤', 'gold', 'Datos Personales', [
+      ['Nombre completo', nombre],
+      ['Correo electrónico', user.email],
+      ['Documento de identidad', user.documento],
+      ['Teléfono de contacto', user.telefono],
+      ['Sexo', sexo],
+      ['Rango de edad', user.rangoEdad],
+      ['Estado civil', user.estadoCivil],
+      ['Fecha de suscripción', subDate ? V.fmtDate(subDate) : '']
+    ]));
+
+    body.appendChild(viewBlock('📍', 'blue', 'Ubicación', [
+      ['Departamento', user.departamento],
+      ['Ciudad', user.ciudad],
+      ['Barrio', user.barrio]
+    ]));
+
+    body.appendChild(viewBlock('📝', 'gold', 'Notas', [
+      ['Notas o detalles adicionales', user.notas]
+    ]));
+
+    body.appendChild(viewBlock('🛡️', 'blue', 'Rol y Configuración', [
+      ['Rol en la plataforma', rolLabel(user.rol || 'estudiante')],
+      ['Estado de cuenta', user.estado || 'Activo'],
+      ['Perfil organizacional', user.perfil],
+      ['Profesión u Oficio', user.profesion]
+    ]));
+
+    // Red de Referidos (MLM): se rellena el sponsor de forma asíncrona.
+    var mlmBlock = viewBlock('🌐', 'gold', 'Red de Referidos (MLM)', [
+      ['Código de referido', user.referralCode],
+      ['Patrocinador asignado', user.sponsorId || '—']
+    ]);
+    body.appendChild(mlmBlock);
+    var vals = mlmBlock.querySelectorAll('.crm-view-value');
+    if (vals.length > 1) {
+      if (user.sponsorId) {
+        V.mlm.datosPatrocinador(user.sponsorId).then(function (sp) {
+          if (!vals[1].isConnected) return;
+          vals[1].textContent = (sp && (sp.nombre || sp.email))
+            ? (sp.nombre || sp.email) + ' · ' + user.sponsorId
+            : user.sponsorId;
+        }).catch(function () {});
+      } else {
+        vals[1].textContent = '—';
+      }
+    }
+
+    // Árbol multinivel (Nivel 1 a 5) del perfil consultado. Solo el
+    // administrador general (isAdmin) tiene visibilidad sobre el árbol
+    // genealógico de cualquier perfil, gracias a las reglas de Firestore.
+    if (V.userRole === 'superadmin' && user.uid) {
+      var crmRedWrap = el('div', 'crm-mlm-red');
+      crmRedWrap.setAttribute('data-root', user.uid);
+      mlmBlock.appendChild(crmRedWrap);
+      cargarRedMlm(crmRedWrap, user.uid);
+    }
+
+    $('crmViewOverlay').classList.add('show');
+  }
+
+  /* ─── RED DE REFERIDOS (MLM): ÁRBOL MULTINIVEL ADMIN ────── */
+  // Reutiliza el motor V.mlm.redArbol() con el UID del perfil consultado
+  // como raíz: el administrador general ve la red descendente de hasta 5
+  // generaciones de CUALQUIER usuario. Misma estructura de acordeones por
+  // niveles que el Escritorio (clases dash-mlm-*): solo lectura, sin
+  // acciones de edición sobre perfiles.
+  function cargarRedMlm(container, uid) {
+    container.innerHTML = '';
+    if (!uid || !V.mlm || typeof V.mlm.redArbol !== 'function') {
+      container.appendChild(el('p', 'crm-mlm-empty', 'No se pudo consultar la red en este momento.'));
+      return;
+    }
+    container.appendChild(el('p', 'dash-mlm-loading', 'Consultando la red de referidos…'));
+    V.mlm.redArbol(uid, 5)
+      .then(function (niveles) { renderRedMlmNiveles(niveles, container); })
+      .catch(function () {
+        container.innerHTML = '';
+        container.appendChild(el('p', 'crm-mlm-empty', 'No se pudo consultar la red en este momento.'));
+      });
+  }
+
+  function renderRedMlmNiveles(niveles, container) {
+    var total = 0;
+    niveles.forEach(function (n) { total += n.miembros.length; });
+    container.innerHTML = '';
+
+    var head = el('div', 'crm-mlm-red-head');
+    head.appendChild(el('span', 'crm-mlm-red-total', '🧬 ' + total + ' integrantes en la red de este perfil'));
+    container.appendChild(head);
+
+    if (!total) {
+      container.appendChild(el('p', 'crm-mlm-empty', 'Este perfil aún no tiene referidos en su red.'));
+      return;
+    }
+
+    niveles.forEach(function (n) {
+      var det = document.createElement('details');
+      det.className = 'dash-mlm-arbol-nivel dash-mlm-arbol-nivel-' + n.nivel;
+      if (n.nivel === 1) det.open = true;
+
+      var sum = document.createElement('summary');
+      var label = n.denegado ? 'Nivel ' + n.nivel + ' (no disponible)' : 'Nivel ' + n.nivel;
+      sum.appendChild(el('span', 'dash-mlm-arbol-nivel-titulo', label));
+      var nCount = el('span', 'dash-mlm-red-count', String(n.miembros.length));
+      sum.appendChild(nCount);
+      det.appendChild(sum);
+
+      var body = el('div', 'dash-mlm-arbol-nivel-body');
+      if (n.denegado) {
+        body.appendChild(el('p', 'crm-mlm-empty', 'No se pudieron cargar los niveles más profundos de esta red.'));
+      } else if (!n.miembros.length) {
+        body.appendChild(el('p', 'crm-mlm-empty', 'Sin referidos en este nivel.'));
+      } else {
+        n.miembros.forEach(function (m) { body.appendChild(crmRedTarjeta(m)); });
+      }
+      det.appendChild(body);
+      container.appendChild(det);
+    });
+
+    var actions = el('div', 'dash-mlm-red-actions');
+    var btnRefresh = el('button', 'btn btn-outline btn-sm', '↻ Actualizar red');
+    btnRefresh.type = 'button';
+    btnRefresh.addEventListener('click', function () {
+      cargarRedMlm(container, container.getAttribute('data-root') || '');
+    });
+    actions.appendChild(btnRefresh);
+    container.appendChild(actions);
+  }
+
+  // Fila de miembro con el mismo diseño responsivo del Escritorio
+  // (dash-mlm-red-*): Nombre, Correo, Estado, Registro y "Ver detalle".
+  // En CRM, "Ver" abre el perfil completo del integrante en el modal.
+  function crmRedTarjeta(m) {
+    var row = el('div', 'dash-mlm-red-row');
+    row.appendChild(crmRedCelda('Nombre', crmRedNombreCompleto(m), 'dash-mlm-red-nombre'));
+    row.appendChild(crmRedCelda('Correo', m.email || '—', 'dash-mlm-red-correo'));
+    row.appendChild(crmRedCeldaEstado('Estado', m.estado || 'Activo'));
+    row.appendChild(crmRedCelda('Registro', V.fmtDate(m.creado) || '—', 'dash-mlm-red-fecha'));
+
+    var det = el('div', 'dash-mlm-red-detalle');
+    det.setAttribute('data-label', 'Detalle');
+    var btn = el('button', 'btn btn-outline btn-sm', 'Ver');
+    btn.type = 'button';
+    btn.addEventListener('click', function () { abrirPerfilDesdeRed(m); });
+    det.appendChild(btn);
+    row.appendChild(det);
+    return row;
+  }
+
+  function crmRedCelda(label, value, extraCls) {
+    var cell = el('span', 'dash-mlm-red-cell' + (extraCls ? ' ' + extraCls : ''), value);
+    cell.setAttribute('data-label', label);
+    return cell;
+  }
+
+  function crmRedCeldaEstado(label, value) {
+    var cell = el('span', 'dash-mlm-red-cell', '');
+    var key = String(value || 'activo').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    var pill = el('span', 'red-estado-pill red-estado-' + key, value || 'Activo');
+    cell.appendChild(pill);
+    cell.setAttribute('data-label', label);
+    return cell;
+  }
+
+  function crmRedNombreCompleto(m) {
+    return (((m.nombre || '') + ' ' + (m.apellido || '')).trim()) || (m.email || 'Usuario');
+  }
+
+  // Abre el perfil completo de un integrante de la red en el mismo modal
+  // de detalles del CRM (carga su documento en Firestore para mostrarlo
+  // actualizado y permitir el seguimiento de toda su red descendente).
+  function abrirPerfilDesdeRed(m) {
+    if (!V.db || !m || !m.uid) return;
+    V.db.collection(V.COL_USUARIOS).doc(m.uid).get().then(function (doc) {
+      if (!doc.exists) { V.toast('El perfil ya no existe.', true); return; }
+      var data = doc.data();
+      data.uid = doc.id;
+      openView(data);
+    }).catch(function () {
+      V.toast('No se pudo abrir el perfil.', true);
+    });
+  }
+
+  function closeView() {
+    $('crmViewOverlay').classList.remove('show');
+  }
+
   /* ─── EXTENDED FORM ───────────────────────────────────────── */
   function openForm(user) {
     editingUser = user;
     var overlay = $('crmFormOverlay');
     overlay.classList.add('show');
 
+    var gef = function (v) { return v || ''; };
+    $('crmFormSub').textContent = user.email || '';
     $('crmEmail').value = user.email || '';
     $('crmNombre').value = user.nombre || '';
     $('crmApellido').value = user.apellido || '';
     $('crmDocumento').value = user.documento || '';
     $('crmTelefono').value = user.telefono || '';
+    $('crmSexo').value = user.sexo || '';
+    var otWrap = $('crmSexoOtroWrap');
+    if (otWrap) otWrap.style.display = user.sexo === 'Otro' ? '' : 'none';
+    $('crmSexoOtro').value = user.sexo === 'Otro' ? gef(user.sexoCustom) : '';
+    $('crmRangoEdad').value = user.rangoEdad || '';
+    $('crmEstadoCivil').value = user.estadoCivil || '';
+    var subDate = user.fechaSuscripcion || user.createdAt || user.creado;
+    $('crmFechaSuscripcion').value = subDate ? V.fmtDate(subDate) : '—';
+    $('crmNotas').value = user.notas || '';
+    $('crmBanco').value = user.banco || '';
+    $('crmNumeroCuenta').value = user.numeroCuenta || '';
+    $('crmRegistradoPortal').checked = !!user.registradoPortal;
     $('crmRol').value = user.rol || 'estudiante';
     $('crmEstado').value = user.estado || 'Activo';
-    $('crmCreado').value = user.creado ? V.fmtDate(user.creado) : '—';
 
-    // Perfil
+    // Perfil: carga en directo desde config/perfiles cada vez que se abre el modal.
+    populatePerfilSelect(user.perfil);
+    loadPerfilesFromDb().then(function () {
+      populatePerfilSelect(user.perfil);
+    });
+
+    // Profesión: carga en directo desde config/profesiones.
+    populateProfesionSelect(user.profesion);
+    loadProfesionesFromDb().then(function () {
+      populateProfesionSelect(user.profesion);
+    });
+
+    // Ubicación: carga en directo desde config/ubicacion (Departamento → Ciudad → Barrio).
+    populateDeptoSelect(user.departamento);
+    populateCiudadSelect(user.ciudad);
+    populateBarrioSelect(user.barrio);
+    loadUbicacion().then(function () {
+      populateDeptoSelect(user.departamento);
+      populateCiudadSelect(user.ciudad);
+      populateBarrioSelect(user.barrio);
+    });
+
+    // Red de Referidos (MLM): solo los administradores pueden ver/editarla.
+    var mlmBlock = $('crmMlmBlock');
+    if (mlmBlock) mlmBlock.style.display = V.userRole === 'superadmin' ? '' : 'none';
+    cargarSponsorActual(user);
+  }
+
+  // Muestra el patrocinador actual en el campo del formulario de edición.
+  function cargarSponsorActual(user) {
+    var info = $('crmSponsorInfo');
+    var input = $('crmSponsor');
+    if (!info || !input) return;
+    input.value = '';
+    var sid = user && user.sponsorId;
+    if (!sid) { info.textContent = 'Sin patrocinador asignado.'; return; }
+    V.db.collection(V.COL_USUARIOS).doc(sid).get().then(function (doc) {
+      if (!doc.exists) {
+        info.textContent = 'Patrocinador actual (ID): ' + sid;
+        input.value = sid;
+        return;
+      }
+      var d = doc.data();
+      var nombre = ((d.nombre || '') + ' ' + (d.apellido || '')).trim();
+      var code = d.referralCode || '';
+      input.value = code || sid;
+      info.textContent = nombre
+        ? 'Patrocinador actual: ' + nombre + (code ? ' · ' + code : '')
+        : 'Patrocinador actual: ' + (code || sid);
+    }).catch(function () {
+      info.textContent = 'Patrocinador actual (ID): ' + sid;
+      input.value = sid;
+    });
+  }
+
+  function populatePerfilSelect(selected) {
     var selPerfil = $('crmPerfil');
+    if (!selPerfil) return;
     selPerfil.innerHTML = '<option value="">—</option>';
+    if (!perfilesCache.length) {
+      var hint = document.createElement('option');
+      hint.value = ''; hint.disabled = true;
+      hint.textContent = '(Sin perfiles configurados)';
+      selPerfil.appendChild(hint);
+    }
     perfilesCache.forEach(function (p) {
       var opt = document.createElement('option');
       opt.value = p; opt.textContent = p;
-      opt.selected = user.perfil === p;
+      opt.selected = String(selected || '') === p;
       selPerfil.appendChild(opt);
     });
+  }
 
-    // Location cascade
-    loadBarrios().then(function () { initLocationCascade(user); });
+  function populateProfesionSelect(selected) {
+    var sel = $('crmProfesion');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">—</option>';
+    if (!profesionesCache.length) {
+      var hint = document.createElement('option');
+      hint.value = ''; hint.disabled = true;
+      hint.textContent = '(Sin profesiones configuradas)';
+      sel.appendChild(hint);
+    }
+    profesionesCache.forEach(function (p) {
+      var opt = document.createElement('option');
+      opt.value = p; opt.textContent = p;
+      opt.selected = String(selected || '') === p;
+      sel.appendChild(opt);
+    });
+    var optOtro = document.createElement('option');
+    optOtro.value = '__otro__'; optOtro.textContent = 'Otros...';
+    sel.appendChild(optOtro);
+    if (selected && profesionesCache.indexOf(selected) === -1 && selected !== '') {
+      optOtro.selected = true;
+    }
+  }
+
+  function handleProfesionOtro() {
+    var sel = $('crmProfesion');
+    if (!sel) return;
+    if (sel.value !== '__otro__') return;
+    var custom = prompt('Escribe la profesión u oficio:');
+    if (custom === null || !custom.trim()) {
+      populateProfesionSelect(editingUser ? editingUser.profesion : '');
+      return;
+    }
+    var val = custom.trim();
+    addProfesionToList(val);
+    populateProfesionSelect(val);
+    V.toast('Profesión "' + val + '" añadida ✓');
+  }
+
+  function loadPerfilesFromDb() {
+    if (!V.db) { return Promise.resolve(perfilesCache); }
+    return V.db.collection(CONFIG_COLLECTION).doc(PROFILES_DOC).get()
+      .then(function (doc) {
+        var raw = doc.exists ? (doc.data().categorias || doc.data().perfiles || []) : [];
+        return applyPerfiles(normalizePerfiles(raw));
+      })
+      .catch(function () {
+        return applyPerfiles([]);
+      });
   }
 
   function closeForm() {
@@ -410,116 +1192,188 @@
     editingUser = null;
   }
 
-  function initLocationCascade(user) {
-    var selCiudad = $('crmCiudad');
-    var selMunicipio = $('crmMunicipio');
-    var selBarrio = $('crmBarrio');
-    var txtBarrioWrap = $('crmBarrioCustomWrap');
-    var txtBarrio = $('crmBarrioCustom');
+  function populateDeptoSelect(selected) {
+    var sel = $('crmDepartamento');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">—</option>';
+    ubicacionData.departamentos.forEach(function (d) {
+      var opt = document.createElement('option');
+      opt.value = d; opt.textContent = d;
+      opt.selected = String(selected || '') === d;
+      sel.appendChild(opt);
+    });
+  }
 
-    // Populate cities
-    selCiudad.innerHTML = '<option value="">—</option>';
-    Object.keys(barriosData).forEach(function (c) {
+  function populateCiudadSelect(selected) {
+    var sel = $('crmCiudad');
+    if (!sel) return;
+    var depto = $('crmDepartamento').value;
+    sel.innerHTML = '<option value="">—</option>';
+    var cities = ubicacionData.ciudades[depto] || [];
+    cities.forEach(function (c) {
       var opt = document.createElement('option');
       opt.value = c; opt.textContent = c;
-      selCiudad.appendChild(opt);
+      opt.selected = String(selected || '') === c;
+      sel.appendChild(opt);
     });
-    var optOtroC = document.createElement('option');
-    optOtroC.value = 'Otro'; optOtroC.textContent = 'Otro';
-    selCiudad.appendChild(optOtroC);
-
-    selCiudad.onchange = function () {
-      populateMunicipios(this.value);
-      selBarrio.innerHTML = '<option value="">—</option>';
-      txtBarrioWrap.style.display = 'none';
-    };
-    selMunicipio.onchange = function () {
-      populateBarrios(selCiudad.value, this.value);
-    };
-    selBarrio.onchange = function () {
-      txtBarrioWrap.style.display = this.value === 'Otro' ? '' : 'none';
-    };
-
-    // Set initial values
-    if (user.ciudad) {
-      selCiudad.value = user.ciudad;
-      populateMunicipios(user.ciudad);
-      if (user.municipio) {
-        selMunicipio.value = user.municipio;
-        populateBarrios(user.ciudad, user.municipio);
-        if (user.barrio) {
-          selBarrio.value = user.barrio;
-          txtBarrioWrap.style.display = user.barrio === 'Otro' ? '' : 'none';
-          txtBarrio.value = user.barrioCustom || '';
-        }
-      }
-    }
   }
 
-  function populateMunicipios(ciudad) {
-    var sel = $('crmMunicipio');
-    sel.innerHTML = '<option value="">—</option>';
-    if (!ciudad || ciudad === 'Otro') return;
-    var munis = barriosData[ciudad];
-    if (!munis) return;
-    if (Array.isArray(munis)) {
-      munis.forEach(function (m) {
-        var opt = document.createElement('option');
-        opt.value = m; opt.textContent = m;
-        sel.appendChild(opt);
-      });
-    } else {
-      Object.keys(munis).forEach(function (m) {
-        var opt = document.createElement('option');
-        opt.value = m; opt.textContent = m;
-        sel.appendChild(opt);
-      });
-    }
-    var optOtro = document.createElement('option');
-    optOtro.value = 'Otro'; optOtro.textContent = 'Otro';
-    sel.appendChild(optOtro);
-  }
-
-  function populateBarrios(ciudad, municipio) {
+  function populateBarrioSelect(selected) {
     var sel = $('crmBarrio');
+    if (!sel) return;
+    var ciudad = $('crmCiudad').value;
     sel.innerHTML = '<option value="">—</option>';
-    if (!ciudad || !municipio || municipio === 'Otro') return;
-    var munis = barriosData[ciudad];
-    if (!munis || !munis[municipio] || !Array.isArray(munis[municipio])) return;
-    munis[municipio].forEach(function (b) {
+    var barrios = ubicacionData.barrios[ciudad] || [];
+    barrios.forEach(function (b) {
       var opt = document.createElement('option');
       opt.value = b; opt.textContent = b;
+      opt.selected = String(selected || '') === b;
       sel.appendChild(opt);
     });
     var optOtro = document.createElement('option');
-    optOtro.value = 'Otro'; optOtro.textContent = 'Otro';
+    optOtro.value = '__otro__'; optOtro.textContent = 'Otros...';
     sel.appendChild(optOtro);
+    if (selected && barrios.indexOf(selected) === -1 && selected !== '') {
+      optOtro.selected = true;
+    }
+  }
+
+  function handleBarrioOtro() {
+    var sel = $('crmBarrio');
+    if (!sel || sel.value !== '__otro__') return;
+    var ciudad = $('crmCiudad').value;
+    if (!ciudad) {
+      V.toast('Selecciona una ciudad primero.', true);
+      populateBarrioSelect('');
+      return;
+    }
+    var custom = prompt('Escribe el barrio:');
+    if (custom === null || !custom.trim()) {
+      populateBarrioSelect(editingUser ? editingUser.barrio : '');
+      return;
+    }
+    var val = custom.trim();
+    addBarrioToList(ciudad, val);
+    populateBarrioSelect(val);
+    V.toast('Barrio "' + val + '" añadido ✓');
   }
 
   function saveForm() {
     if (!editingUser || !V.db) return;
+    var profesionVal = $('crmProfesion').value;
+    if (profesionVal === '__otro__') {
+      var custom = prompt('Escribe la profesión u oficio:');
+      if (custom && custom.trim()) {
+        profesionVal = custom.trim();
+        addProfesionToList(profesionVal);
+      } else {
+        profesionVal = '';
+      }
+    }
+    // Barrio: si quedó en "__otro__", pedir el valor y añadirlo a config.
+    var barrioVal = $('crmBarrio').value;
+    if (barrioVal === '__otro__') {
+      var customBarrio = prompt('Escribe el barrio:');
+      var ciudadSel = $('crmCiudad').value;
+      if (customBarrio && customBarrio.trim() && ciudadSel) {
+        barrioVal = customBarrio.trim();
+        addBarrioToList(ciudadSel, barrioVal);
+      } else {
+        barrioVal = '';
+      }
+    }
+    var sexoVal = $('crmSexo').value;
     var data = {
       apellido: $('crmApellido').value.trim(),
       documento: $('crmDocumento').value.trim(),
       telefono: $('crmTelefono').value.trim(),
+      sexo: sexoVal,
+      sexoCustom: sexoVal === 'Otro' ? $('crmSexoOtro').value.trim() : '',
+      rangoEdad: $('crmRangoEdad').value,
+      estadoCivil: $('crmEstadoCivil').value,
+      departamento: $('crmDepartamento').value,
       ciudad: $('crmCiudad').value,
-      municipio: $('crmMunicipio').value,
-      barrio: $('crmBarrio').value,
-      barrioCustom: $('crmBarrio').value === 'Otro' ? $('crmBarrioCustom').value.trim() : '',
+      barrio: barrioVal,
       rol: $('crmRol').value,
       estado: $('crmEstado').value,
       perfil: $('crmPerfil').value,
-      nombre: $('crmNombre').value.trim()
+      profesion: profesionVal,
+      nombre: $('crmNombre').value.trim(),
+      notas: $('crmNotas').value.trim(),
+      banco: $('crmBanco').value,
+      numeroCuenta: $('crmNumeroCuenta').value.trim(),
+      registradoPortal: !!$('crmRegistradoPortal').checked
     };
 
-    if (editingUser.uid === V.userId && data.rol !== V.userRole) {
-      V.toast('No puedes cambiar tu propio rol.', true);
-      return;
+    if (!editingUser.fechaSuscripcion && !editingUser.createdAt) {
+      data.fechaSuscripcion = new Date().toISOString();
     }
 
-    V.db.collection(V.COL_USUARIOS).doc(editingUser.uid).update(data)
-      .then(function () { V.toast('Perfil actualizado ✓'); closeForm(); })
-      .catch(function (e) { V.toast('Error: ' + e.message, true); });
+    if (editingUser.uid === V.userId && data.rol !== V.userRole) {
+      // BYPASS de superadmin: puede cambiar su propio rol (control absoluto)
+      // con confirmación para evitar un cierre accidental de su acceso.
+      if (V.userRole === 'superadmin') {
+        if (!confirm('⚠️ Estás a punto de cambiar TU PROPIO rol a "' + data.rol + '".\n¿Continuar?')) return;
+      } else {
+        V.toast('No puedes cambiar tu propio rol.', true);
+        return;
+      }
+    }
+
+    var btn = $('crmFormSave');
+    btn.disabled = true;
+    var original = btn.textContent;
+    btn.textContent = '⏳ Guardando…';
+
+    resolverNuevoSponsor().then(function (patrocinio) {
+      if (patrocinio && patrocinio.error) {
+        V.toast(patrocinio.error, true);
+        return;
+      }
+      if (patrocinio && patrocinio.aplicar) data.sponsorId = patrocinio.sponsorId;
+      return V.db.collection(V.COL_USUARIOS).doc(editingUser.uid).update(data)
+        .then(function () { V.toast('Perfil actualizado ✓'); closeForm(); })
+        .catch(function (e) { V.toast('Error: ' + e.message, true); });
+    }).then(function () {
+      btn.disabled = false;
+      btn.textContent = original;
+    });
+  }
+
+  // Valida el patrocinador ingresado por el admin antes de guardar el
+  // sponsorId. Devuelve { aplicar:false } (sin cambio), { aplicar:true,
+  // sponsorId } o { error }.
+  function resolverNuevoSponsor() {
+    var input = $('crmSponsor');
+    var raw = input ? input.value.trim() : '';
+    if (V.userRole !== 'superadmin') return Promise.resolve({ aplicar: false });
+    if (!raw) return Promise.resolve({ aplicar: false });
+    if (!V.mlm || !V.mlm.validarPatrocinador) {
+      return Promise.resolve({ error: 'El módulo MLM no está disponible.' });
+    }
+    return V.mlm.validarPatrocinador(raw).then(function (uid) {
+      if (!uid) {
+        return { error: 'El código o ID de patrocinador ingresado no existe en la base de datos.' };
+      }
+      if (String(uid) === String(editingUser.sponsorId || '')) {
+        return { aplicar: false };
+      }
+      // BYPASS de superadmin: control absoluto. Se omiten las validaciones
+      // de parentesco (no auto-patrocinio) y de ciclos en la cadena; el
+      // superadmin puede asignar el patrocinador que decida.
+      if (V.userRole === 'superadmin') {
+        return { aplicar: true, sponsorId: uid };
+      }
+      if (uid === editingUser.uid) {
+        return { error: 'Un usuario no puede ser su propio patrocinador.' };
+      }
+      return V.mlm.esCicloPotencial(uid, editingUser.uid).then(function (ciclo) {
+        if (ciclo) return { error: 'Ese patrocinador crearía un ciclo en la red.' };
+        return { aplicar: true, sponsorId: uid };
+      });
+    }).catch(function () {
+      return { error: 'No se pudo validar el patrocinador. Inténtalo de nuevo.' };
+    });
   }
 
   /* ─── PROFILE MANAGEMENT ──────────────────────────────────── */
@@ -528,15 +1382,71 @@
     if (!list) return;
     list.innerHTML = '';
     perfilesCache.forEach(function (p, i) {
+      if (editingProfileIndex === i) {
+        list.appendChild(renderProfileEditor(i, p));
+        return;
+      }
       var tag = el('span', 'profile-tag');
       tag.appendChild(document.createTextNode(p));
+      var edit = el('button', 'profile-tag-edit', '✏');
+      edit.title = 'Renombrar perfil';
+      edit.addEventListener('click', function () { editingProfileIndex = i; renderProfiles(); });
       var del = el('button', 'profile-tag-delete', '✕');
       del.title = 'Eliminar perfil';
       del.addEventListener('click', function () { removeProfile(i); });
+      tag.appendChild(edit);
       tag.appendChild(del);
       list.appendChild(tag);
     });
     populateFilterProfiles();
+  }
+
+  function renderProfileEditor(index, oldName) {
+    var tag = el('span', 'profile-tag editing');
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'profile-tag-input';
+    inp.value = oldName;
+    inp.maxLength = 60;
+    tag.appendChild(inp);
+
+    var save = el('button', 'profile-tag-save', '✓');
+    save.title = 'Guardar';
+    save.addEventListener('click', function () { commitProfileRename(index, inp.value); });
+    var cancel = el('button', 'profile-tag-delete', '✕');
+    cancel.title = 'Cancelar';
+    cancel.addEventListener('click', function () { editingProfileIndex = null; renderProfiles(); });
+    tag.appendChild(save);
+    tag.appendChild(cancel);
+
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commitProfileRename(index, inp.value); }
+      if (e.key === 'Escape') { editingProfileIndex = null; renderProfiles(); }
+    });
+    setTimeout(function () { inp.focus(); inp.select(); }, 0);
+    return tag;
+  }
+
+  function commitProfileRename(index, rawValue) {
+    var val = (rawValue || '').trim();
+    var oldName = perfilesCache[index];
+    if (!val || val === oldName) { editingProfileIndex = null; renderProfiles(); return; }
+    if (perfilesCache.indexOf(val) !== -1) { V.toast('Ese perfil ya existe.', true); return; }
+    perfilesCache[index] = val;
+    savePerfiles();
+    // Mantiene el nuevo nombre en los usuarios que tenían el anterior.
+    if (oldName && V.db) {
+      V.db.collection(V.COL_USUARIOS).where('perfil', '==', oldName).get()
+        .then(function (snap) {
+          var updates = [];
+          snap.forEach(function (doc) { updates.push(doc.ref.update({ perfil: val })); });
+          return Promise.all(updates);
+        })
+        .catch(function () {});
+    }
+    editingProfileIndex = null;
+    V.toast('Perfil renombrado ✓');
+    renderProfiles();
   }
 
   function addProfile() {
@@ -547,15 +1457,447 @@
     perfilesCache.push(val);
     savePerfiles();
     input.value = '';
+    renderProfiles();
     V.toast('Perfil "' + val + '" añadido ✓');
   }
 
   function removeProfile(index) {
     var name = perfilesCache[index];
-    if (!confirm('¿Eliminar el perfil "' + name + '"?')) return;
+    if (!confirm('¿Eliminar el perfil "' + name + '"? Los usuarios con este perfil quedarán sin perfil asignado.')) return;
     perfilesCache.splice(index, 1);
     savePerfiles();
+    if (name && V.db) {
+      V.db.collection(V.COL_USUARIOS).where('perfil', '==', name).get()
+        .then(function (snap) {
+          var updates = [];
+          snap.forEach(function (doc) { updates.push(doc.ref.update({ perfil: '' })); });
+          return Promise.all(updates);
+        })
+        .catch(function () {});
+    }
+    renderProfiles();
     V.toast('Perfil eliminado ✓');
+  }
+
+  /* ─── PROFESION MANAGEMENT ────────────────────────────────── */
+  function renderProfesiones() {
+    var list = $('adminProfesionesList');
+    if (!list) return;
+    list.innerHTML = '';
+    profesionesCache.forEach(function (p, i) {
+      if (editingProfesionIndex === i) {
+        list.appendChild(renderProfesionEditor(i, p));
+        return;
+      }
+      var tag = el('span', 'profile-tag');
+      tag.appendChild(document.createTextNode(p));
+      var edit = el('button', 'profile-tag-edit', '✏');
+      edit.title = 'Renombrar profesión';
+      edit.addEventListener('click', function () { editingProfesionIndex = i; renderProfesiones(); });
+      var del = el('button', 'profile-tag-delete', '✕');
+      del.title = 'Eliminar profesión';
+      del.addEventListener('click', function () { removeProfesion(i); });
+      tag.appendChild(edit);
+      tag.appendChild(del);
+      list.appendChild(tag);
+    });
+    populateFilterProfesiones();
+  }
+
+  function renderProfesionEditor(index, oldName) {
+    var tag = el('span', 'profile-tag editing');
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'profile-tag-input';
+    inp.value = oldName;
+    inp.maxLength = 60;
+    tag.appendChild(inp);
+
+    var save = el('button', 'profile-tag-save', '✓');
+    save.title = 'Guardar';
+    save.addEventListener('click', function () { commitProfesionRename(index, inp.value); });
+    var cancel = el('button', 'profile-tag-delete', '✕');
+    cancel.title = 'Cancelar';
+    cancel.addEventListener('click', function () { editingProfesionIndex = null; renderProfesiones(); });
+    tag.appendChild(save);
+    tag.appendChild(cancel);
+
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commitProfesionRename(index, inp.value); }
+      if (e.key === 'Escape') { editingProfesionIndex = null; renderProfesiones(); }
+    });
+    setTimeout(function () { inp.focus(); inp.select(); }, 0);
+    return tag;
+  }
+
+  function commitProfesionRename(index, rawValue) {
+    var val = (rawValue || '').trim();
+    var oldName = profesionesCache[index];
+    if (!val || val === oldName) { editingProfesionIndex = null; renderProfesiones(); return; }
+    if (profesionesCache.indexOf(val) !== -1) { V.toast('Esa profesión ya existe.', true); return; }
+    profesionesCache[index] = val;
+    saveProfesiones();
+    if (oldName && V.db) {
+      V.db.collection(V.COL_USUARIOS).where('profesion', '==', oldName).get()
+        .then(function (snap) {
+          var updates = [];
+          snap.forEach(function (doc) { updates.push(doc.ref.update({ profesion: val })); });
+          return Promise.all(updates);
+        })
+        .catch(function () {});
+    }
+    editingProfesionIndex = null;
+    V.toast('Profesión renombrada ✓');
+    renderProfesiones();
+  }
+
+  function addProfesion() {
+    var input = $('adminProfesionInput');
+    var val = input.value.trim();
+    if (!val) return;
+    if (profesionesCache.indexOf(val) !== -1) { V.toast('Esa profesión ya existe.', true); return; }
+    profesionesCache.push(val);
+    saveProfesiones();
+    input.value = '';
+    renderProfesiones();
+    V.toast('Profesión "' + val + '" añadida ✓');
+  }
+
+  function removeProfesion(index) {
+    var name = profesionesCache[index];
+    if (!confirm('¿Eliminar la profesión "' + name + '"? Los usuarios con esta profesión quedarán sin profesión asignada.')) return;
+    profesionesCache.splice(index, 1);
+    saveProfesiones();
+    if (name && V.db) {
+      V.db.collection(V.COL_USUARIOS).where('profesion', '==', name).get()
+        .then(function (snap) {
+          var updates = [];
+          snap.forEach(function (doc) { updates.push(doc.ref.update({ profesion: '' })); });
+          return Promise.all(updates);
+        })
+        .catch(function () {});
+    }
+    renderProfesiones();
+    V.toast('Profesión eliminada ✓');
+  }
+
+  /* ─── UBICACION MANAGEMENT (Departamento → Ciudad → Barrio) ─ */
+  function renderUbicacion() {
+    populateUbicacionSelects();
+    renderDeptos();
+    renderCiudades();
+    renderBarrios();
+  }
+
+  function populateUbicacionSelects() {
+    var selDeptos = $('adminCiudadesDepto');
+    if (selDeptos) {
+      var prev = selDeptos.value;
+      selDeptos.innerHTML = '<option value="">—</option>';
+      ubicacionData.departamentos.forEach(function (d) {
+        var opt = document.createElement('option');
+        opt.value = d; opt.textContent = d;
+        if (prev === d) opt.selected = true;
+        selDeptos.appendChild(opt);
+      });
+      if (!prev) selDeptos.value = ubicacionData.departamentos[0] || '';
+    }
+    var selCiudades = $('adminBarriosCiudad');
+    if (selCiudades) {
+      var depto = selDeptos ? selDeptos.value : '';
+      var prevC = selCiudades.value;
+      selCiudades.innerHTML = '<option value="">—</option>';
+      (ubicacionData.ciudades[depto] || []).forEach(function (c) {
+        var opt = document.createElement('option');
+        opt.value = c; opt.textContent = c;
+        if (prevC === c) opt.selected = true;
+        selCiudades.appendChild(opt);
+      });
+      if (!prevC) selCiudades.value = (ubicacionData.ciudades[depto] || [])[0] || '';
+    }
+  }
+
+  function renderDeptos() {
+    var list = $('adminDeptosList');
+    if (!list) return;
+    list.innerHTML = '';
+    ubicacionData.departamentos.forEach(function (d, i) {
+      if (editingDeptoIndex === i) {
+        list.appendChild(renderDeptoEditor(i, d));
+        return;
+      }
+      var tag = el('span', 'profile-tag');
+      tag.appendChild(document.createTextNode(d));
+      var edit = el('button', 'profile-tag-edit', '✏');
+      edit.title = 'Renombrar departamento';
+      edit.addEventListener('click', function () { editingDeptoIndex = i; renderUbicacion(); });
+      var del = el('button', 'profile-tag-delete', '✕');
+      del.title = 'Eliminar departamento';
+      del.addEventListener('click', function () { removeDepto(i); });
+      tag.appendChild(edit);
+      tag.appendChild(del);
+      list.appendChild(tag);
+    });
+  }
+
+  function renderDeptoEditor(index, oldName) {
+    var tag = el('span', 'profile-tag editing');
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'profile-tag-input';
+    inp.value = oldName;
+    inp.maxLength = 60;
+    tag.appendChild(inp);
+
+    var save = el('button', 'profile-tag-save', '✓');
+    save.title = 'Guardar';
+    save.addEventListener('click', function () { commitDeptoRename(index, inp.value); });
+    var cancel = el('button', 'profile-tag-delete', '✕');
+    cancel.title = 'Cancelar';
+    cancel.addEventListener('click', function () { editingDeptoIndex = null; renderUbicacion(); });
+    tag.appendChild(save);
+    tag.appendChild(cancel);
+
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commitDeptoRename(index, inp.value); }
+      if (e.key === 'Escape') { editingDeptoIndex = null; renderUbicacion(); }
+    });
+    setTimeout(function () { inp.focus(); inp.select(); }, 0);
+    return tag;
+  }
+
+  function commitDeptoRename(index, rawValue) {
+    var val = (rawValue || '').trim();
+    var oldName = ubicacionData.departamentos[index];
+    if (!val || val === oldName) { editingDeptoIndex = null; renderUbicacion(); return; }
+    if (ubicacionData.departamentos.indexOf(val) !== -1) { V.toast('Ese departamento ya existe.', true); return; }
+    // Actualiza claves de ciudades del departamento.
+    if (ubicacionData.ciudades[oldName]) {
+      ubicacionData.ciudades[val] = ubicacionData.ciudades[oldName];
+      delete ubicacionData.ciudades[oldName];
+    }
+    ubicacionData.departamentos[index] = val;
+    saveUbicacion();
+    updateUsersField('departamento', oldName, val);
+    editingDeptoIndex = null;
+    V.toast('Departamento renombrado ✓');
+    renderUbicacion();
+  }
+
+  function addDepto() {
+    var input = $('adminDeptoInput');
+    var val = input.value.trim();
+    if (!val) return;
+    if (ubicacionData.departamentos.indexOf(val) !== -1) { V.toast('Ese departamento ya existe.', true); return; }
+    ubicacionData.departamentos.push(val);
+    ubicacionData.ciudades[val] = ubicacionData.ciudades[val] || [];
+    saveUbicacion();
+    input.value = '';
+    renderUbicacion();
+    V.toast('Departamento "' + val + '" añadido ✓');
+  }
+
+  function removeDepto(index) {
+    if (!confirm('¿Eliminar el departamento "' + ubicacionData.departamentos[index] + '"? Los usuarios quedarán sin ubicación.')) return;
+    var name = ubicacionData.departamentos[index];
+    // Borra las ciudades del departamento y sus barrios.
+    (ubicacionData.ciudades[name] || []).forEach(function (c) { delete ubicacionData.barrios[c]; });
+    delete ubicacionData.ciudades[name];
+    ubicacionData.departamentos.splice(index, 1);
+    saveUbicacion();
+    clearUsersField('departamento', name);
+    renderUbicacion();
+    V.toast('Departamento eliminado ✓');
+  }
+
+  function renderCiudades() {
+    var list = $('adminCiudadesList');
+    if (!list) return;
+    var selDepto = $('adminCiudadesDepto');
+    if (!selDepto) return;
+    var depto = selDepto.value;
+    list.innerHTML = '';
+    var cities = ubicacionData.ciudades[depto] || [];
+    cities.forEach(function (c, i) {
+      if (editingCiudadDepto === depto && editingCiudadIndex === i) {
+        list.appendChild(renderCiudadEditor(depto, i, c));
+        return;
+      }
+      var tag = el('span', 'profile-tag');
+      tag.appendChild(document.createTextNode(c));
+      var edit = el('button', 'profile-tag-edit', '✏');
+      edit.title = 'Renombrar ciudad';
+      edit.addEventListener('click', function () { editingCiudadDepto = depto; editingCiudadIndex = i; renderCiudades(); });
+      var del = el('button', 'profile-tag-delete', '✕');
+      del.title = 'Eliminar ciudad';
+      del.addEventListener('click', function () { removeCiudad(depto, i); });
+      tag.appendChild(edit);
+      tag.appendChild(del);
+      list.appendChild(tag);
+    });
+  }
+
+  function renderCiudadEditor(depto, index, oldName) {
+    var tag = el('span', 'profile-tag editing');
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'profile-tag-input';
+    inp.value = oldName;
+    inp.maxLength = 60;
+    tag.appendChild(inp);
+
+    var save = el('button', 'profile-tag-save', '✓');
+    save.title = 'Guardar';
+    save.addEventListener('click', function () { commitCiudadRename(depto, index, inp.value); });
+    var cancel = el('button', 'profile-tag-delete', '✕');
+    cancel.title = 'Cancelar';
+    cancel.addEventListener('click', function () { editingCiudadDepto = null; renderCiudades(); });
+    tag.appendChild(save);
+    tag.appendChild(cancel);
+
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commitCiudadRename(depto, index, inp.value); }
+      if (e.key === 'Escape') { editingCiudadDepto = null; renderCiudades(); }
+    });
+    setTimeout(function () { inp.focus(); inp.select(); }, 0);
+    return tag;
+  }
+
+  function commitCiudadRename(depto, index, rawValue) {
+    var val = (rawValue || '').trim();
+    var oldName = (ubicacionData.ciudades[depto] || [])[index];
+    if (!val || val === oldName) { editingCiudadDepto = null; renderCiudades(); return; }
+    if ((ubicacionData.ciudades[depto] || []).indexOf(val) !== -1) { V.toast('Esa ciudad ya existe.', true); return; }
+    // Actualiza claves de barrios de la ciudad.
+    if (ubicacionData.barrios[oldName]) {
+      ubicacionData.barrios[val] = ubicacionData.barrios[oldName];
+      delete ubicacionData.barrios[oldName];
+    }
+    ubicacionData.ciudades[depto][index] = val;
+    saveUbicacion();
+    updateUsersField('ciudad', oldName, val);
+    editingCiudadDepto = null;
+    V.toast('Ciudad renombrada ✓');
+    renderCiudades();
+  }
+
+  function addCiudad() {
+    var selDepto = $('adminCiudadesDepto');
+    var input = $('adminCiudadInput');
+    var depto = selDepto.value;
+    if (!depto) { V.toast('Selecciona un departamento primero.', true); return; }
+    var val = input.value.trim();
+    if (!val) return;
+    if ((ubicacionData.ciudades[depto] || []).indexOf(val) !== -1) { V.toast('Esa ciudad ya existe.', true); return; }
+    ubicacionData.ciudades[depto] = ubicacionData.ciudades[depto] || [];
+    ubicacionData.ciudades[depto].push(val);
+    saveUbicacion();
+    input.value = '';
+    renderCiudades();
+    V.toast('Ciudad "' + val + '" añadida ✓');
+  }
+
+  function removeCiudad(depto, index) {
+    if (!confirm('¿Eliminar la ciudad "' + (ubicacionData.ciudades[depto] || [])[index] + '"? Los usuarios quedarán sin ciudad.')) return;
+    var name = (ubicacionData.ciudades[depto] || [])[index];
+    delete ubicacionData.barrios[name];
+    ubicacionData.ciudades[depto].splice(index, 1);
+    saveUbicacion();
+    clearUsersField('ciudad', name);
+    renderCiudades();
+    V.toast('Ciudad eliminada ✓');
+  }
+
+  function renderBarrios() {
+    var list = $('adminBarriosList');
+    if (!list) return;
+    var selCiudad = $('adminBarriosCiudad');
+    if (!selCiudad) return;
+    var ciudad = selCiudad.value;
+    list.innerHTML = '';
+    var barrios = ubicacionData.barrios[ciudad] || [];
+    barrios.forEach(function (b, i) {
+      if (editingBarrioCiudad === ciudad && editingBarrioIndex === i) {
+        list.appendChild(renderBarrioEditor(ciudad, i, b));
+        return;
+      }
+      var tag = el('span', 'profile-tag');
+      tag.appendChild(document.createTextNode(b));
+      var edit = el('button', 'profile-tag-edit', '✏');
+      edit.title = 'Renombrar barrio';
+      edit.addEventListener('click', function () { editingBarrioCiudad = ciudad; editingBarrioIndex = i; renderBarrios(); });
+      var del = el('button', 'profile-tag-delete', '✕');
+      del.title = 'Eliminar barrio';
+      del.addEventListener('click', function () { removeBarrio(ciudad, i); });
+      tag.appendChild(edit);
+      tag.appendChild(del);
+      list.appendChild(tag);
+    });
+  }
+
+  function renderBarrioEditor(ciudad, index, oldName) {
+    var tag = el('span', 'profile-tag editing');
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'profile-tag-input';
+    inp.value = oldName;
+    inp.maxLength = 60;
+    tag.appendChild(inp);
+
+    var save = el('button', 'profile-tag-save', '✓');
+    save.title = 'Guardar';
+    save.addEventListener('click', function () { commitBarrioRename(ciudad, index, inp.value); });
+    var cancel = el('button', 'profile-tag-delete', '✕');
+    cancel.title = 'Cancelar';
+    cancel.addEventListener('click', function () { editingBarrioCiudad = null; renderBarrios(); });
+    tag.appendChild(save);
+    tag.appendChild(cancel);
+
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commitBarrioRename(ciudad, index, inp.value); }
+      if (e.key === 'Escape') { editingBarrioCiudad = null; renderBarrios(); }
+    });
+    setTimeout(function () { inp.focus(); inp.select(); }, 0);
+    return tag;
+  }
+
+  function commitBarrioRename(ciudad, index, rawValue) {
+    var val = (rawValue || '').trim();
+    var oldName = (ubicacionData.barrios[ciudad] || [])[index];
+    if (!val || val === oldName) { editingBarrioCiudad = null; renderBarrios(); return; }
+    if ((ubicacionData.barrios[ciudad] || []).indexOf(val) !== -1) { V.toast('Ese barrio ya existe.', true); return; }
+    ubicacionData.barrios[ciudad][index] = val;
+    saveUbicacion();
+    updateUsersField('barrio', oldName, val);
+    editingBarrioCiudad = null;
+    V.toast('Barrio renombrado ✓');
+    renderBarrios();
+  }
+
+  function addBarrio() {
+    var selCiudad = $('adminBarriosCiudad');
+    var input = $('adminBarrioInput');
+    var ciudad = selCiudad.value;
+    if (!ciudad) { V.toast('Selecciona una ciudad primero.', true); return; }
+    var val = input.value.trim();
+    if (!val) return;
+    if ((ubicacionData.barrios[ciudad] || []).indexOf(val) !== -1) { V.toast('Ese barrio ya existe.', true); return; }
+    ubicacionData.barrios[ciudad] = ubicacionData.barrios[ciudad] || [];
+    ubicacionData.barrios[ciudad].push(val);
+    saveUbicacion();
+    input.value = '';
+    renderBarrios();
+    V.toast('Barrio "' + val + '" añadido ✓');
+  }
+
+  function removeBarrio(ciudad, index) {
+    if (!confirm('¿Eliminar el barrio "' + (ubicacionData.barrios[ciudad] || [])[index] + '"? Los usuarios quedarán sin barrio.')) return;
+    var name = (ubicacionData.barrios[ciudad] || [])[index];
+    ubicacionData.barrios[ciudad].splice(index, 1);
+    saveUbicacion();
+    clearUsersField('barrio', name);
+    renderBarrios();
+    V.toast('Barrio eliminado ✓');
   }
 
   /* ─── FILTERS ─────────────────────────────────────────────── */
@@ -564,29 +1906,37 @@
     var rolSelect = $('adminFilterRol');
     var estadoSelect = $('adminFilterEstado');
     var perfilSelect = $('adminFilterPerfil');
+    var profesionSelect = $('adminFilterProfesion');
 
     if (searchInput) {
       searchInput.addEventListener('input', function () {
         filters.search = this.value;
         renderTable();
+        renderActiveFiltersBar();
       });
     }
     if (rolSelect) {
       rolSelect.addEventListener('change', function () {
         filters.rol = this.value;
-        renderTable();
+        filterUpdate();
       });
     }
     if (estadoSelect) {
       estadoSelect.addEventListener('change', function () {
         filters.estado = this.value;
-        renderTable();
+        filterUpdate();
       });
     }
     if (perfilSelect) {
       perfilSelect.addEventListener('change', function () {
         filters.perfil = this.value;
-        renderTable();
+        filterUpdate();
+      });
+    }
+    if (profesionSelect) {
+      profesionSelect.addEventListener('change', function () {
+        filters.profesion = this.value;
+        filterUpdate();
       });
     }
   }
@@ -594,9 +1944,19 @@
   function populateFilterProfiles() {
     var sel = $('adminFilterPerfil');
     if (!sel) return;
-    // Keep first option
     while (sel.options.length > 1) sel.remove(1);
     perfilesCache.forEach(function (p) {
+      var opt = document.createElement('option');
+      opt.value = p; opt.textContent = p;
+      sel.appendChild(opt);
+    });
+  }
+
+  function populateFilterProfesiones() {
+    var sel = $('adminFilterProfesion');
+    if (!sel) return;
+    while (sel.options.length > 1) sel.remove(1);
+    profesionesCache.forEach(function (p) {
       var opt = document.createElement('option');
       opt.value = p; opt.textContent = p;
       sel.appendChild(opt);
@@ -608,8 +1968,14 @@
     onReady: function () {
       if (V.userRole !== 'superadmin') return;
 
+      // La gestión del patrocinador (MLM) es exclusiva de administradores.
+      var mlmBlock = $('crmMlmBlock');
+      if (mlmBlock) mlmBlock.style.display = '';
+
       subscribeUsuarios();
       subscribePerfiles();
+      subscribeProfesiones();
+      subscribeUbicacion();
       bindFilters();
 
       // Bulk actions
@@ -627,10 +1993,76 @@
         if (e.target === this) closeForm();
       });
 
+      // Ficha (vista) events
+      $('crmViewEdit').addEventListener('click', function () {
+        if (editingUser) openForm(editingUser);
+        closeView();
+      });
+      $('crmViewClose').addEventListener('click', closeView);
+      $('crmViewOverlay').addEventListener('click', function (e) {
+        if (e.target === this) closeView();
+      });
+
+      // Sexo "Otro" → descripción
+      var crmSexo = $('crmSexo');
+      if (crmSexo) crmSexo.addEventListener('change', function () {
+        var wrap = $('crmSexoOtroWrap');
+        if (wrap) wrap.style.display = this.value === 'Otro' ? '' : 'none';
+      });
+
+      // Ubicación: cascada del modal (Departamento → Ciudad → Barrio)
+      var crmDepto = $('crmDepartamento');
+      var crmCiudad = $('crmCiudad');
+      var crmBarrio = $('crmBarrio');
+      if (crmDepto) crmDepto.addEventListener('change', function () {
+        populateCiudadSelect('');
+        populateBarrioSelect('');
+      });
+      if (crmCiudad) crmCiudad.addEventListener('change', function () {
+        populateBarrioSelect('');
+      });
+      if (crmBarrio) crmBarrio.addEventListener('change', handleBarrioOtro);
+
       // Profile management
       $('adminProfileAdd').addEventListener('click', addProfile);
       $('adminProfileInput').addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); addProfile(); }
+      });
+
+      // Profesión management
+      $('adminProfesionAdd').addEventListener('click', addProfesion);
+      $('adminProfesionInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); addProfesion(); }
+      });
+
+      // Profesión "Otros..." handler in modal
+      var crmProf = $('crmProfesion');
+      if (crmProf) crmProf.addEventListener('change', handleProfesionOtro);
+
+      // Ubicación management
+      $('adminDeptoAdd').addEventListener('click', addDepto);
+      $('adminDeptoInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); addDepto(); }
+      });
+
+      var adminCiudadesDepto = $('adminCiudadesDepto');
+      if (adminCiudadesDepto) adminCiudadesDepto.addEventListener('change', function () {
+        editingCiudadDepto = null;
+        renderUbicacion();
+      });
+      $('adminCiudadAdd').addEventListener('click', addCiudad);
+      $('adminCiudadInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); addCiudad(); }
+      });
+
+      var adminBarriosCiudad = $('adminBarriosCiudad');
+      if (adminBarriosCiudad) adminBarriosCiudad.addEventListener('change', function () {
+        editingBarrioCiudad = null;
+        renderUbicacion();
+      });
+      $('adminBarrioAdd').addEventListener('click', addBarrio);
+      $('adminBarrioInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); addBarrio(); }
       });
     }
   };

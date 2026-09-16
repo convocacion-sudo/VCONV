@@ -1,0 +1,259 @@
+/* ════════════════════════════════════════════════════════════════
+   VCONV · Finanzas (Aportes y Ofrendas)
+   Panel del perfil (usuario) + gestión (administrador general).
+   Reutiliza los tokens de estilo del tema (variables var(--…)).
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── SECCIONES COLAPSABLES (mismo patrón que "Mi Red") ────── */
+.fin-seccion {
+  border: 1px solid var(--border); border-radius: var(--radius-md, 12px);
+  background: var(--bg-elev, var(--bg-card)); overflow: hidden;
+  margin: 0.5rem 0 0.75rem;
+}
+.fin-seccion > summary {
+  cursor: pointer; list-style: none; user-select: none;
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  padding: 0.8rem 1rem; font-weight: 700; font-size: calc(0.88rem * var(--font-scale));
+}
+.fin-seccion > summary::-webkit-details-marker { display: none; }
+.fin-seccion > summary::after {
+  content: '▾'; margin-left: auto; color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+.fin-seccion[open] > summary::after { transform: rotate(180deg); }
+.fin-seccion-body { padding: 0.6rem 1rem 1rem; }
+.fin-empty {
+  padding: 0.9rem; margin: 0; font-size: 0.82rem; color: var(--text-muted);
+  text-align: center;
+}
+.fin-loading {
+  padding: 0.9rem; margin: 0; font-size: 0.82rem; color: var(--text-muted);
+}
+
+/* ── FORMULARIO DE REGISTRO (usuario) ─────────────────────── */
+.fin-form { display: flex; flex-direction: column; gap: 0.75rem; }
+.fin-form label { font-size: 0.78rem; font-weight: 700; color: var(--text-muted); }
+.fin-form select,
+.fin-form input,
+.fin-form textarea { width: 100%; }
+.fin-form-acciones { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.fin-form-note { font-size: 0.72rem; color: var(--text-muted); margin: 0.1rem 0; }
+
+/* ── RESÚMENES (ganancias / historial) ────────────────────── */
+.fin-stats {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.6rem; margin-bottom: 0.8rem;
+}
+.fin-stat {
+  border: 1px solid var(--border); border-radius: var(--radius-md, 10px);
+  background: var(--bg-elev, rgba(255, 255, 255, 0.04));
+  padding: 0.7rem 0.85rem;
+}
+.fin-stat-label { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+.fin-stat-value { font-size: 1.05rem; font-weight: 800; color: var(--accent, var(--gold)); margin-top: 0.15rem; }
+.fin-stat-value.green { color: #22c55e; }
+
+/* ── FILAS (historial / comisiones / categorías) ──────────── */
+.fin-fila {
+  display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
+  padding: 0.55rem 0.4rem; border-bottom: 1px solid var(--border);
+}
+.fin-fila:last-child { border-bottom: none; }
+.fin-fila-info { min-width: 0; }
+.fin-fila-titulo { font-size: 0.85rem; font-weight: 700; color: var(--text-primary); }
+.fin-fila-sub { font-size: 0.75rem; color: var(--text-muted); }
+.fin-fila-monto { font-size: 0.88rem; font-weight: 800; color: var(--text-primary); }
+.fin-fila-monto.pos { color: #22c55e; }
+.fin-fila-monto.neg { color: #ef4444; }
+.fin-pill {
+  display: inline-block; font-size: 0.68rem; font-weight: 700;
+  padding: 0.15rem 0.55rem; border-radius: 99px;
+  background: rgba(34, 197, 94, 0.14); color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+.fin-pill.oro {
+  background: rgba(245, 158, 11, 0.14); color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.fin-pill.gris {
+  background: rgba(148, 163, 184, 0.14); color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+/* ── DESGLOSE MLM ──────────────────────────────────────────── */
+.fin-desglose { margin-top: 0.4rem; }
+.fin-desglose > summary {
+  cursor: pointer; list-style: none; user-select: none;
+  font-size: 0.75rem; color: var(--text-muted);
+}
+.fin-desglose::-webkit-details-marker { display: none; }
+.fin-desglose-body {
+  border-top: 1px dashed var(--border); margin-top: 0.35rem;
+}
+
+/* ── ADMIN: categorías y liquidación ──────────────────────── */
+.fin-subhead { margin: 1.4rem 0 0.4rem; font-size: 0.95rem; font-weight: 800; }
+.fin-cat-row {
+  display: grid; grid-template-columns: 1.5fr 1fr auto auto; gap: 0.75rem;
+  align-items: center; padding: 0.55rem 0.4rem; border-bottom: 1px solid var(--border);
+}
+.fin-cat-row:last-child { border-bottom: none; }
+.fin-cat-nombre { font-size: 0.88rem; font-weight: 700; }
+.fin-cat-tipo { font-size: 0.78rem; color: var(--text-muted); }
+.fin-cat-acciones { display: flex; gap: 0.35rem; }
+.fin-pendiente-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;
+  padding: 0.55rem 0.4rem; border-bottom: 1px solid var(--border);
+}
+.fin-pendiente-row:last-child { border-bottom: none; }
+.fin-pendiente-info { font-size: 0.82rem; color: var(--text-primary); min-width: 0; }
+.fin-pendiente-sub { font-size: 0.72rem; color: var(--text-muted); }
+.fin-reg-note {
+  margin: 0.8rem 0 0; padding: 0.7rem 0.85rem; font-size: 0.78rem; line-height: 1.5;
+  color: var(--text-muted); background: var(--bg-elev, rgba(255, 255, 255, 0.04));
+  border-left: 3px solid var(--accent, var(--gold)); border-radius: var(--radius-sm, 6px);
+}
+
+@media (max-width: 600px) {
+  .fin-cat-row { grid-template-columns: 1fr; gap: 0.3rem; }
+  .fin-stats { grid-template-columns: 1fr 1fr; }
+}
+
+/* ── VISTAS SUPERADMIN: toolbars y filtros ─────────────────── */
+.fin-toolbar {
+  display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: flex-end;
+  padding: 0.7rem; margin-bottom: 0.9rem;
+  border: 1px solid var(--border); border-radius: var(--radius-md, 10px);
+  background: var(--bg-elev, rgba(255, 255, 255, 0.03));
+}
+.fin-filtro { display: flex; flex-direction: column; gap: 0.25rem; min-width: 130px; }
+.fin-filtro-flex { flex: 1 1 200px; }
+.fin-filtro label {
+  font-size: 0.68rem; font-weight: 700; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.03em;
+}
+.fin-filtro .input, .fin-filtro .select { width: 100%; }
+.fin-filtro-desc { font-size: 0.78rem; color: var(--text-muted); margin: -0.3rem 0 0.8rem; }
+
+/* ── TABLAS (CRUD y reportes) ──────────────────────────────── */
+.fin-table-wrap {
+  overflow-x: auto; margin-bottom: 1rem; border-radius: var(--radius-md, 10px);
+  border: 1px solid var(--border);
+}
+.fin-table { width: 100%; border-collapse: collapse; min-width: 760px; font-size: 0.85rem; }
+.fin-table th {
+  text-align: left; font-size: 0.68rem; font-weight: 800; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border);
+  background: var(--bg-elev, rgba(255, 255, 255, 0.03)); white-space: nowrap;
+}
+.fin-table td { padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.fin-table tbody tr:last-child td { border-bottom: none; }
+.fin-table tbody tr:hover { background: var(--bg-elev, rgba(255, 255, 255, 0.02)); }
+.fin-table-sm { min-width: 560px; font-size: 0.8rem; }
+.fin-monto { font-weight: 800; white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.fin-monto.pos { color: #22c55e; }
+.fin-monto.neg { color: #ef4444; }
+.fin-monto.blue { color: var(--accent-2, #3b82f6); }
+.fin-total-row td {
+  font-weight: 800; border-top: 2px solid var(--border);
+  background: var(--bg-elev, rgba(255, 255, 255, 0.04));
+}
+.fin-acciones { display: flex; gap: 0.35rem; justify-content: flex-end; }
+.fin-acciones .btn { padding: 0.3rem 0.55rem; line-height: 1; }
+
+/* ── PILLS DE ORIGEN y estado ──────────────────────────────── */
+.fin-pill.azul {
+  background: rgba(59, 130, 246, 0.14); color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+.fin-pill.pos {
+  background: rgba(34, 197, 94, 0.14); color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+.fin-pill.neg {
+  background: rgba(239, 68, 68, 0.14); color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+/* ── KPIs ──────────────────────────────────────────────────── */
+.fin-stats-kpi { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.fin-stat-value.gold { color: var(--accent, #f59e0b); }
+.fin-stat-value.green { color: #22c55e; }
+.fin-stat-value.blue { color: var(--accent-2, #3b82f6); }
+
+/* ── MODAL CREAR / EDITAR TRANSACCIÓN ──────────────────────── */
+.fin-modal { width: 100%; max-width: 560px; }
+.fin-modal-head { margin-bottom: 0.25rem; }
+.fin-modal .fin-form { display: flex; flex-direction: column; gap: 0.8rem; }
+.fin-origen-radio { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.25rem; }
+.fin-radio {
+  display: flex; align-items: center; gap: 0.45rem; cursor: pointer;
+  padding: 0.5rem 0.8rem; border: 1px solid var(--border); border-radius: 99px;
+  font-size: 0.82rem; font-weight: 700; color: var(--text-muted);
+  background: var(--bg-elev, rgba(255, 255, 255, 0.03));
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.fin-radio:has(input:checked) {
+  border-color: var(--accent, var(--gold)); color: var(--accent, #f59e0b);
+  background: rgba(245, 158, 11, 0.08);
+}
+.fin-radio input { accent-color: var(--accent, #f59e0b); }
+.fin-modal-acciones { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
+.fin-form-note { line-height: 1.5; }
+
+/* ── TABS DE REPORTES ──────────────────────────────────────── */
+.fin-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.4rem 0 0.9rem; }
+.fin-tab {
+  border: 1px solid var(--border); background: var(--bg-elev, rgba(255, 255, 255, 0.03));
+  color: var(--text-muted); padding: 0.45rem 0.85rem; border-radius: 99px;
+  font-size: 0.78rem; font-weight: 800; cursor: pointer; transition: all 0.15s ease;
+}
+.fin-tab:hover { border-color: var(--accent, var(--gold)); color: var(--accent, #f59e0b); }
+.fin-tab.active {
+  background: var(--accent, #f59e0b); border-color: var(--accent, #f59e0b);
+  color: var(--bg-page, #0b1020);
+}
+.fin-tab-panel { margin-top: 0.4rem; }
+.fin-panel-titulo { font-size: 0.92rem; font-weight: 800; margin: 0.2rem 0 0.6rem; }
+.fin-group { margin-bottom: 1.2rem; }
+
+/* ── AVISOS ────────────────────────────────────────────────── */
+.fin-warn {
+  margin: 0.6rem 0; padding: 0.7rem 0.85rem; font-size: 0.78rem; line-height: 1.5;
+  color: #f59e0b; background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm, 6px);
+}
+.fin-note {
+  margin: 0.6rem 0; padding: 0.7rem 0.85rem; font-size: 0.76rem; line-height: 1.5;
+  color: var(--text-muted); background: var(--bg-elev, rgba(255, 255, 255, 0.04));
+  border-left: 3px solid var(--accent, var(--gold)); border-radius: var(--radius-sm, 6px);
+}
+
+@media (max-width: 600px) {
+  .fin-toolbar { flex-direction: column; align-items: stretch; }
+  .fin-filtro { min-width: 0; }
+  .fin-origen-radio { flex-direction: column; }
+  .fin-tabs { flex-direction: column; }
+  .fin-tab { text-align: center; }
+  .fin-modal-acciones { flex-direction: column-reverse; }
+  .fin-modal-acciones .btn { width: 100%; }
+}
+
+/* ── AUTCOMPLETADO / BUSCADOR DEL MODAL ────────────────────── */
+.fin-ac { position: relative; }
+.fin-ac .input { width: 100%; }
+.fin-ac-list {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 60;
+  max-height: 220px; overflow-y: auto; margin-top: 0.25rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm, 8px);
+  background: var(--bg-card, #101735); display: none;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
+.fin-ac-item {
+  padding: 0.5rem 0.7rem; cursor: pointer; border-bottom: 1px solid var(--border);
+}
+.fin-ac-item:last-child { border-bottom: none; }
+.fin-ac-item.active { background: rgba(245, 158, 11, 0.12); }
+.fin-ac-label { font-size: 0.85rem; font-weight: 700; }
+.fin-ac-sub { font-size: 0.72rem; color: var(--text-muted); }

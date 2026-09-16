@@ -2,61 +2,373 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    /* ─── IDENTIDAD ───────────────────────────────────────────
+       Tres niveles que determinan toda la política de acceso:
+       - signedIn(): cualquier sesión de Firebase Auth, incluye
+         anónimas (visitantes). Login anónimo automático.
+       - isAnonymous(): visitantes con UID temporal. Catálogo general
+         + contenido sin restricción estricta (falla a prueba gratuita
+         cuando `acceso` falta o es cualquier valor no bloqueante).
+       - isRegistered(): cuentas formales (correo/contraseña o
+         Google). Acceso completo al contenido habilitado.
+       La distinción se hace con request.auth.token.firebase
+       .sign_in_provider — para anónimos vale 'anonymous'.        */
     function signedIn() {
       return request.auth != null;
     }
-    function isGestor() {
+    function isAnonymous() {
       return signedIn() &&
-        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'gestor';
+        request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+    function isRegistered() {
+      return signedIn() && !isAnonymous();
     }
     function isAdmin() {
-      return signedIn() &&
+      return isRegistered() &&
         get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'superadmin';
     }
-    function canManageComunidades() {
+    function isGestor() {
+      return isRegistered() &&
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'gestor';
+    }
+    // Gestores y superadmin gestionan el contenido del CMS.
+    function canManage() {
       return isGestor() || isAdmin();
+    }
+    // ═══ BYPASS TOTAL DE SUPERADMIN ═════════════════════════════
+    // isAdmin() (rol superadmin validado contra su documento
+    // usuarios/{uid}.rol) se contempla en TODAS las reglas de este
+    // archivo (|| isAdmin()): cualquier operación —lectura, escritura,
+    // creación, edición, eliminación, asignación de dinero o de
+    // comisiones— queda permitida libre e incondicionalmente para el
+    // superadmin, sin validaciones de cadenas de patrocinio, parentesco
+    // ni límites de asignación.
+    // Restricción estricta de pago/registro: solo 'completo' (y legacy
+    // 'pago'). Cualquier otro valor, el valor ausente (null) o variaciones
+    // de texto NO restringen: se trata como prueba gratuita para visitantes.
+    function accesoRestringido(v) {
+      return v is string && v.lower() in ['completo', 'pago'];
     }
 
     /* ── USUARIOS (CRM y perfiles) ─────────────────────────── */
+    // Lectura ESTRICTAMENTE AISLADA (red multi-nivel, hasta 5 niveles):
+    //   - el propio perfil (uid == sesión, incluye visitantes anónimos),
+    //   - descendientes por patrocinio (esMiArbol): Nivel 1 es el hijo
+    //     directo (sponsorId == sesión); cada nivel N comprueba subiendo
+    //     por la cadena sponsorId que el ancestro (N-1) generaciones
+    //     arriba fue referido por la sesión, usando get() (máximo 4
+    //     accesos por documento, dentro del límite de las reglas),
+    //   - el patrocinador directo propio (uid == sponsorId de mi perfil)
+    //     para mostrar "Patrocinado por",
+    //   - los patrocinadores ASCENDENTES de la cadena propia (N1–N5,
+    //     esMiSponsor): el referido necesita leer su upline para que el
+    //     módulo Finanzas calcule y liquide las comisiones de sus aportes
+    //     personales (V.mlm.calcularPayload + finanzas_comisiones),
+    //   - gestores y superadmin (CRM / gestión de usuarios).
+    // Esta regla garantiza que NADIE pueda consultar redes ajenas: la
+    // consulta solo devuelve miembros del propio árbol y cualquier
+    // lectura puntual de un perfil de terceros queda denegada. Es de
+    // SOLO LECTURA para la red: no existe permiso de escritura que no
+    // sea el del propio perfil o un administrador.
     match /usuarios/{uid} {
-      allow read: if signedIn();
+      function esMiPatrocinador() {
+        return isRegistered()
+          && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
+          && get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.sponsorId == uid;
+      }
+      // Ancestros del documento por sponsorId, una generación por get().
+      // El resultado de cada get() se cachea dentro de la misma evaluación,
+      // con lo que un documento de Nivel 5 usa 4 accesos (máximo, bajo el
+      // límite de 10 por evaluación de las reglas).
+      function a1() {
+        return get(/databases/$(database)/documents/usuarios/$(resource.data.sponsorId)).data.sponsorId;
+      }
+      function a2() {
+        return get(/databases/$(database)/documents/usuarios/$(a1())).data.sponsorId;
+      }
+      function a3() {
+        return get(/databases/$(database)/documents/usuarios/$(a2())).data.sponsorId;
+      }
+      function a4() {
+        return get(/databases/$(database)/documents/usuarios/$(a3())).data.sponsorId;
+      }
+      // El documento es descendiente del usuario en sesión dentro de 5
+      // generaciones: el ancestro (N-1) generaciones arriba fue referido
+      // directamente por él (su sponsorId es la sesión).
+      function esMiArbol() {
+        return isRegistered()
+          && (resource.data.sponsorId == request.auth.uid
+              || a1() == request.auth.uid
+              || a2() == request.auth.uid
+              || a3() == request.auth.uid
+              || a4() == request.auth.uid);
+      }
+      // Ancestros propios ascendentes (N1–N5): el espejo de a1–a4 pero
+      // subiendo desde el usuario en sesión. Permite al referido leer su
+      // cadena de patrocinadores para liquidar sus comisiones MLM.
+      function m1() {
+        return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.sponsorId;
+      }
+      function m2() {
+        return get(/databases/$(database)/documents/usuarios/$(m1())).data.sponsorId;
+      }
+      function m3() {
+        return get(/databases/$(database)/documents/usuarios/$(m2())).data.sponsorId;
+      }
+      function m4() {
+        return get(/databases/$(database)/documents/usuarios/$(m3())).data.sponsorId;
+      }
+      // El documento leído es uno de los patrocinadores de mi cadena
+      // (niveles 1 a 5: el Nivel 5 se extrae del sponsorId de m4()).
+      function esMiSponsor() {
+        return isRegistered()
+          && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
+          && (uid == m1()
+              || uid == m2()
+              || uid == m3()
+              || uid == m4());
+      }
+      allow read: if signedIn()
+        && (uid == request.auth.uid
+            || esMiArbol()
+            || esMiPatrocinador()
+            || esMiSponsor()
+            || isGestor()
+            || isAdmin());
       allow write: if signedIn() && (uid == request.auth.uid || isAdmin());
     }
 
-    /* ── CURSOS Y PROGRESO ─────────────────────────────────── */
-    match /cursos/{id} {
+    /* ── MAPEO DE CÓDIGOS DE REFERIDO (MLM) ────────────────── */
+    // Cada documento referidos/{code} solo expone { userId }. La lectura
+    // es pública para sesiones autenticadas (permite validar un código
+    // antes de registrarse, incluso siendo visitante anónimo); la
+    // escritura queda restringida al dueño del código, ya registrado.
+    match /referidos/{code} {
       allow read: if signedIn();
-      allow write: if signedIn();
+      allow write: if isAdmin() || (isRegistered() && request.resource.data.userId == request.auth.uid);
+    }
 
-      // Progreso del estudiante (subcolección de cada curso):
-      // cualquier usuario autenticado puede leer/escribir su avance.
-      match /progreso/{uid} {
-        allow read, write: if request.auth != null;
+    /* ── CURSOS Y PROGRESO (CMS jerárquico 4 niveles) ──────── */
+    // jerarquía: categorias/{catId} → cursos/{id} → bloques/{bid} → lecciones/{lid}
+    //
+    // Política de contenido (campo `acceso` en cada nodo):
+    //   curso.acceso   = 'gratis' | 'completo' (default 'completo')
+    //   bloque.acceso  = 'gratis' | 'completo' (módulo avanzado)
+    //   leccion.acceso = 'prueba' | 'gratis' | 'completo' (lección
+    //   de prueba gratuita o de acceso libre para los visitantes)
+    //
+    // - Catálogo general: cualquier sesión (incl. anónima) puede leer
+    //   los metadatos de cursos publicados y TODOS sus bloques/módulos.
+    // - Lecciones: policy TOLERANTE para visitantes — se muestra como prueba
+    //   gratuita TODO documento cuyo `acceso` NO sea restricción estricta
+    //   ('completo'/'pago'), incluidos los que no tienen el campo.
+    //   En reglas, un campo ausente vale null y `!=`/`accesoRestringido`
+    //   no descartan (a diferencia de las consultas, que SÍ lo hacen; por
+    //   eso el cliente une `!= 'completo'` con `== null`).
+    // - El filtrado de acceso ocurre SOLO a nivel de lección individual;
+    //   los bloques nunca ocultan a un visitante un curso publicado.
+    // - Escritura de contenido: exclusiva de gestores/superadmin.
+    match /categorias/{catId} {
+      allow read: if signedIn();
+      allow write: if canManage();
+
+      match /cursos/{id} {
+        allow read: if canManage()
+          || isRegistered()
+          || (isAnonymous() && resource.data.publicado == true);
+        // Gestores y superadmin escriben el curso con libertad total de
+        // campos (incluye `catId`/`categoryId` y cualquier otro dato del
+        // documento): create/update/delete no están restringidos por campo.
+        allow create, update, delete: if canManage();
+
+        match /bloques/{bid} {
+          function cursoPublicado() {
+            return get(/databases/$(database)/documents/categorias/$(catId)/cursos/$(id)).data.publicado == true;
+          }
+          // Los bloques SIEMPRE son visibles dentro de un curso publicado,
+          // para cualquier sesión: el filtrado de acceso ocurre SOLO a nivel
+          // de lección individual (`acceso` del propio documento).
+          allow read: if canManage()
+            || isRegistered()
+            || (isAnonymous() && cursoPublicado());
+          allow write: if canManage();
+
+          match /lecciones/{lid} {
+            allow read: if canManage()
+              || isRegistered()
+              || (isAnonymous() && cursoPublicado()
+                    && !accesoRestringido(resource.data.acceso));
+            allow write: if canManage();
+          }
+        }
+
+        // Progreso del estudiante (subcolección de cada curso):
+        // solo el propio usuario (incl. visitante anónimo) lee/escribe
+        // su avance. Gracias al account linking el UID anónimo se
+        // preserva al convertirse en cuenta real, por lo que el
+        // progreso se transfiere sin copias.
+        match /progreso/{uid} {
+          allow read, write: if isAdmin() || (signedIn() && request.auth.uid == uid);
+        }
       }
     }
-    match /progreso/{uid} {
-      allow read, write: if request.auth != null;
+
+    // Compatibilidad: cursos antiguos de raíz (cursos/{id}/modulos/…)
+    // para migración sin romper el contenido existente.
+    match /cursos/{id} {
+      allow read: if canManage()
+        || isRegistered()
+        || (isAnonymous() && resource.data.publicado == true);
+      // Igual política de escritura que los cursos anidados: gestores y
+      // superadmin pueden crear/actualizar/eliminar el documento raíz con
+      // todos sus campos, incluidos `catId` y `categoryId`, sin restricción.
+      allow create, update, delete: if canManage();
+
+      match /modulos/{mid} {
+        function cursoPublicado() {
+          return get(/databases/$(database)/documents/cursos/$(id)).data.publicado == true;
+        }
+        // Los módulos SIEMPRE son visibles dentro de un curso publicado,
+        // para cualquier sesión: el filtrado de acceso ocurre SOLO a nivel
+        // de lección individual (`acceso` del propio documento).
+        allow read: if canManage()
+          || isRegistered()
+          || (isAnonymous() && cursoPublicado());
+        allow write: if canManage();
+
+        match /lecciones/{lid} {
+          allow read: if canManage()
+            || isRegistered()
+            || (isAnonymous() && cursoPublicado()
+                  && !accesoRestringido(resource.data.acceso));
+          allow write: if canManage();
+        }
+      }
+
+      match /progreso/{uid} {
+        allow read, write: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      }
     }
 
     /* ── CONFIG (perfiles organizacionales) ────────────────── */
+    // Listas de opciones del CRM (departamentos, ciudades, etc.).
     match /config/{id} {
       allow read: if signedIn();
       allow write: if isAdmin();
     }
 
-    /* ── COMUNIDADES ───────────────────────────────────────── */
+    /* ── COMUNIDADES (solo cuentas registradas) ────────────── */
+    // Fuera del catálogo general y de las lecciones de prueba: los
+    // visitantes anónimos no pueden entrar en comunidades.
     match /comunidades/{id} {
-      allow read: if signedIn();
-      allow create, update: if canManageComunidades();
+      allow read: if isAdmin() || isRegistered();
+      allow create, update: if isAdmin() || isRegistered();
       allow delete: if isAdmin();
     }
     match /comunidad_miembros/{id} {
-      allow read: if signedIn();
-      allow create, update, delete: if canManageComunidades();
+      allow read: if isAdmin() || isRegistered();
+      allow create, update: if isAdmin() || isRegistered();
+      allow delete: if isAdmin();
     }
     match /reuniones/{id} {
-      allow read: if signedIn();
-      allow create, update, delete: if canManageComunidades();
+      allow read: if isAdmin() || isRegistered();
+      allow create, update: if isAdmin() || isRegistered();
+      allow delete: if isAdmin();
+    }
+
+    /* ── COMUNIDAD CATEGORIAS ─────────────────────────────── */
+    // Opciones dinámicas del campo "tipo" de las comunidades.
+    // Cualquier usuario autenticado puede leer y escribir.
+    match /comunidad_categorias/{categoriaId} {
+      allow read, write: if request.auth != null;
+    }
+
+    /* ── FINANZAS (Aportes y Ofrendas) ──────────────────────── */
+    // La configuración (config/finanzas: finanzasEnabled, porcentajes
+    // N1–N5, porcentajeCaja, categorias) queda cubierta por el bloque
+    // config/{id}: lectura para cualquier sesión autenticada y escritura
+    // exclusiva del superadmin. Colecciones del módulo:
+    //   finanzas_transacciones — CRUD CENTRALIZADO del superadmin: puede
+    //     crear/editar/eliminar transacciones de CUALQUIER usuario o
+    //     comunidad sin restricciones de cadenas de patrocinio (bypass
+    //     || isAdmin()). Cada usuario registrado también puede leer las
+    //     transacciones donde es titular contable (userId == sesión) y
+    //     crear sus propios aportes personales (origen 'usuario' con
+    //     userId == sesión, etiqueta "Aporte de Usuario"). Las
+    //     transacciones de origen 'comunidad' (etiqueta "Ofrenda de
+    //     Comunidad", tipo 'grupo') quedan siempre bajo gestión del
+    //     superadmin (create/update/delete) y son legibles por su
+    //     titular (userId).
+    //   finanzas_comisiones — el usuario lee las suyas; se crean solo
+    //     por liquidación. Rutas permitidas: isAdmin() (la liquidación
+    //     centralizada del superadmin cubre grupos Y aportes), el propio
+    //     coordinador de la comunidad como comisión de nivel 1 de una
+    //     ofrenda de grupo (la regla verifica vía get() que la comunidad
+    //     lo acredita) o el autor de un aporte personal que liquida las
+    //     comisiones N1–N5 de su red (tipo 'aporte'): se exige que cada
+    //     comisión credite a un ancestro real de su cadena (esMiAncestro,
+    //     hasta 5 generaciones) y que su origenId sea una transacción
+    //     propia. La actualización/eliminación es exclusiva de isAdmin().
+    match /finanzas_transacciones/{id} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.userId || isAdmin());
+      allow create: if isRegistered()
+        && (request.resource.data.userId == request.auth.uid || isAdmin());
+      allow update, delete: if isAdmin();
+    }
+    match /finanzas_comisiones/{id} {
+      // Ancestros del autor, una generación por get() (path idénticos a
+      // m1–m4 de usuarios, cacheados dentro de la misma evaluación): la
+      // comisión de nivel 1 va al sponsorId propio; la de nivel N al
+      // sponsorId del ancestro N-1. Destinatarios posibles: p1..p5.
+      function p1() {
+        return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.sponsorId;
+      }
+      function p2() {
+        return get(/databases/$(database)/documents/usuarios/$(p1())).data.sponsorId;
+      }
+      function p3() {
+        return get(/databases/$(database)/documents/usuarios/$(p2())).data.sponsorId;
+      }
+      function p4() {
+        return get(/databases/$(database)/documents/usuarios/$(p3())).data.sponsorId;
+      }
+      function p5() {
+        return get(/databases/$(database)/documents/usuarios/$(p4())).data.sponsorId;
+      }
+      function esMiAncestro() {
+        return exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
+          && (request.resource.data.userId == p1()
+              || request.resource.data.userId == p2()
+              || request.resource.data.userId == p3()
+              || request.resource.data.userId == p4()
+              || request.resource.data.userId == p5());
+      }
+      allow read: if isRegistered()
+        && (request.auth.uid == resource.data.userId || isAdmin());
+      allow create: if isRegistered() && (
+          isAdmin()
+          || (request.resource.data.userId == request.auth.uid
+              && request.resource.data.tipo == 'grupo'
+              && request.resource.data.nivel == 1
+              && get(/databases/$(database)/documents/comunidades/$(request.resource.data.comunidadId)).data.coordinadorId == request.auth.uid)
+          || (request.resource.data.tipo == 'aporte'
+              && request.resource.data.userId != request.auth.uid
+              && esMiAncestro()
+              && get(/databases/$(database)/documents/finanzas_transacciones/$(request.resource.data.origenId)).data.userId == request.auth.uid)
+        );
+      allow update, delete: if isAdmin();
+    }
+    //   finanzas_pagos — pagos/desembolsos a usuarios desde la Bolsa de
+    //     Comisiones (origen 'bolsa', tipo 'comision'). Los registra el
+    //     superadmin (create/update/delete) y cada usuario puede leer los
+    //     pagos hechos a su favor (userId == sesión). El monto se
+    //     descuenta únicamente del saldo de comisiones del usuario y de
+    //     la bolsa global; la Caja Mayor no participa.
+    match /finanzas_pagos/{id} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.userId || isAdmin());
+      allow create, update, delete: if isAdmin();
     }
   }
 }

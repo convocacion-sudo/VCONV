@@ -10,7 +10,13 @@
   if (!V) { console.error('VCONV core not loaded'); return; }
 
   var CONTENT_PATH = 'data/content.json';
-  var CONTACT_FIELDS = ['ctNombre', 'ctEmail', 'ctMensaje'];
+  var CONTACT_FIELDS = ['ctNombre', 'ctEmail', 'ctAsunto', 'ctMensaje'];
+  var CONTACT_TO_EMAIL = 'convocacion@gmail.com';
+  var EMAILJS_CONFIG = {
+    serviceId: 'TU_SERVICE_ID',
+    templateId: 'TU_TEMPLATE_ID',
+    publicKey: 'TU_PUBLIC_KEY'
+  };
   var contentData = null;
 
   function $(id) { return V.$(id); }
@@ -149,6 +155,8 @@
     if (!nombre) { markInvalid('ctNombre', true); V.toast('Escribe tu nombre.', true); return; }
     if (!email) { markInvalid('ctEmail', true); V.toast('Escribe tu correo electrónico.', true); return; }
     if (!isValidEmail(email)) { markInvalid('ctEmail', true); V.toast('El correo electrónico no es válido.', true); return; }
+    var asunto = $('ctAsunto').value.trim();
+    if (!asunto) { markInvalid('ctAsunto', true); V.toast('Selecciona un asunto.', true); return; }
     if (mensaje.length < 10) { markInvalid('ctMensaje', true); V.toast('Escribe un mensaje de al menos 10 caracteres.', true); return; }
 
     var btn = $('ctSubmit');
@@ -156,12 +164,33 @@
     btn.disabled = true;
     btn.textContent = '⏳ Enviando…';
 
-    window.setTimeout(function () {
+    if (!window.emailjs || !EMAILJS_CONFIG.serviceId || !EMAILJS_CONFIG.templateId || EMAILJS_CONFIG.publicKey.indexOf('TU_') === 0) {
       btn.disabled = false;
       btn.textContent = original;
-      $('contactForm').reset();
-      V.toast((contentData.contact && contentData.contact.successMessage) || '¡Mensaje enviado!');
-    }, 900);
+      V.toast('El envío de correos no está configurado.', true);
+      return;
+    }
+
+    var params = {
+      from_name: nombre,
+      reply_to: email,
+      to_email: CONTACT_TO_EMAIL,
+      subject: asunto,
+      message: mensaje
+    };
+
+    emailjs.send(EMAILJS_CONFIG.serviceId, EMAILJS_CONFIG.templateId, params, { publicKey: EMAILJS_CONFIG.publicKey })
+      .then(function () {
+        btn.disabled = false;
+        btn.textContent = original;
+        $('contactForm').reset();
+        V.toast((contentData.contact && contentData.contact.successMessage) || '¡Mensaje enviado!');
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = original;
+        V.toast('No se pudo enviar el mensaje: ' + (err && err.text ? err.text : 'Error desconocido'), true);
+      });
   }
 
   function setThemeButton(isDark) {
@@ -208,23 +237,54 @@
     document.body.style.overflow = '';
   }
 
+  // Sesión formal realmente autenticada (los visitantes anónimos no
+  // cuentan como sesión: deben poder registrarse/iniciar sesión).
+  function hasRealSession() {
+    return !!(V.auth && V.auth.currentUser && !V.auth.currentUser.isAnonymous);
+  }
+
   function bindPortalEvents() {
     var themeBtn = $('portalThemeToggle');
     if (themeBtn) themeBtn.addEventListener('click', togglePortalTheme);
     var sidebarThemeBtn = $('portalSidebarThemeToggle');
     if (sidebarThemeBtn) sidebarThemeBtn.addEventListener('click', togglePortalTheme);
     var loginBtn = $('portalLoginBtn');
-    if (loginBtn) loginBtn.addEventListener('click', function () { V.openAuth('login'); });
+    if (loginBtn) loginBtn.addEventListener('click', function () {
+      if (hasRealSession()) { V.showApp(); return; }
+      V.openAuth('login');
+    });
     var regBtn = $('portalRegisterBtn');
-    if (regBtn) regBtn.addEventListener('click', function () { V.openAuth('register'); });
+    if (regBtn) regBtn.addEventListener('click', function () {
+      if (hasRealSession()) { V.showApp(); return; }
+      V.openAuth('register');
+    });
     var sidebarLoginBtn = $('portalSidebarLoginBtn');
-    if (sidebarLoginBtn) sidebarLoginBtn.addEventListener('click', function () { closeSidebar(); V.openAuth('login'); });
+    if (sidebarLoginBtn) sidebarLoginBtn.addEventListener('click', function () {
+      closeSidebar();
+      if (hasRealSession()) { V.showApp(); return; }
+      V.openAuth('login');
+    });
     var sidebarRegBtn = $('portalSidebarRegisterBtn');
-    if (sidebarRegBtn) sidebarRegBtn.addEventListener('click', function () { closeSidebar(); V.openAuth('register'); });
+    if (sidebarRegBtn) sidebarRegBtn.addEventListener('click', function () {
+      closeSidebar();
+      if (hasRealSession()) { V.showApp(); return; }
+      V.openAuth('register');
+    });
+
+    // Logo del portal: con sesión real vuelve al escritorio, si no, a la landing.
+    var portalBrands = document.querySelectorAll('.portal-brand, .portal-hero-inner a[href="index.html"]');
+    portalBrands.forEach(function (brand) {
+      brand.addEventListener('click', function (e) {
+        e.preventDefault();
+        if (hasRealSession()) { V.showApp(); return; }
+        window.location.href = brand.getAttribute('href') || 'index.html';
+      });
+    });
 
     var cta = $('portalCtaPrimary');
     if (cta) {
       cta.addEventListener('click', function () {
+        if (hasRealSession()) { V.showApp(); return; }
         var target = (contentData && contentData.portal && contentData.portal.hero && contentData.portal.hero.ctaPrimaryTarget) || 'register';
         V.openAuth(target === 'login' ? 'login' : 'register');
       });
@@ -260,9 +320,6 @@
   }
 
   function init() {
-    // Si ya hay sesión activa, el router (core/app.js -> showPortal)
-    // redirige al escritorio; no inicializamos la landing anónima.
-    if (V.auth && V.auth.currentUser) return;
     setThemeButton(currentIsDark());
     bindPortalEvents();
     loadContent().then(function (data) {

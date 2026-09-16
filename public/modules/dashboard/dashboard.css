@@ -11,6 +11,8 @@
 }
 .dash-hero h2 { font-size: calc(1.4rem * var(--font-scale)); font-weight: 800; letter-spacing: -0.02em; }
 .dash-hero p { color: var(--text-muted); font-size: calc(0.88rem * var(--font-scale)); margin-top: 0.25rem; }
+.dash-hero-main { display: flex; align-items: center; gap: 1rem; }
+.dash-hero .dash-badge { margin-left: auto; }
 .dash-badge {
   font-size: 0.75rem; font-weight: 700; padding: 0.35rem 0.9rem;
   border-radius: 99px; background: var(--accent-glow); color: var(--accent);
@@ -36,18 +38,26 @@
 }
 .dash-card::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
-  background: linear-gradient(90deg, var(--accent), var(--success));
-  transform: scaleX(0); transform-origin: left; transition: transform 0.3s ease;
+  background: linear-gradient(90deg, var(--gold), var(--accent));
+  opacity: 0.55; transform: scaleX(1);
+  transition: opacity 0.3s ease;
 }
 .dash-card:hover { border-color: var(--border-hover); box-shadow: var(--shadow); transform: translateY(-2px); }
-.dash-card:hover::before { transform: scaleX(1); }
+.dash-card:hover::before { opacity: 1; }
+.dash-card-head {
+  display: flex; align-items: center; gap: 0.85rem;
+  padding-right: 5.2rem; margin-bottom: 0.6rem;
+}
+.dash-card-head .status-pill {
+  position: absolute; top: 1rem; right: 1rem;
+}
 .dash-card-title { font-size: calc(1.05rem * var(--font-scale)); font-weight: 700; }
 .dash-card-desc { font-size: calc(0.82rem * var(--font-scale)); color: var(--text-muted); margin-top: 0.35rem; line-height: 1.5; }
 
 /* ── PROFILE PANEL ───────────────────────────────────── */
 .dash-panel {
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
-  padding: 1.5rem;
+  background: var(--bg-card); border: 1px solid var(--border); border-top: 3px solid var(--gold);
+  border-radius: var(--radius-lg); padding: 1.5rem;
 }
 .dash-profile-row {
   display: flex; justify-content: space-between; gap: 1rem;
@@ -56,11 +66,132 @@
 .dash-profile-row:last-child { border-bottom: none; }
 .dash-profile-label { font-size: 0.78rem; color: var(--text-muted); font-weight: 600; }
 .dash-profile-value { font-size: 0.88rem; color: var(--text-primary); font-weight: 600; text-align: right; }
-.dash-profile-form { margin-top: 0.5rem; }
-.dash-profile-form .form-row { margin-bottom: 0.25rem; }
+.dash-profile-form { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 1rem; }
+.dash-profile-form .form-row { margin-bottom: 0; }
 
 @media (max-width: 600px) {
   .dash-hero { padding: 1.25rem 1.1rem; }
   .dash-card { padding: 1.1rem 1.2rem; }
   .dash-panel { padding: 1.1rem; }
+}
+
+/* ── MI RED (MLM) ────────────────────────────────────── */
+.dash-panel-mlm { border-top: 3px solid var(--accent); margin-top: 1.25rem; }
+.dash-panel-head { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.6rem; }
+.dash-panel-head h4 { font-size: 1rem; font-weight: 700; margin: 0; }
+.dash-mlm-link-row { display: flex; gap: 0.5rem; margin: 0.6rem 0 0.4rem; }
+.dash-mlm-link { flex: 1; font-size: 0.8rem; }
+
+/* ── RED DIRECTA (NIVEL 1) ─────────────────────────────── */
+.dash-mlm-red { margin-top: 1rem; }
+.dash-mlm-red-details {
+  border: 1px solid var(--border); border-radius: var(--radius-md, 12px);
+  background: var(--bg-elev, var(--bg-card)); overflow: hidden;
+}
+.dash-mlm-red-details > summary {
+  cursor: pointer; list-style: none; user-select: none;
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  padding: 0.8rem 1rem; font-weight: 700; font-size: calc(0.88rem * var(--font-scale));
+}
+.dash-mlm-red-details > summary::-webkit-details-marker { display: none; }
+.dash-mlm-red-details > summary::after {
+  content: '▾'; margin-left: auto; color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+.dash-mlm-red-details[open] > summary::after { transform: rotate(180deg); }
+.dash-mlm-red-count {
+  font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.6rem;
+  border-radius: 99px; background: var(--accent-glow, rgba(255, 255, 255, 0.06));
+  color: var(--accent); border: 1px solid var(--accent);
+}
+.dash-mlm-red-content { padding: 0 0.6rem 0.6rem; }
+.dash-mlm-loading, .dash-mlm-empty {
+  padding: 0.9rem; margin: 0; font-size: 0.82rem; color: var(--text-muted);
+}
+.dash-mlm-empty { text-align: center; }
+
+/* Tabla responsive: fila única en escritorio, ficha apilada en móvil. */
+.dash-mlm-red-row {
+  display: grid; grid-template-columns: 2fr 2fr 0.9fr 1.2fr 1fr;
+  gap: 0.75rem; align-items: center;
+  padding: 0.55rem 0.4rem; border-bottom: 1px solid var(--border);
+}
+.dash-mlm-red-row:last-child { border-bottom: none; }
+.dash-mlm-red-cell {
+  font-size: 0.82rem; color: var(--text-primary); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dash-mlm-red-correo { color: var(--text-muted); }
+.dash-mlm-red-fecha { color: var(--text-muted); }
+.dash-mlm-red-detalle { text-align: right; }
+
+.red-estado-pill {
+  display: inline-block; font-size: 0.7rem; font-weight: 700;
+  padding: 0.2rem 0.6rem; border-radius: 99px;
+}
+.red-estado-activo,
+.red-estado-completo { background: rgba(34, 197, 94, 0.14); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.35); }
+.red-estado-inactivo,
+.red-estado-fusionado { background: rgba(239, 68, 68, 0.12); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.35); }
+.red-estado-en-proceso { background: rgba(245, 158, 11, 0.14); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.35); }
+
+.dash-mlm-red-actions { display: flex; justify-content: flex-end; padding: 0.5rem 0.2rem 0.2rem; }
+
+/* ── RED MULTI-NIVEL (5 NIVELES) ──────────────────────── */
+.dash-mlm-arbol { margin-top: 1rem; }
+.dash-mlm-arbol-details,
+.dash-mlm-arbol-nivel {
+  border: 1px solid var(--border); border-radius: var(--radius-md, 12px);
+  background: var(--bg-elev, var(--bg-card)); overflow: hidden;
+}
+.dash-mlm-arbol-details { margin-bottom: 0.6rem; }
+.dash-mlm-arbol-nivel { margin: 0.5rem 0 0.5rem 0.2rem; }
+.dash-mlm-arbol-details > summary,
+.dash-mlm-arbol-nivel > summary {
+  cursor: pointer; list-style: none; user-select: none;
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  padding: 0.8rem 1rem; font-weight: 700; font-size: calc(0.88rem * var(--font-scale));
+}
+.dash-mlm-arbol-details > summary::-webkit-details-marker,
+.dash-mlm-arbol-nivel > summary::-webkit-details-marker { display: none; }
+.dash-mlm-arbol-details > summary::after,
+.dash-mlm-arbol-nivel > summary::after {
+  content: '▾'; margin-left: auto; color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+.dash-mlm-arbol-details[open] > summary::after,
+.dash-mlm-arbol-nivel[open] > summary::after { transform: rotate(180deg); }
+.dash-mlm-arbol-content { padding: 0 0.6rem 0.6rem; }
+.dash-mlm-arbol-nivel-body { padding: 0 0.4rem 0.4rem 0.8rem; }
+.dash-mlm-arbol-nivel-titulo { font-size: 0.88rem; }
+
+@media (max-width: 760px) {
+  .dash-mlm-arbol-details > summary::after,
+  .dash-mlm-arbol-nivel > summary::after { margin-left: 0; }
+  .dash-mlm-arbol-nivel { margin-left: 0; }
+}
+
+.dash-red-modal-grid { display: flex; flex-direction: column; gap: 0.1rem; }
+.dash-red-modal-note {
+  margin: 1rem 0 0; padding: 0.75rem 0.9rem; font-size: 0.78rem; line-height: 1.5;
+  color: var(--text-muted); background: var(--bg-elev, rgba(255, 255, 255, 0.04));
+  border-left: 3px solid var(--accent); border-radius: var(--radius-sm, 6px);
+}
+
+@media (max-width: 760px) {
+  .dash-mlm-red-details > summary::after { margin-left: 0; }
+  .dash-mlm-red-row {
+    display: block; padding: 0.75rem 0.4rem;
+    border: 1px solid var(--border); border-radius: var(--radius-md, 10px);
+    margin-bottom: 0.6rem;
+  }
+  .dash-mlm-red-cell {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 0.9rem; padding: 0.28rem 0; white-space: normal;
+  }
+  .dash-mlm-red-cell::before {
+    content: attr(data-label); flex-shrink: 0; font-size: 0.7rem;
+    font-weight: 700; color: var(--text-muted); text-transform: uppercase;
+  }
+  .dash-mlm-red-detalle { text-align: left; padding-top: 0.4rem; }
 }

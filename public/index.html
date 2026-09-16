@@ -11,12 +11,16 @@
   <link rel="stylesheet" href="modules/crm/crm.css">
   <link rel="stylesheet" href="modules/dashboard/dashboard.css">
   <link rel="stylesheet" href="modules/comunidades/comunidades.css">
+  <link rel="stylesheet" href="modules/finanzas/finanzas.css">
   <link rel="stylesheet" href="modules/portal/portal.css">
 </head>
 <body>
 
   <div id="appRoot" style="display:none;">
   <header class="topbar">
+    <a href="index.html" class="topbar-brand" id="brandHome" title="Ir al portal público">
+      <img src="/logo.png" alt="Vida con Vocación" class="topbar-logo">
+    </a>
     <button type="button" class="hamburger" id="appBurger" aria-label="Abrir menú" aria-expanded="false" aria-controls="appSidebar">
       <span></span><span></span><span></span>
     </button>
@@ -26,9 +30,6 @@
   <!-- ═══ MENÚ LATERAL (App Shell) ═══ -->
   <aside class="sidebar" id="appSidebar" aria-hidden="true">
     <div class="sidebar-head">
-      <a href="index.html" class="sidebar-brand" id="brandHome" title="Ir al portal público">
-        <img src="/logo.png" alt="Vida con Vocación" class="sidebar-logo">
-      </a>
       <button type="button" class="sidebar-close" id="sidebarClose" aria-label="Cerrar menú">✕</button>
     </div>
     <nav class="sidebar-nav">
@@ -39,10 +40,11 @@
 
       <p class="sidebar-group" id="sidebarGroupAdmin" style="display:none;">Administración</p>
       <a href="#" class="sidebar-link" data-nav="admin" id="sidebarLinkAdmin" style="display:none;"><span class="sidebar-ico">🔐</span> Gestión de Usuarios</a>
+      <a href="#" class="sidebar-link" data-nav="finanzas" id="sidebarLinkFinanzas" style="display:none;"><span class="sidebar-ico">💰</span> Finanzas</a>
+      <a href="#" class="sidebar-link" data-nav="reportes" id="sidebarLinkReportes" style="display:none;"><span class="sidebar-ico">📊</span> Reportes Financieros</a>
 
-      <p class="sidebar-group">Próximamente</p>
-      <a href="#" class="sidebar-link is-disabled" tabindex="-1"><span class="sidebar-ico">📊</span> Reportes <span class="sidebar-tag">Pronto</span></a>
-      <a href="#" class="sidebar-link is-disabled" tabindex="-1"><span class="sidebar-ico">⚙️</span> Configuración <span class="sidebar-tag">Pronto</span></a>
+      <p class="sidebar-group" id="sidebarGroupProximamente" style="display:none;">Próximamente</p>
+      <a href="#" class="sidebar-link is-disabled" tabindex="-1" id="sidebarLinkConfig"><span class="sidebar-ico">⚙️</span> Configuración <span class="sidebar-tag">Pronto</span></a>
     </nav>
 
     <div class="sidebar-settings" id="sidebarSettings">
@@ -92,119 +94,202 @@
     <!-- ═══ MÓDULO ESCRITORIO (Dashboard) ═══ -->
     <div class="view" id="viewDashboard">
       <div class="dash-hero">
-        <div>
-          <h2>Hola, <span id="dashName">—</span> 👋</h2>
-          <p id="dashRole">Bienvenido a tu centro de control.</p>
+        <div class="dash-hero-main">
+          <span class="icon-chip gold">👋</span>
+          <div>
+            <h2>Hola, <span id="dashName">—</span></h2>
+            <p id="dashRole">Bienvenido a tu centro de control.</p>
+          </div>
         </div>
         <span class="dash-badge" id="dashRoleBadge">Estudiante</span>
       </div>
 
-      <h3 class="dash-section-title">Accesos</h3>
+      <div class="dash-section-title-row" style="margin-top:0;">
+        <div class="dash-section-title-group">
+          <span class="icon-chip sm gold">🧭</span>
+          <h3 class="dash-section-title">Accesos</h3>
+        </div>
+      </div>
       <div class="dash-cards" id="dashCards"></div>
 
       <div class="dash-section-title-row">
-        <h3 class="dash-section-title" style="margin-bottom:0;">Mi Perfil</h3>
+        <div class="dash-section-title-group">
+          <span class="icon-chip sm blue">👤</span>
+          <div>
+            <h3 class="dash-section-title">Mi Perfil</h3>
+            <span class="status-pill gold" id="dashRolePill">Rol</span>
+          </div>
+        </div>
         <button type="button" class="btn btn-outline btn-sm" id="dashEditProfile">✏ Editar</button>
       </div>
       <div class="dash-panel" id="dashProfile">
         <div class="dash-profile-view" id="dashProfileView"></div>
         <form class="dash-profile-form" id="dashProfileForm" novalidate style="display:none;">
-          <div class="form-row">
-            <div class="field">
-              <label for="pfNombre">Nombre</label>
-              <input type="text" id="pfNombre" class="input" autocomplete="given-name">
+          <div class="form-block">
+            <div class="form-block-head">
+              <span class="icon-chip sm gold">🪪</span>
+              <h4>Datos personales</h4>
             </div>
-            <div class="field">
-              <label for="pfApellido">Apellido</label>
-              <input type="text" id="pfApellido" class="input" autocomplete="family-name">
+            <div class="form-row">
+              <div class="field">
+                <label for="pfNombre">Nombre</label>
+                <input type="text" id="pfNombre" class="input" autocomplete="given-name">
+              </div>
+              <div class="field">
+                <label for="pfApellido">Apellido</label>
+                <input type="text" id="pfApellido" class="input" autocomplete="family-name">
+              </div>
             </div>
-          </div>
-          <div class="form-row">
-            <div class="field">
-              <label for="pfDocumento">Documento de identidad</label>
-              <input type="text" id="pfDocumento" class="input" placeholder="Ej: 1234567890">
+            <div class="form-row">
+              <div class="field">
+                <label for="pfDocumento">Documento de identidad</label>
+                <input type="text" id="pfDocumento" class="input" placeholder="Ej: 1234567890">
+              </div>
+              <div class="field">
+                <label for="pfTelefono">Teléfono de contacto</label>
+                <input type="text" id="pfTelefono" class="input" placeholder="Ej: 300 123 4567">
+              </div>
             </div>
-            <div class="field">
-              <label for="pfTelefono">Teléfono de contacto</label>
-              <input type="text" id="pfTelefono" class="input" placeholder="Ej: 300 123 4567">
+            <div class="form-row">
+              <div class="field">
+                <label for="pfSexo">Sexo</label>
+                <select id="pfSexo" class="select">
+                  <option value="">—</option>
+                  <option value="Masculino">Masculino</option>
+                  <option value="Femenino">Femenino</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="pfRangoEdad">Rango de edad</label>
+                <select id="pfRangoEdad" class="select">
+                  <option value="">—</option>
+                  <option value="Adolescente (12 - 15 años)">Adolescente (12 - 15 años)</option>
+                  <option value="Joven adolescente (16 - 18 años)">Joven adolescente (16 - 18 años)</option>
+                  <option value="Joven (19 - 25 años)">Joven (19 - 25 años)</option>
+                  <option value="Joven adulto (26 - 35 años)">Joven adulto (26 - 35 años)</option>
+                  <option value="Adulto (36 - 50 años)">Adulto (36 - 50 años)</option>
+                  <option value="Adulto mayor (51 - 65 años)">Adulto mayor (51 - 65 años)</option>
+                  <option value="Anciano (Más de 65 años)">Anciano (Más de 65 años)</option>
+                </select>
+              </div>
             </div>
-          </div>
-          <div class="form-row">
-            <div class="field">
-              <label for="pfSexo">Sexo</label>
-              <select id="pfSexo" class="select">
-                <option value="">—</option>
-                <option value="Masculino">Masculino</option>
-                <option value="Femenino">Femenino</option>
-                <option value="Otro">Otro</option>
-              </select>
+            <div class="form-row">
+              <div class="field field-full" id="pfSexoOtroWrap" style="display:none;">
+                <label for="pfSexoOtro">Sexo (descripción)</label>
+                <input type="text" id="pfSexoOtro" class="input" placeholder="Describe cómo te identificas" autocomplete="off">
+              </div>
             </div>
-            <div class="field">
-              <label for="pfRangoEdad">Rango de edad</label>
-              <select id="pfRangoEdad" class="select">
-                <option value="">—</option>
-                <option value="Adolescente (12 - 15 años)">Adolescente (12 - 15 años)</option>
-                <option value="Joven adolescente (16 - 18 años)">Joven adolescente (16 - 18 años)</option>
-                <option value="Joven (19 - 25 años)">Joven (19 - 25 años)</option>
-                <option value="Joven adulto (26 - 35 años)">Joven adulto (26 - 35 años)</option>
-                <option value="Adulto (36 - 50 años)">Adulto (36 - 50 años)</option>
-                <option value="Adulto mayor (51 - 65 años)">Adulto mayor (51 - 65 años)</option>
-                <option value="Anciano (Más de 65 años)">Anciano (Más de 65 años)</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="field field-full" id="pfSexoOtroWrap" style="display:none;">
-              <label for="pfSexoOtro">Sexo (descripción)</label>
-              <input type="text" id="pfSexoOtro" class="input" placeholder="Describe cómo te identificas" autocomplete="off">
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="field">
-              <label for="pfFechaSuscripcion">Fecha de suscripción</label>
-              <input type="text" id="pfFechaSuscripcion" class="input" readonly placeholder="—">
-            </div>
-            <div class="field">
-              <label for="pfCiudad">Ciudad</label>
-              <select id="pfCiudad" class="select"></select>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="field field-full" id="pfCiudadOtroWrap" style="display:none;">
-              <label for="pfCiudadOtro">Ciudad (texto libre)</label>
-              <input type="text" id="pfCiudadOtro" class="input" placeholder="Escribe el nombre de la ciudad">
+            <div class="form-row">
+              <div class="field field-full">
+                <label for="pfFechaSuscripcion">Fecha de suscripción</label>
+                <input type="text" id="pfFechaSuscripcion" class="input" readonly placeholder="—">
+              </div>
             </div>
           </div>
-          <div class="form-row">
-            <div class="field field-full">
-              <label for="pfBarrio">Barrio</label>
-              <input type="text" id="pfBarrio" class="input" list="pfBarrioList" placeholder="Escribe el nombre del barrio" autocomplete="off">
-              <datalist id="pfBarrioList"></datalist>
+
+          <div class="form-block">
+            <div class="form-block-head">
+              <span class="icon-chip sm blue">📍</span>
+              <h4>Ubicación</h4>
+            </div>
+            <div class="form-row">
+              <div class="field">
+                <label for="pfDepartamento">Departamento</label>
+                <select id="pfDepartamento" class="select"></select>
+              </div>
+              <div class="field">
+                <label for="pfCiudad">Ciudad</label>
+                <select id="pfCiudad" class="select"></select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field field-full">
+                <label for="pfBarrio">Barrio</label>
+                <select id="pfBarrio" class="select"></select>
+              </div>
             </div>
           </div>
-          <div class="form-row">
-            <div class="field field-full">
-              <label for="pfNotas">Notas o detalles adicionales</label>
-              <textarea id="pfNotas" class="textarea" placeholder="Escribe aquí cualquier información adicional (referencias, observaciones, etc.)"></textarea>
+
+          <div class="form-block">
+            <div class="form-block-head">
+              <span class="icon-chip sm gold">🏦</span>
+              <h4>Datos bancarios (pagos)</h4>
+            </div>
+            <div class="form-row">
+              <div class="field">
+                <label for="pfBanco">Banco</label>
+                <select id="pfBanco" class="select">
+                  <option value="">—</option>
+                  <option value="Bancolombia">Bancolombia</option>
+                  <option value="Nequi">Nequi</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="pfNumeroCuenta">Número de cuenta / Celular Nequi</label>
+                <input type="text" id="pfNumeroCuenta" class="input" placeholder="Ej: 3001234567 o 0123456789" autocomplete="off">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field field-full">
+                <label class="fin-check-label">
+                  <input type="checkbox" id="pfRegistradoPortal">
+                  <span>Registrado en el banco/portal (habilitado para pagos masivos)</span>
+                </label>
+              </div>
             </div>
           </div>
+
+          <div class="form-block">
+            <div class="form-block-head">
+              <span class="icon-chip sm gold">📝</span>
+              <h4>Notas</h4>
+            </div>
+            <div class="form-row">
+              <div class="field field-full">
+                <label for="pfNotas">Notas o detalles adicionales</label>
+                <textarea id="pfNotas" class="textarea" placeholder="Escribe aquí cualquier información adicional (referencias, observaciones, etc.)"></textarea>
+              </div>
+            </div>
+          </div>
+
           <div class="form-actions">
             <button type="submit" class="btn btn-primary" id="btnSaveProfile">Guardar cambios</button>
             <button type="button" class="btn btn-outline" id="btnCancelEditProfile">Cancelar</button>
           </div>
         </form>
       </div>
+
+      <div class="dash-panel dash-panel-mlm" id="dashMlmPanel" style="display:none;">
+        <div class="dash-panel-head">
+          <span class="icon-chip sm gold">🌐</span>
+          <h4>Mi Red</h4>
+        </div>
+        <div class="dash-mlm-body" id="dashMlmBody"></div>
+      </div>
+
+      <div class="dash-panel dash-panel-mlm" id="finanzasPanel" style="display:none;">
+        <div class="dash-panel-head">
+          <span class="icon-chip sm gold">💰</span>
+          <h4>Finanzas</h4>
+        </div>
+        <div class="dash-mlm-body" id="finanzasBody"></div>
+      </div>
     </div>
 
     <!-- ═══ MÓDULO CURSOS ═══ -->
     <div class="view active" id="viewCatalog">
       <div class="section-header">
-        <div>
-          <h2 id="catalogTitle">Mis Cursos</h2>
-          <p id="catalogSub">Selecciona un curso para comenzar o continuar tu aprendizaje.</p>
+        <div class="section-header-ttl">
+          <span class="icon-chip gold">📚</span>
+          <div>
+            <h2 id="catalogTitle">Mis Cursos</h2>
+            <p id="catalogSub">Selecciona un curso para comenzar o continuar tu aprendizaje.</p>
+          </div>
         </div>
         <button class="btn btn-primary" id="btnNewCourse" style="display:none;">+ Nuevo curso</button>
       </div>
+      <div class="categorias-bar" id="cmsCategoriasBar"></div>
       <div class="courses-grid" id="coursesGrid"></div>
       <div class="empty-state" id="emptyCatalog" style="display:none;">
         <span class="es-icon">📚</span>
@@ -215,42 +300,98 @@
 
     <div class="view" id="viewEditor">
       <div class="section-header">
-        <div>
-          <h2 id="editorHeading">Nuevo Curso</h2>
-          <p>Los cambios se guardan en Firestore en la nube.</p>
+        <div class="section-header-ttl">
+          <span class="icon-chip gold">✏️</span>
+          <div>
+            <h2 id="editorHeading">Nuevo Curso</h2>
+            <p>Los cambios se guardan en Firestore en la nube.</p>
+          </div>
         </div>
       </div>
-      <div class="editor-panel">
-        <h3>Datos del curso</h3>
-        <div class="field">
-          <label for="edTitle">Título</label>
-          <input type="text" id="edTitle" class="input" placeholder="Ej: Introducción a WordPress">
-        </div>
-        <div class="field">
-          <label for="edDesc">Descripción</label>
-          <textarea id="edDesc" class="textarea" placeholder="Breve descripción del curso"></textarea>
-        </div>
-        <div class="field" style="margin-top:1.25rem;">
+      <div class="cms-editor">
+        <div class="editor-panel">
           <div class="editor-head">
-            <label style="margin-bottom:0;">Lecciones del curso (artículos de WordPress)</label>
-            <button type="button" class="btn btn-outline btn-sm" id="btnAddLesson">＋ Añadir / seleccionar lecciones</button>
+            <h3><span class="icon-chip sm gold">📦</span> Datos del curso</h3>
           </div>
-          <p class="field-hint">Carga los artículos de WordPress y marca con checkboxes los que forman parte del curso.</p>
-          <div id="lessonPickerList" class="lesson-picker"></div>
+
+          <div class="form-block">
+            <div class="form-block-head">
+              <span class="icon-chip sm gold">✏️</span>
+              <h4>Información general</h4>
+            </div>
+            <div class="form-row">
+              <div class="field field-full">
+                <label for="edTitle">Título</label>
+                <input type="text" id="edTitle" class="input" placeholder="Ej: Introducción a la vocación">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field field-full">
+                <label for="edDesc">Descripción</label>
+                <textarea id="edDesc" class="textarea" placeholder="Breve descripción del curso"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-block">
+            <div class="form-block-head">
+              <span class="icon-chip sm blue">🏷️</span>
+              <h4>Clasificación y acceso</h4>
+            </div>
+            <div class="form-row">
+              <div class="field field-full">
+                <label for="edCategoria">Categoría</label>
+                <select id="edCategoria" class="select"></select>
+                <p class="field-hint">La categoría organiza los cursos y define su sección en el catálogo. Si no hay ninguna, créala desde el catálogo.</p>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field field-full">
+                <label for="edAcceso">Acceso del curso</label>
+                <select id="edAcceso" class="select">
+                  <option value="completo">Completo · solo lecciones de prueba abiertas</option>
+                  <option value="gratis">Gratuito · todo el contenido público</option>
+                </select>
+                <p class="field-hint">El catálogo es visible para todos. El detalle de cada lección se restringe con su propio campo «acceso» (prueba/completo) y los bloques avanzados se marcan en su editor.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="cms-meta-row">
+            <label class="cms-check-label">
+              <input type="checkbox" id="edPublicado">
+              <span>Publicado (visible para estudiantes)</span>
+            </label>
+            <button type="button" class="btn btn-primary" id="btnSaveMetadata">Guardar datos del curso</button>
+          </div>
         </div>
+
+        <div class="editor-panel">
+          <div class="editor-head">
+            <h3><span class="icon-chip sm blue">🧱</span> Contenido · Bloques y lecciones</h3>
+            <button type="button" class="btn btn-outline btn-sm" id="btnAddBloque">＋ Añadir bloque</button>
+          </div>
+          <p class="field-hint">Un curso se organiza en bloques, y cada bloque contiene sus lecciones. Los cambios se guardan individualmente.</p>
+          <div id="cmsBloqueList" class="cms-bloques"></div>
+        </div>
+
         <div class="editor-actions">
-          <button class="btn btn-primary" id="btnSaveCourse">Guardar curso</button>
-          <button class="btn btn-outline" id="btnCancelEdit">Cancelar</button>
+          <button type="button" class="btn btn-outline" id="btnViewCourse">👁 Ver curso</button>
+          <button type="button" class="btn btn-outline" id="btnCancelEdit">Cancelar</button>
         </div>
       </div>
     </div>
 
     <div class="view" id="viewCourse">
       <div class="section-header">
-        <div>
-          <h2 id="courseTitle"></h2>
-          <p id="courseDesc"></p>
+        <div class="section-header-ttl">
+          <span class="icon-chip blue">📖</span>
+          <div>
+            <h2 id="courseTitle"></h2>
+            <p id="courseDesc"></p>
+          </div>
         </div>
+        <button type="button" class="btn btn-outline" id="btnEditCourseCms" style="display:none;">⚙ Editar contenido</button>
       </div>
       <div class="lesson-list" id="lessonList"></div>
     </div>
@@ -289,7 +430,11 @@
         </div>
       </div>
 
-      <div class="admin-stats" id="adminStats"></div>
+      <div class="admin-summary" id="adminSummaryStats"></div>
+
+      <div class="admin-analytics" id="adminAnalyticsStats"></div>
+
+      <div class="admin-active-filters" id="adminActiveFilters"></div>
 
       <div class="admin-filters">
         <input type="text" id="adminSearch" class="admin-search" placeholder="Buscar por nombre o correo…">
@@ -308,6 +453,9 @@
         <select id="adminFilterPerfil" class="admin-filter-select">
           <option value="">Todos los perfiles</option>
         </select>
+        <select id="adminFilterProfesion" class="admin-filter-select">
+          <option value="">Todas las profesiones</option>
+        </select>
       </div>
 
       <div class="admin-bulk-bar" id="adminBulkBar">
@@ -323,12 +471,14 @@
               <th class="admin-check-cell"><input type="checkbox" class="admin-check" id="adminCheckAll"></th>
               <th>Correo</th>
               <th>Nombre</th>
+              <th>Referido</th>
               <th>Documento</th>
               <th>Teléfono</th>
               <th>Ubicación</th>
               <th>Rol</th>
               <th>Estado</th>
               <th>Perfil</th>
+              <th>Profesión</th>
               <th>Acciones</th>
             </tr>
           </thead>
@@ -344,6 +494,62 @@
           <button class="btn btn-primary btn-sm" id="adminProfileAdd">Añadir</button>
         </div>
       </div>
+
+      <div class="admin-profiles">
+        <h3>Profesión u Oficio</h3>
+        <div class="admin-profiles-list" id="adminProfesionesList"></div>
+        <div class="admin-profiles-add">
+          <input type="text" id="adminProfesionInput" class="input" placeholder="Nueva profesión…">
+          <button class="btn btn-primary btn-sm" id="adminProfesionAdd">Añadir</button>
+        </div>
+      </div>
+
+      <div class="admin-profiles">
+        <h3>Ubicación · Departamentos</h3>
+        <div class="admin-profiles-list" id="adminDeptosList"></div>
+        <div class="admin-profiles-add">
+          <input type="text" id="adminDeptoInput" class="input" placeholder="Nuevo departamento…">
+          <button class="btn btn-primary btn-sm" id="adminDeptoAdd">Añadir</button>
+        </div>
+      </div>
+
+      <div class="admin-profiles">
+        <h3>Ubicación · Ciudades</h3>
+        <div class="admin-ubicacion-select">
+          <select id="adminCiudadesDepto" class="select"></select>
+        </div>
+        <div class="admin-profiles-list" id="adminCiudadesList"></div>
+        <div class="admin-profiles-add">
+          <input type="text" id="adminCiudadInput" class="input" placeholder="Nueva ciudad…">
+          <button class="btn btn-primary btn-sm" id="adminCiudadAdd">Añadir</button>
+        </div>
+      </div>
+
+      <div class="admin-profiles">
+        <h3>Ubicación · Barrios</h3>
+        <div class="admin-ubicacion-select">
+          <select id="adminBarriosCiudad" class="select"></select>
+        </div>
+        <div class="admin-profiles-list" id="adminBarriosList"></div>
+        <div class="admin-profiles-add">
+          <input type="text" id="adminBarrioInput" class="input" placeholder="Nuevo barrio…">
+          <button class="btn btn-primary btn-sm" id="adminBarrioAdd">Añadir</button>
+        </div>
+      </div>
+
+      <div class="admin-profiles" id="adminMlmPanel" style="display:none;">
+        <h3>Red de Referidos (MLM)</h3>
+        <p class="field-hint">Activa o desactiva toda la funcionalidad MLM y ajusta los porcentajes de comisión por nivel (1–5).</p>
+        <label class="mlm-switch">
+          <input type="checkbox" id="mlmEnabledToggle">
+          <span class="mlm-switch-slider"></span>
+          <span class="mlm-switch-label" id="mlmEnabledLabel">MLM desactivado</span>
+        </label>
+        <div class="mlm-levels" id="mlmLevelsList"></div>
+        <button class="btn btn-primary btn-sm" id="mlmConfigSave">Guardar configuración</button>
+      </div>
+
+      <div class="admin-profiles" id="adminFinanzasPanel" style="display:none;"></div>
     </div>
 
     <!-- ═══ MÓDULO COMUNIDADES ═══ -->
@@ -356,6 +562,38 @@
         <button type="button" id="btnNuevaComunidad" class="btn btn-primary" style="display:none;">➕ Nueva Comunidad</button>
       </div>
       <div id="comunidadesContent"></div>
+    </div>
+
+    <!-- ═══ MÓDULO FINANZAS (superadmin · CRM centralizado) ═══ -->
+    <div class="view" id="viewFinanzas">
+      <div class="section-header">
+        <div class="section-header-ttl">
+          <span class="icon-chip gold">💰</span>
+          <div>
+            <h2>Finanzas</h2>
+            <p>Gestión centralizada de aportes de usuarios y ofrendas de comunidades.</p>
+          </div>
+        </div>
+        <div class="section-header-acciones">
+          <button type="button" class="btn btn-outline" id="btnNuevoDesembolso">💸 Pago/Desembolso</button>
+          <button type="button" class="btn btn-primary" id="btnNuevaTransaccion">➕ Nueva transacción</button>
+        </div>
+      </div>
+      <div id="finanzasContent"></div>
+    </div>
+
+    <!-- ═══ MÓDULO REPORTES FINANCIEROS (superadmin) ═══ -->
+    <div class="view" id="viewReportes">
+      <div class="section-header">
+        <div class="section-header-ttl">
+          <span class="icon-chip gold">📊</span>
+          <div>
+            <h2>Reportes Financieros</h2>
+            <p>Ingresos, bolsa de comisiones MLM y Caja Mayor / Fondo Estructura General de la organización.</p>
+          </div>
+        </div>
+      </div>
+      <div id="reportesContent"></div>
     </div>
 
   </main>
@@ -407,8 +645,10 @@
     <main class="portal-main">
       <section class="portal-hero" id="portalInicio">
         <div class="portal-hero-inner">
-          <a href="index.html"><img src="/logo.png" alt="Vida con Vocación" class="app-logo"></a>
-          <span class="portal-badge" id="portalHeroBadge"></span>
+          <a href="index.html" class="portal-hero-logo" title="Vida con Vocación">
+            <img src="/logo.png" alt="Vida con Vocación" class="app-logo">
+            <span class="portal-badge" id="portalHeroBadge"></span>
+          </a>
           <h1 id="portalHeroTitle"></h1>
           <p id="portalHeroSubtitle"></p>
           <div class="portal-hero-actions">
@@ -468,88 +708,238 @@
     </footer>
   </div>
 
-  <!-- ═══ FORMULARIO EXTENDIDO CRM (modal) ═══ -->
+  <!-- ═══ VISTA DE USUARIO (ficha de solo lectura · CRM) ═══ -->
+  <div class="modal-overlay" id="crmViewOverlay">
+    <div class="modal-card crm-modal crm-view">
+      <div class="crm-modal-head">
+        <span class="icon-chip gold">👤</span>
+        <div>
+          <h3 id="crmViewTitle">Ficha de Usuario</h3>
+          <p class="crm-modal-sub" id="crmViewSub"></p>
+        </div>
+      </div>
+      <div class="crm-view-actions">
+        <span class="status-pill gold" id="crmViewRol">Rol</span>
+        <span class="status-pill green" id="crmViewEstado">Estado</span>
+      </div>
+      <div id="crmViewBody"></div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-primary" id="crmViewEdit">✏ Editar perfil</button>
+        <button type="button" class="btn btn-outline" id="crmViewClose">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ FORMULARIO EXTENDIDO CRM (modal de edición) ═══ -->
   <div class="modal-overlay" id="crmFormOverlay">
-    <div class="modal-card">
-      <h3>Editar Perfil de Usuario</h3>
+    <div class="modal-card crm-modal">
+      <div class="crm-modal-head">
+        <span class="icon-chip gold">🪪</span>
+        <div>
+          <h3>Editar Perfil de Usuario</h3>
+          <p class="crm-modal-sub" id="crmFormSub"></p>
+        </div>
+      </div>
       <form class="crm-form" id="crmForm" onsubmit="return false;">
-        <div class="form-row">
-          <div class="field">
-            <label for="crmNombre">Nombre</label>
-            <input type="text" id="crmNombre" class="input">
+        <div class="form-block">
+          <div class="form-block-head">
+            <span class="icon-chip sm gold">👤</span>
+            <h4>Datos Personales</h4>
           </div>
-          <div class="field">
-            <label for="crmApellido">Apellido</label>
-            <input type="text" id="crmApellido" class="input">
+          <div class="form-row">
+            <div class="field">
+              <label for="crmNombre">Nombre</label>
+              <input type="text" id="crmNombre" class="input" autocomplete="given-name">
+            </div>
+            <div class="field">
+              <label for="crmApellido">Apellido</label>
+              <input type="text" id="crmApellido" class="input" autocomplete="family-name">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field field-readonly">
+              <label for="crmEmail">Correo electrónico</label>
+              <input type="email" id="crmEmail" class="input" readonly>
+            </div>
+            <div class="field">
+              <label for="crmDocumento">Documento de identidad</label>
+              <input type="text" id="crmDocumento" class="input" placeholder="Ej: 1234567890">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label for="crmTelefono">Teléfono de contacto</label>
+              <input type="text" id="crmTelefono" class="input" placeholder="Ej: 300 123 4567">
+            </div>
+            <div class="field">
+              <label for="crmSexo">Sexo</label>
+              <select id="crmSexo" class="select">
+                <option value="">—</option>
+                <option value="Masculino">Masculino</option>
+                <option value="Femenino">Femenino</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field" id="crmSexoOtroWrap" style="display:none;">
+              <label for="crmSexoOtro">Sexo (descripción)</label>
+              <input type="text" id="crmSexoOtro" class="input" placeholder="Describe cómo te identificas" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="crmRangoEdad">Rango de edad</label>
+              <select id="crmRangoEdad" class="select">
+                <option value="">—</option>
+                <option value="Adolescente (12 - 15 años)">Adolescente (12 - 15 años)</option>
+                <option value="Joven adolescente (16 - 18 años)">Joven adolescente (16 - 18 años)</option>
+                <option value="Joven (19 - 25 años)">Joven (19 - 25 años)</option>
+                <option value="Joven adulto (26 - 35 años)">Joven adulto (26 - 35 años)</option>
+                <option value="Adulto (36 - 50 años)">Adulto (36 - 50 años)</option>
+                <option value="Adulto mayor (51 - 65 años)">Adulto mayor (51 - 65 años)</option>
+                <option value="Anciano (Más de 65 años)">Anciano (Más de 65 años)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label for="crmEstadoCivil">Estado civil</label>
+              <select id="crmEstadoCivil" class="select">
+                <option value="">—</option>
+                <option value="Soltero(a)">Soltero(a)</option>
+                <option value="Casado(a)">Casado(a)</option>
+                <option value="Unión libre">Unión libre</option>
+                <option value="Separado(a)">Separado(a)</option>
+                <option value="Divorciado(a)">Divorciado(a)</option>
+                <option value="Viudo(a)">Viudo(a)</option>
+              </select>
+            </div>
+            <div class="field field-readonly">
+              <label for="crmFechaSuscripcion">Fecha de suscripción</label>
+              <input type="text" id="crmFechaSuscripcion" class="input" readonly placeholder="—">
+            </div>
           </div>
         </div>
-        <div class="form-row">
-          <div class="field field-readonly">
-            <label for="crmEmail">Correo electrónico</label>
-            <input type="email" id="crmEmail" class="input" readonly>
+
+        <div class="form-block">
+          <div class="form-block-head">
+            <span class="icon-chip sm blue">📍</span>
+            <h4>Ubicación</h4>
           </div>
-          <div class="field">
-            <label for="crmDocumento">Documento de identidad</label>
-            <input type="text" id="crmDocumento" class="input" placeholder="Ej: 1234567890">
+          <div class="form-row">
+            <div class="field">
+              <label for="crmDepartamento">Departamento</label>
+              <select id="crmDepartamento" class="select"></select>
+            </div>
+            <div class="field">
+              <label for="crmCiudad">Ciudad</label>
+              <select id="crmCiudad" class="select"></select>
+            </div>
           </div>
-        </div>
-        <div class="form-row">
-          <div class="field">
-            <label for="crmTelefono">Teléfono de contacto</label>
-            <input type="text" id="crmTelefono" class="input" placeholder="Ej: 300 123 4567">
-          </div>
-          <div class="field">
-            <label for="crmRol">Rol</label>
-            <select id="crmRol" class="select">
-              <option value="estudiante">Estudiante</option>
-              <option value="gestor">Gestor</option>
-              <option value="superadmin">Superadmin</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="field">
-            <label for="crmEstado">Estado de cuenta</label>
-            <select id="crmEstado" class="select">
-              <option value="Activo">Activo</option>
-              <option value="Inactivo">Inactivo</option>
-              <option value="Suspendido">Suspendido</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="crmPerfil">Perfil organizacional</label>
-            <select id="crmPerfil" class="select">
-              <option value="">—</option>
-            </select>
+          <div class="form-row">
+            <div class="field field-full">
+              <label for="crmBarrio">Barrio</label>
+              <select id="crmBarrio" class="select"></select>
+            </div>
           </div>
         </div>
-        <div class="form-row">
-          <div class="field">
-            <label for="crmCiudad">Ciudad</label>
-            <select id="crmCiudad" class="select"></select>
+
+        <div class="form-block">
+          <div class="form-block-head">
+            <span class="icon-chip sm gold">🏦</span>
+            <h4>Datos bancarios (pagos)</h4>
           </div>
-          <div class="field">
-            <label for="crmMunicipio">Municipio / Comuna</label>
-            <select id="crmMunicipio" class="select"></select>
+          <div class="form-row">
+            <div class="field">
+              <label for="crmBanco">Banco</label>
+              <select id="crmBanco" class="select">
+                <option value="">—</option>
+                <option value="Bancolombia">Bancolombia</option>
+                <option value="Nequi">Nequi</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="crmNumeroCuenta">Número de cuenta / Celular Nequi</label>
+              <input type="text" id="crmNumeroCuenta" class="input" placeholder="Ej: 3001234567 o 0123456789" autocomplete="off">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field field-full">
+              <label class="fin-check-label">
+                <input type="checkbox" id="crmRegistradoPortal">
+                <span>Registrado en el banco/portal (habilitado para pagos masivos)</span>
+              </label>
+            </div>
           </div>
         </div>
-        <div class="form-row">
-          <div class="field">
-            <label for="crmBarrio">Barrio</label>
-            <select id="crmBarrio" class="select"></select>
+
+        <div class="form-block">
+          <div class="form-block-head">
+            <span class="icon-chip sm gold">📝</span>
+            <h4>Notas</h4>
           </div>
-          <div class="field" style="display:none;" id="crmBarrioCustomWrap">
-            <label for="crmBarrioCustom">Barrio (texto libre)</label>
-            <input type="text" id="crmBarrioCustom" class="input" placeholder="Escribe el nombre del barrio">
+          <div class="form-row">
+            <div class="field field-full">
+              <label for="crmNotas">Notas o detalles adicionales</label>
+              <textarea id="crmNotas" class="textarea" placeholder="Referencias, observaciones, etc."></textarea>
+            </div>
           </div>
         </div>
-        <div class="form-row">
-          <div class="field field-readonly">
-            <label>Fecha de registro</label>
-            <input type="text" id="crmCreado" class="input" readonly>
+
+        <div class="form-block">
+          <div class="form-block-head">
+            <span class="icon-chip sm blue">🛡️</span>
+            <h4>Rol y Configuración</h4>
+            <span class="status-pill blue">Solo admin</span>
           </div>
-          <div></div>
+          <div class="form-row">
+            <div class="field">
+              <label for="crmRol">Rol en la plataforma</label>
+              <select id="crmRol" class="select">
+                <option value="estudiante">Estudiante</option>
+                <option value="gestor">Gestor</option>
+                <option value="superadmin">Superadmin</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="crmEstado">Estado de cuenta</label>
+              <select id="crmEstado" class="select">
+                <option value="Activo">Activo</option>
+                <option value="Inactivo">Inactivo</option>
+                <option value="Suspendido">Suspendido</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label for="crmPerfil">Perfil organizacional</label>
+              <select id="crmPerfil" class="select">
+                <option value="">—</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="crmProfesion">Profesión u Oficio</label>
+              <select id="crmProfesion" class="select">
+                <option value="">—</option>
+              </select>
+            </div>
+          </div>
         </div>
+
+        <div class="form-block" id="crmMlmBlock">
+          <div class="form-block-head">
+            <span class="icon-chip sm gold">🌐</span>
+            <h4>Red de Referidos (MLM)</h4>
+            <span class="status-pill blue">Solo admin</span>
+          </div>
+          <div class="form-row">
+            <div class="field field-full">
+              <label for="crmSponsor">Patrocinador (sponsorId)</label>
+              <input type="text" id="crmSponsor" class="input" autocomplete="off" placeholder="Código de referido (VC-XXXXXX) o ID de usuario">
+              <span class="field-hint" id="crmSponsorInfo"></span>
+            </div>
+          </div>
+        </div>
+
         <div class="form-actions">
           <button type="button" class="btn btn-primary" id="crmFormSave">Guardar cambios</button>
           <button type="button" class="btn btn-outline" id="crmFormCancel">Cancelar</button>
@@ -564,6 +954,7 @@
       <button type="button" class="auth-close" id="authClose" title="Cerrar">✕</button>
       <span class="brand">VCONV<span>.</span></span>
       <p class="auth-sub">Accede para gestionar y visualizar tus cursos.</p>
+      <p class="auth-hint field-hint" id="authHint" style="display:none;">Detectamos una sesión de visitante. Al crear tu cuenta o iniciar sesión, tu progreso de las lecciones de prueba se conservará automáticamente.</p>
       <div class="auth-tabs">
         <button type="button" class="auth-tab active" id="tabLogin" data-tab="login">Iniciar sesión</button>
         <button type="button" class="auth-tab" id="tabRegister" data-tab="register">Registrarse</button>
@@ -585,6 +976,15 @@
         </div>
         <p class="auth-forgot"><a href="#" id="forgotPasswordLink">¿Olvidaste tu contraseña?</a></p>
         <button type="submit" class="btn btn-primary" id="btnLogin">Iniciar sesión</button>
+
+        <div class="auth-social">
+          <div class="auth-social-divider"><span>o continúa con</span></div>
+          <div class="auth-social-actions">
+            <button type="button" class="auth-social-btn google" data-auth-provider="google" title="Iniciar sesión con Google">
+              <i class="fa-brands fa-google"></i><span>Google</span>
+            </button>
+          </div>
+        </div>
       </form>
       <form class="auth-form" id="registerForm" novalidate>
         <div class="field">
@@ -604,7 +1004,20 @@
             </button>
           </div>
         </div>
+        <div class="field" id="regReferidoWrap" style="display:none;">
+          <label for="regReferido">Código de referido (opcional)</label>
+          <input type="text" id="regReferido" class="input" autocomplete="off" placeholder="Ej: VC-ABC123">
+        </div>
         <button type="submit" class="btn btn-primary" id="btnRegister">Crear cuenta</button>
+
+        <div class="auth-social">
+          <div class="auth-social-divider"><span>o continúa con</span></div>
+          <div class="auth-social-actions">
+            <button type="button" class="auth-social-btn google" data-auth-provider="google" title="Registrarse con Google">
+              <i class="fa-brands fa-google"></i><span>Google</span>
+            </button>
+          </div>
+        </div>
       </form>
       <p class="auth-switch" id="authSwitch">
         <span id="switchText">¿No tienes cuenta?</span>
@@ -619,13 +1032,18 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+  <!-- EmailJS (envío de correos desde el frontend) -->
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <!-- Core -->
   <script src="core/app.js"></script>
   <!-- Módulos -->
+  <script src="modules/mlm/mlm.js"></script>
   <script src="modules/dashboard/dashboard.js"></script>
   <script src="modules/cursos/cursos.js"></script>
   <script src="modules/crm/crm.js"></script>
   <script src="modules/comunidades/comunidades.js"></script>
+  <script src="modules/finanzas/finanzas.js"></script>
   <!-- Portal público -->
   <script src="modules/portal/portal.js"></script>
 </body>
