@@ -35,7 +35,8 @@
   }
 
   function loadUbicacionFromConfig() {
-    if (!V.db) return Promise.resolve(ubicacionData);
+    // Los visitantes sin sesión omiten config/* (las reglas exigen signedIn()).
+    if (!V.db || V.isAnon) return Promise.resolve(ubicacionData);
     return V.db.collection('config').doc('ubicacion').get()
       .then(function (doc) {
         return applyUbicacion(doc.exists ? doc.data() : {});
@@ -47,7 +48,8 @@
 
   // Carga una lista maestra de opciones desde config/{doc} (categorias).
   function loadOptionList(docName) {
-    if (!V.db) return Promise.resolve([]);
+    // Los visitantes sin sesión omiten config/* (las reglas exigen signedIn()).
+    if (!V.db || V.isAnon) return Promise.resolve([]);
     return V.db.collection('config').doc(docName).get()
       .then(function (doc) {
         var raw = doc.exists ? (doc.data().categorias || []) : [];
@@ -619,19 +621,25 @@
   /* ─── SHOW HOOK (called by core each time dashboard is shown) ── */
   function showDashboard() {
     renderCards();
+    // Visitante en modo local (sin sesión, sin UID): perfil de invitado de
+    // solo lectura. No hay documento usuarios/ que consultar.
+    if (V.isAnon) {
+      $('dashName').textContent = 'Visitante';
+      $('dashRoleBadge').textContent = '👋 Visitante';
+      $('dashRole').textContent = 'Explora el catálogo y las lecciones de prueba. Crea tu cuenta para guardar tu avance.';
+      var pillAnon = $('dashRolePill');
+      if (pillAnon) { pillAnon.textContent = '👋 Visitante'; pillAnon.className = 'status-pill blue'; }
+      // Sin sesión no hay documento de perfil que editar: se oculta la
+      // edición para no disparar escrituras protegidas en Firestore.
+      var btnEditAnon = $('dashEditProfile');
+      if (btnEditAnon) btnEditAnon.style.display = 'none';
+      return;
+    }
     if (!V.db || !V.userId) return;
     V.db.collection(V.COL_USUARIOS).doc(V.userId).get().then(function (doc) {
       var user = doc.exists ? doc.data() : {};
       user.uid = V.userId;
       V._lastUserDoc = user;
-      if (V.isAnon) {
-        $('dashName').textContent = 'Visitante';
-        $('dashRoleBadge').textContent = '👋 Visitante';
-        $('dashRole').textContent = 'Explora el catálogo y las lecciones de prueba. Crea tu cuenta para conservar tu progreso.';
-        var pillAnon = $('dashRolePill');
-        if (pillAnon) { pillAnon.textContent = '👋 Visitante'; pillAnon.className = 'status-pill blue'; }
-        return;
-      }
       $('dashName').textContent = ((user.nombre || '') + ' ' + (user.apellido || '')).trim() || (V.currentUser && V.currentUser.email ? V.currentUser.email.split('@')[0] : 'Usuario');
       var rol = user.rol || V.userRole || 'estudiante';
       var rl = ROLES[rol];
@@ -654,11 +662,16 @@
   var DashboardModule = {
     onReady: function () {
       runCascade();
-      loadUbicacionFromConfig().then(function () {
-        populateDeptos();
-        populateCiudades();
-      });
       bindProfileEvents();
+      // El Escritorio de invitado es de solo lectura: los visitantes sin
+      // sesión omiten la consulta protegida config/ubicacion (las reglas de
+      // Firestore exigen signedIn() para config/*).
+      if (!V.isAnon) {
+        loadUbicacionFromConfig().then(function () {
+          populateDeptos();
+          populateCiudades();
+        });
+      }
     }
   };
 

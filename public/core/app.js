@@ -46,7 +46,10 @@
   var storage = null;
   var userId = localStorage.getItem('vconv_user_id') || '';
   var currentUser = null;
-  var isAnon = false;             // sesión de visitante (Firebase Auth anónimo)
+  // Modo visitante LOCAL: sin sesión en Firebase Authentication. El visitante
+  // explora catálogo y lecciones de prueba en modo de solo lectura, SIN
+  // generar registros fantasma en Auth.
+  var isAnon = false;
   var userRole = 'estudiante';
   // Superadmin: control absoluto. esAdmin()/V.esAdmin marcan la sesión con
   // rol superadmin; los módulos (finanzas, MLM, CRM) y las reglas de
@@ -79,8 +82,8 @@
   var fontScale = parseFloat(localStorage.getItem('vconv_font') || '1');
   var authInitFailure = null;
   // Bandera de redirección forzosa al login: el documento de registro del
-  // usuario fue eliminado de Firestore. Mientras está activa no se reabre
-  // la sesión anónima automática ni se deja cargar el escritorio.
+  // usuario fue eliminado de Firestore. Mientras está activa no se entra en
+  // modo visitante ni se deja cargar el escritorio.
   var forceLoginPending = false;
 
   /* ─── DOM HELPERS ─────────────────────────────────────────── */
@@ -140,7 +143,7 @@
   }
   function showPortal() {
     // Si ya hay una sesión activa, redirigir al escritorio en lugar de
-    // mostrar la landing anónima. La sesión (documento de usuario y
+    // mostrar la landing pública. La sesión (documento de usuario y
     // módulos) ya fue inicializada por onAuthStateChanged / startApp.
     if (auth && auth.currentUser) {
       if (currentUser) {
@@ -207,9 +210,6 @@
   };
   var socialPending = false;
 
-  // UID anónimo capturado antes de una fusión con cuenta existente.
-  var _anonUidToMerge = null;
-
   function buildSocialAuthProvider(key) {
     var cfg = SOCIAL_PROVIDERS[key];
     if (!cfg || !firebase || !firebase.auth || !auth) return null;
@@ -217,12 +217,6 @@
       try { return new firebase.auth.GoogleAuthProvider(); } catch (e) { /* noop */ }
     }
     return null;
-  }
-
-  function isAccountConflict(code) {
-    return code === 'auth/account-exists-with-different-credential' ||
-           code === 'auth/credential-already-in-use' ||
-           code === 'auth/email-already-in-use';
   }
 
   function handleSocialLogin(key, btn) {
@@ -237,27 +231,13 @@
     socialPending = true;
     setAuthLoading(btn, true);
 
-    var current = auth.currentUser;
-    var anonUid = (current && current.isAnonymous) ? current.uid : null;
-    // Si hay sesión de visitante, la vinculamos (account linking); si
-    // la fusión con una cuenta existente fuera necesaria, guardamos el
-    // UID anónimo para transferir el progreso.
-    if (anonUid) _anonUidToMerge = anonUid;
-
-    formalAuthInProgress = true;
-    var op = anonUid ? current.linkWithPopup(provider) : auth.signInWithPopup(provider);
-
-    op.then(function (result) {
-      // Mismo UID (caso típico de account linking): el progreso ya se
-      // conserva por construcción, no hay nada que copiar.
-      if (anonUid && result.user && result.user.uid === anonUid) _anonUidToMerge = null;
-      return adoptAnonymousData(result.user)
-        .then(function () { return finalizeLinking(result.user, 'google', null, !!anonUid); })
-        .then(function () {
-          closeAuth();
-          if (anonUid) toast('Sesión vinculada con Google. Tu progreso se conservó.');
-        });
-    })
+    // El visitante no tiene sesión ni cuenta anónima: se inicia sesión con
+    // el proveedor de forma estándar. No existe account linking.
+    auth.signInWithPopup(provider)
+      .then(function () {
+        closeAuth();
+        toast('Sesión iniciada con ' + (SOCIAL_PROVIDERS[key] ? SOCIAL_PROVIDERS[key].label : key) + '.');
+      })
       .catch(function (err) {
         var code = err && err.code ? err.code : '';
         if (code === 'auth/popup-closed-by-user') return;
@@ -270,165 +250,12 @@
           showAuthError('Este acceso aún no está habilitado. Actívalo y configura sus credenciales en Firebase Console → Authentication.');
           return;
         }
-        if (isAccountConflict(code)) {
-          // El correo de la cuenta Google ya pertenece a otra cuenta:
-          // se inicia sesión con Google y se FUSIONA el progreso de la
-          // sesión anónima en la cuenta formal.
-          var anon = _anonUidToMerge;
-          return auth.signInWithPopup(provider)
-            .then(function (r) {
-              if (anon) _anonUidToMerge = anon;
-              return adoptAnonymousData(r.user)
-                .then(function () { return finalizeLinking(r.user, 'google', null, true); })
-                .then(function () {
-                  closeAuth();
-                  toast('Cuenta fusionada. Tu progreso de visitante se transfirió a tu cuenta.');
-                });
-            })
-            .catch(function (e2) { showAuthError(authErrorMessage(e2)); });
-        }
         showAuthError(authErrorMessage(err));
       })
       .then(function () {
         socialPending = false;
-        formalAuthInProgress = false;
         setAuthLoading(btn, false);
       });
-  }
-
-  /* ─── FUSIÓN DE CUENTAS (ACCOUNT LINKING) ──────────────────
-     El UID de la sesión anónima es temporal y el progreso vive en
-     subcolecciones {cursos|modulos}/.../progreso/{uid}. Dos escenarios:
-
-     1) CUENTA NUEVA (linkWithCredential/linkWithPopup): el UID
-        anónimo se CONVIERTE en el UID de la cuenta formal. Como el
-        identificador no cambia, todo el progreso (y el documento de
-        perfil) continúa apuntando al mismo sitio: transferencia
-        completa sin pérdida de datos y sin operaciones de copia.
-
-     2) CUENTA EXISTENTE (mismo correo): el enlace falla con
-        credential-already-in-use. Se inicia sesión con la cuenta
-        formal y se MIGRA el progreso de la sesión anónima (copiando
-        las subcolecciones de progreso y los campos de perfil). El UID
-        anónimo huérfano queda marcado y es eliminado por la limpieza
-        automática de cuentas anónimas (30 días) configurada en
-        Firebase Console.                                             */
-
-  // Marca la cuenta destino como vinculada/migrada y limpia la bandera.
-  function finalizeLinking(user, proveedor, nombre, viaAnon) {
-    if (!user) return Promise.resolve();
-    isAnon = false;
-    var upd = {
-      anonimo: false,
-      proveedor: proveedor
-    };
-    if (viaAnon) {
-      upd.fusionado = true;
-      upd.fusionadoFecha = new Date().toISOString();
-    }
-    if (user.email) upd.email = user.email;
-    if (nombre) upd.nombre = nombre;
-    var ref = db.collection(COL_USUARIOS).doc(user.uid);
-    // Solo actualiza si el perfil ya existe; nunca crea documentos aquí.
-    return ref.get().then(function (doc) {
-      if (!doc.exists) return user;
-      return ref.set(upd, { merge: true }).catch(function () {}).then(function () { return user; });
-    });
-  }
-
-  // Copia los datos de la sesión anónima a la cuenta destino (escenario 2).
-  function adoptAnonymousData(targetUser) {
-    var anonUid = _anonUidToMerge || null;
-    _anonUidToMerge = null;
-    if (!anonUid || !targetUser || anonUid === targetUser.uid) return Promise.resolve();
-    return Promise.all([
-      copyUserProfile(anonUid, targetUser.uid),
-      copyAllProgreso(anonUid, targetUser.uid)
-    ]).then(function () {
-      // Auditoría: solo si el perfil anónimo existía se marca como fusionado.
-      // Nunca se crea un documento nuevo aquí (el anónimo que abandonó el
-      // registro no debe dejar rastro en la colección).
-      return db.collection(COL_USUARIOS).doc(anonUid).get().then(function (doc) {
-        if (!doc.exists) return null;
-        return db.collection(COL_USUARIOS).doc(anonUid).set({
-          fusionadoCon: targetUser.uid,
-          fusionadoFecha: new Date().toISOString(),
-          estado: 'Fusionado'
-        }, { merge: true }).catch(function () {});
-      });
-    });
-  }
-
-  function copyUserProfile(anonUid, targetUid) {
-    var src = db.collection(COL_USUARIOS).doc(anonUid);
-    var dst = db.collection(COL_USUARIOS).doc(targetUid);
-    return Promise.all([src.get(), dst.get()]).then(function (res) {
-      var a = res[0], t = res[1];
-      if (!a.exists) return null;
-      var ad = a.data() || {};
-      var upd = {};
-      ['nombre', 'apellido', 'documento', 'telefono', 'sexo', 'sexoCustom',
-        'rangoEdad', 'departamento', 'ciudad', 'barrio', 'notas', 'perfil', 'profesion', 'oficio'].forEach(function (k) {
-        if (ad[k] && (ad[k] + '').trim() !== '') upd[k] = ad[k];
-      });
-      if (t.exists) {
-        var td = t.data() || {};
-        Object.keys(upd).forEach(function (k) { if (td[k]) delete upd[k]; });
-      }
-      if (!Object.keys(upd).length) return null;
-      return dst.set(upd, { merge: true });
-    }).catch(function () {});
-  }
-
-  // Une sin duplicar el progreso (union de completados + max indice).
-  function mergeProgressData(srcData, dstData) {
-    var list = (dstData && dstData.completed) ? dstData.completed.slice() : [];
-    (srcData.completed || []).forEach(function (id) {
-      if (list.indexOf(String(id)) === -1) list.push(String(id));
-    });
-    return {
-      completed: list,
-      indice: Math.max((srcData.indice || 0), ((dstData && dstData.indice) || 0)),
-      fusionado: true
-    };
-  }
-
-  function copyProgresoForCourse(courseRef, anonUid, targetUid) {
-    var src = courseRef.collection(COL_PROGRESO).doc(anonUid);
-    var dst = courseRef.collection(COL_PROGRESO).doc(targetUid);
-    return src.get().then(function (doc) {
-      if (!doc.exists) return null;
-      return dst.get().then(function (tdoc) {
-        return dst.set(mergeProgressData(doc.data(), tdoc.exists ? tdoc.data() : null), { merge: true });
-      });
-    }).catch(function () {});
-  }
-
-  // Recorre el progreso en las dos rutas de curso existentes: raíz
-  // legacy (cursos/{id}/progreso) y anidada (categorias/…/cursos/…).
-  function copyAllProgreso(anonUid, targetUid) {
-    if (!db) return Promise.resolve();
-    var tasks = [];
-    tasks.push(db.collection(COL_CURSOS).get()
-      .then(function (cs) {
-        var ops = [];
-        cs.forEach(function (c) { ops.push(copyProgresoForCourse(c.ref, anonUid, targetUid)); });
-        return Promise.all(ops);
-      }).catch(function () {}));
-    tasks.push(db.collection(COL_CATEGORIAS).get()
-      .then(function (cats) {
-        var ops = [];
-        cats.forEach(function (cat) {
-          ops.push(cat.ref.collection(COL_CURSOS).get()
-            .then(function (cs) {
-              var ops2 = [];
-              cs.forEach(function (c) { ops2.push(copyProgresoForCourse(c.ref, anonUid, targetUid)); });
-              return Promise.all(ops2);
-            }).catch(function () {}));
-        });
-        return Promise.all(ops);
-      }).catch(function () {}));
-    return Promise.all(tasks);
   }
 
   function bindSocialAuthButtons() {
@@ -443,20 +270,18 @@
 
   // Único punto de creación del perfil en Firestore (solo dentro de
   // handleRegister). Aquí únicamente se LEE el documento existente: si no
-  // existe (p. ej. visitante anónimo) se devuelve el rol por defecto
-  // 'estudiante' y la app funciona de forma tolerante leyendo el perfil.
-  // Para cuentas FORMALES (correo/Google), un documento de registro
-  // inexistente es un perfil eliminado o no creado: se fuerza el cierre de
+  // existe se trata como perfil eliminado o no creado: se fuerza el cierre de
   // sesión y se redirige al login, evitando que el escritorio intente
   // consultar subcolecciones sin permiso ('Missing or insufficient
   // permissions'). Con reintentos cortos para no romper el alta recién
   // terminada (la creación del perfil se encadena tras la autenticación).
+  // Los visitantes sin sesión NO pasan por aquí: entran en modo guest
+  // (V.isAnon) directamente desde onAuthStateChanged.
   function ensureUserDoc(user, intentos) {
     var ref = db.collection(COL_USUARIOS).doc(user.uid);
     return ref.get()
       .then(function (doc) {
         if (doc.exists) return { rol: doc.data().rol || 'estudiante' };
-        if (user.isAnonymous) return { rol: 'estudiante' };
         return confirmarPerfilEliminado(user, intentos);
       })
       .catch(function (err) {
@@ -465,7 +290,6 @@
         // 'Missing or insufficient permissions'). Se trata igual que un
         // perfil inexistente. Los fallos de red u otros errores reales se
         // re-lanzan para que el manejo general los cubra.
-        if (user.isAnonymous) return { rol: 'estudiante' };
         if (!esPerfilDenegado(err)) throw err;
         return confirmarPerfilEliminado(user, intentos);
       });
@@ -510,8 +334,8 @@
   // handleRegister, cuando el formulario ya fue enviado. Un documento NUEVO
   // nace completo: nombre, correo, rol inicial, estado, proveedor y, si el
   // MLM está activo, el sponsorId (el referralCode lo asegura aplicarPatrocinio,
-  // que se encadena en el mismo cierre). Si el documento YA existe (fusión
-  // con una cuenta previa) solo se actualizan los datos personales sin tocar
+  // que se encadena en el mismo cierre). Si el documento YA existe (registro
+  // duplicado/reintento) solo se actualizan los datos personales sin tocar
   // rol, estado ni fecha de creación.
   function crearPerfilRegistro(user, datos) {
     var ref = db.collection(COL_USUARIOS).doc(user.uid);
@@ -548,7 +372,7 @@
     $('userChip').style.display = '';
   }
 
-  // Chip para visitantes anónimos: sin correo, con aviso de invitado.
+  // Chip para visitantes en modo local: sin correo, con aviso de invitado.
   function setupGuestChip(user) {
     $('userEmail').textContent = 'Visitante';
     $('userAvatar').textContent = (user && user.email) ? user.email.charAt(0) : '?';
@@ -576,32 +400,22 @@
     var btn = $('btnLogin');
     setAuthLoading(btn, true);
 
-    // Login con sesión real activa: no hace nada (flujo anónimo aparte).
-    if (auth.currentUser && !auth.currentUser.isAnonymous) {
+    // Sesión real ya activa: no hay nada que iniciar.
+    if (auth.currentUser) {
       closeAuth();
       setAuthLoading(btn, false);
       return;
     }
-    // Si el visitante anónimo inicia sesión con un correo existente, la
-    // cuenta anónima se FUSIONA con la formal (migración de progreso).
-    var anonUid = (auth.currentUser && auth.currentUser.isAnonymous) ? auth.currentUser.uid : null;
-    if (anonUid) _anonUidToMerge = anonUid;
-
-    formalAuthInProgress = true;
+    // Login estándar. No existe sesión anónima previa que fusionar: los
+    // visitantes navegan sin cuenta (modo local) y aquí solo se autentica
+    // una cuenta formal existente con correo/contraseña.
     auth.signInWithEmailAndPassword(email, pass)
-      .then(function (cred) {
-        if (anonUid && cred.user && cred.user.uid !== anonUid) {
-          return adoptAnonymousData(cred.user);
-        }
-        if (anonUid) _anonUidToMerge = null;
-        return null;
-      })
       .then(function () {
         closeAuth();
         toast('Bienvenido de nuevo.');
       })
       .catch(function (err) { showAuthError(authErrorMessage(err)); })
-      .then(function () { formalAuthInProgress = false; setAuthLoading(btn, false); });
+      .then(function () { setAuthLoading(btn, false); });
   }
 
   function handleForgotPassword(e) {
@@ -622,38 +436,6 @@
       });
   }
 
-  // Vincula la sesión anónima con un nuevo correo/contraseña. Si el correo
-  // ya pertenece a una cuenta formal, la fusiona migrando el progreso.
-  function linkOrMergeEmail(email, pass, nombre) {
-    var current = auth.currentUser;
-    var anonUid = (current && current.isAnonymous) ? current.uid : null;
-    if (anonUid) _anonUidToMerge = anonUid;
-    return current.linkWithCredential(firebase.auth.EmailAuthProvider.credential(email, pass))
-      .then(function (result) {
-        // Mismo UID: el progreso de la sesión anónima queda en el mismo
-        // documento; nada que copiar.
-        if (result.user && result.user.uid === anonUid) _anonUidToMerge = null;
-        return finalizeLinking(result.user, 'correo', nombre, true);
-      })
-      .catch(function (err) {
-        var code = err && err.code ? err.code : '';
-        if (isAccountConflict(code)) {
-          var anon = anonUid;
-          return auth.signInWithEmailAndPassword(email, pass)
-            .then(function (cred) {
-              if (anon) _anonUidToMerge = anon;
-              return adoptAnonymousData(cred.user).then(function () { return cred.user; });
-            })
-            .then(function (u) { return finalizeLinking(u, 'correo', nombre, true); })
-            .then(function (u) {
-              toast('Ya existía una cuenta con este correo. Se fusionó el progreso de tu sesión.');
-              return u;
-            });
-        }
-        throw err;
-      });
-  }
-
   function handleRegister(e) {
     if (e) e.preventDefault();
     if (!auth) { showAuthError('Firebase Authentication no está disponible. Recarga la página.'); return; }
@@ -666,8 +448,8 @@
     var btn = $('btnRegister');
     setAuthLoading(btn, true);
 
-    // Sesión formal ya activa: no hay nada que registrar.
-    if (auth.currentUser && !auth.currentUser.isAnonymous) {
+    // Sesión real ya activa: no hay nada que registrar.
+    if (auth.currentUser) {
       closeAuth();
       setAuthLoading(btn, false);
       return;
@@ -692,72 +474,59 @@
       });
     }
 
-    sponsorTask.then(function (sponsorId) {
-      formalAuthInProgress = true;
-      var op;
-      if (auth.currentUser && auth.currentUser.isAnonymous) {
-        // CUENTA NUEVA sobre una sesión de visitante → account linking:
-        // se preserva el UID (y con él todo el progreso ya acumulado). El
-        // perfil se crea a continuación en crearPerfilRegistro.
-        op = linkOrMergeEmail(email, pass, nombre);
-      } else {
-        // Sin sesión previa (proveedor anónimo deshabilitado): regístrase
-        // de forma estándar. La autenticación aquí NO escribe en Firestore;
-        // el perfil se crea abajo, solo tras el envío exitoso del formulario.
-        op = auth.createUserWithEmailAndPassword(email, pass);
-      }
-      // createUserWithEmailAndPassword y los métodos de vinculación resuelven
-      // con un UserCredential (el firebase.User vive en cred.user), mientras
-      // linkOrMergeEmail resuelve con el User directamente. Se normaliza:
-      // si la identidad no se sincroniza aquí (y el perfil no se crea),
-      // ensureUserDoc no encuentra el documento y la sesión recién creada se
-      // descarta volviendo a la vista de Visitante.
-      return op.then(function (cred) {
-        var user = (cred && cred.user) ? cred.user : cred;
-        if (user && user.uid) {
-          // La cuenta YA quedó autenticada en este mismo paso
-          // (createUserWithEmailAndPassword o account linking). La identidad
-          // de sesión se sincroniza de inmediato para que ningún render
-          // intermedio conserve la vista de 'Visitante'; el escritorio final
-          // se monta cuando onAuthStateChanged → ensureUserDoc → startApp
-          // termine (goDashboard es quien llama a V.onDashboardShow).
-          currentUser = user;
-          userId = user.uid;
-          isAnon = false;
-          V.currentUser = user;
-          V.userId = userId;
-          V.isAnon = false;
+    // El visitante no tiene ninguna sesión anónima previa: el alta es siempre
+    // estándar (createUserWithEmailAndPassword). La identidad se sincroniza
+    // de inmediato para que ningún render intermedio conserve la vista de
+    // 'Visitante'.
+    return sponsorTask.then(function (sponsorId) {
+      return auth.createUserWithEmailAndPassword(email, pass)
+        .then(function (cred) {
+          var user = (cred && cred.user) ? cred.user : cred;
+          if (user && user.uid) {
+            currentUser = user;
+            userId = user.uid;
+            isAnon = false;
+            V.currentUser = user;
+            V.userId = userId;
+            V.isAnon = false;
 
-          // Escritura atómica del perfil: único punto de creación del
-          // documento. Nace con correo, nombre, rol inicial y proveedor;
-          // el referralCode (y el sponsorId si el MLM está activo) los
-          // asegura aplicarPatrocinio en la misma cadena.
-          return crearPerfilRegistro(user, {
-            nombre: nombre,
-            email: email,
-            rol: 'estudiante',
-            proveedor: 'correo',
-            sponsorId: sponsorId
-          }).then(function () {
-            var mlmApply = V.mlm ? V.mlm.aplicarPatrocinio(user.uid, sponsorId) : Promise.resolve();
-            return mlmApply.then(function () { return user; });
-          });
-        }
-        return user;
-      });
+            // Escritura atómica del perfil: único punto de creación del
+            // documento. Nace con correo, nombre, rol inicial y proveedor;
+            // el referralCode (y el sponsorId si el MLM está activo) los
+            // asegura aplicarPatrocinio en la misma cadena.
+            return crearPerfilRegistro(user, {
+              nombre: nombre,
+              email: email,
+              rol: 'estudiante',
+              proveedor: 'correo',
+              sponsorId: sponsorId
+            }).then(function () {
+              var mlmApply = V.mlm ? V.mlm.aplicarPatrocinio(user.uid, sponsorId) : Promise.resolve();
+              return mlmApply.then(function () { return user; });
+            }).then(function (u) {
+              // Actualización de sesión + redibujado INMEDIATOS: el usuario
+              // termina el registro y entra directo a su escritorio/perfil
+              // activo, sin esperar (ni depender de) la llegada de
+              // onAuthStateChanged ni verse atrapado en 'Visitante'.
+              redrawSession(u);
+              return u;
+            });
+          }
+          return user;
+        });
     })
       .then(function () {
         closeAuth();
         toast('¡Cuenta creada! Bienvenido a VCONV.');
       })
       .catch(function (err) { showAuthError(authErrorMessage(err)); })
-      .then(function () { formalAuthInProgress = false; setAuthLoading(btn, false); });
+      .then(function () { setAuthLoading(btn, false); });
   }
 
   function handleLogout() {
-    // Un visitante anónimo nunca "cierra sesión": salir destruiría su UID
-    // temporal y con él el progreso de las lecciones de prueba. Se le
-    // ofrece registrarse/vincular para conservarlo.
+    // Un visitante en modo local nunca "cierra sesión": no tiene sesión de
+    // Firebase. El botón muestra "Crear cuenta": se abre la pantalla de
+    // autenticación para registrarse e iniciar sesión.
     if (isAnon) { openAuth('login'); return; }
     auth.signOut()
       .then(function () { location.reload(); })
@@ -808,57 +577,24 @@
     bindSocialAuthButtons();
   }
 
-  /* ─── SESIÓN ANÓNIMA AUTOMÁTICA ────────────────────────────
-     Todo visitante sin sesión recibe al instante un UID temporal de
-     Firebase Authentication (signInAnonymously). Con él puede ver el
-     catálogo general y las lecciones de prueba; al registrarse con
-     correo o Google la sesión se vincula (account linking) y el
-     progreso se conserva. La limpieza de cuentas anónimas inactivas
-     se configura en Firebase Console → Authentication → Settings
-     (limpieza automática a los 30 días).                             */
-  var anonSignInPending = false;
-  // Alta o inicio de sesión FORMAL (correo/Google) en curso. Mientras esté
-  // activo, la sesión anónima automática no debe dispararse ni reemplazar la
-  // cuenta recién creada: si un signInAnonymously quedó pendiente antes de
-  // enviar el formulario, su resultado se ignora silenciosamente para que la
-  // identidad del nuevo usuario no sea "robada" en pleno registro.
-  var formalAuthInProgress = false;
-
-  function initAnonymousSession() {
-    if (!auth || anonSignInPending || formalAuthInProgress) return;
-    anonSignInPending = true;
-    auth.signInAnonymously()
-      .then(function () {
-        anonSignInPending = false;
-        // Un registro/login formal arrancó mientras este sign-in anónimo
-        // estaba en vuelo: no tocamos nada; la sesión anónima en vuelo no
-        // debe ganarle a la cuenta formal ni disparar avisos confusos.
-        if (formalAuthInProgress) return;
-      })
-      .catch(function (err) {
-        anonSignInPending = false;
-        if (formalAuthInProgress) return;
-        var code = err && err.code ? err.code : '';
-        if (code === 'auth/operation-not-allowed' || code === 'auth/admin-restricted-operation') {
-          showFbError('El acceso de visitantes no está habilitado. Actívalo en Firebase Console → Authentication → Sign-in method (Anónimo).');
-        } else {
-          showFbError('No se pudo iniciar la sesión de visitante: ' + (err.message || err));
-        }
-        showPortal();
-      });
-  }
-
+  /* ─── MODO VISITANTE LOCAL ──────────────────────────────
+     Los visitantes navegan SIN sesión en Firebase Authentication: no se
+     crea ningún registro fantasma en Auth. Cuando auth.currentUser es
+     null, la app entra en modo visitante de SOLO LECTURA (catálogo
+     publicado + lecciones de prueba), con las lecturas públicas
+     habilitadas en firestore.rules (esPublico()). El visitante no tiene
+     UID ni escribe nada: progreso, comunidades, finanzas y MLM quedan
+     reservados a cuentas registradas.      */
   function initAuth() {
-    // UID de la última sesión con la que se construyeron las suscripciones
-    // de los módulos. Permite detectar un cambio de identidad (anónimo →
-    // cuenta, fusión o restauración de sesión al cargar) y reconstruirlas
-    // INMEDIATAMENTE, sin esperar a ensureUserDoc/startApp. Incluye el estado
-    // anónimo: en el account linking el UID se conserva pero la semántica de
-    // las consultas (visitante ⇄ registrado) cambia igual.
+    // Clave de la última identidad con la que se construyeron las
+    // suscripciones de los módulos. Permite detectar un cambio de identidad
+    // (visitante local ⇄ cuenta registrada, o restauración de sesión al
+    // cargar) y reconstruirlas INMEDIATAMENTE, sin esperar a
+    // ensureUserDoc/startApp.
     var lastSessionKey = '';
     auth.onAuthStateChanged(function (user) {
       // Cierre forzoso por perfil eliminado: la sesión formal ya fue cerrada
-      // en handleMissingUserProfile(); no se reabre la sesión anónima y se
+      // en handleMissingUserProfile(); no se entra en modo visitante y se
       // deja el login en pantalla.
       if (forceLoginPending) {
         if (!user) {
@@ -869,20 +605,26 @@
         }
         return;
       }
+      // Cuentas anónimas heredadas: ya no se usan; se cierra la sesión y se
+      // pasa a modo visitante local. Cero registros fantasma activos.
+      if (user && user.isAnonymous) {
+        auth.signOut().catch(function () {});
+        return;
+      }
       if (user) {
         currentUser = user;
         userId = user.uid;
-        isAnon = !!user.isAnonymous;
+        isAnon = false;
         V.currentUser = user;
         V.userId = userId;
         V.isAnon = isAnon;
         // La identidad de Firebase YA es la nueva; sincronizarla con los
         // módulos en este mismo instante. Si se espera a ensureUserDoc →
-        // startApp → onModeChange, las suscripciones construidas bajo el UID
-        // anterior (p. ej. visitante anónimo) siguen vivas en el intervalo y
-        // Firestore las deniega porque request.auth.uid ya es el usuario nuevo
-        // ('Missing or insufficient permissions' = toast rojo justo al login).
-        var sessionKey = user.uid + ':' + (user.isAnonymous ? 'anon' : 'formal');
+        // startApp → onModeChange, las suscripciones construidas bajo la
+        // identidad anterior (p. ej. visitante local) siguen vivas en el
+        // intervalo y Firestore las deniega porque request.auth ya no es
+        // null ('Missing or insufficient permissions' = toast rojo al login).
+        var sessionKey = 'user:' + user.uid;
         if (V.onSessionRefresh && sessionKey !== lastSessionKey) {
           try { V.onSessionRefresh(); } catch (e) { /* noop */ }
         }
@@ -895,9 +637,21 @@
             showPortal();
           });
       } else {
+        // Sin sesión en Firebase Authentication → MODO VISITANTE LOCAL.
+        // El visitante navega (solo lectura) sin generar ningún registro en
+        // Auth. No hay UID ni documento de perfil: uidSesion() devuelve ''.
         currentUser = null;
-        isAnon = false;
-        initAnonymousSession();
+        userId = '';
+        isAnon = true;
+        V.currentUser = null;
+        V.userId = '';
+        V.isAnon = true;
+        var guestKey = 'guest';
+        if (V.onSessionRefresh && guestKey !== lastSessionKey) {
+          try { V.onSessionRefresh(); } catch (e) { /* noop */ }
+        }
+        lastSessionKey = guestKey;
+        startApp('estudiante');
       }
     });
   }
@@ -1223,8 +977,9 @@
 
   /* ─── START APP ───────────────────────────────────────────── */
   // Arranque completo de la aplicación. Puede re-emitirse cuando la
-  // sesión cambia (p.ej. fusión anónimo→real): en ese caso solo se
-  // refresca la UI sin volver a vincular eventos ni inicializar módulos.
+  // identidad cambia (visitante local ⇄ cuenta registrada): en ese caso
+  // solo se refresca la UI sin volver a vincular eventos ni inicializar
+  // módulos.
   var appStarted = false;
   function startApp(rol) {
     userRole = rol;
@@ -1272,10 +1027,35 @@
   }
 
   function refreshAuthUi() {
+    if (isAnon) setupGuestChip(currentUser); else setupUserChip(currentUser);
+    var logoutBtn = $('btnLogout');
+    if (logoutBtn) logoutBtn.textContent = isAnon ? '🔐 Crear cuenta' : 'Salir';
     $('modeAdmin').style.display = userRole === 'superadmin' ? '' : 'none';
     updateSidebarAccess();
     setMode(mode);
     goDashboard();
+  }
+
+  // Actualiza la identidad global de la sesión y REDIBUJA la interfaz con la
+  // identidad indicada, de inmediato. Usada al terminar el registro formal:
+  // el usuario entra directo a su escritorio y perfil activo sin quedarse en
+  // la vista de 'Visitante'. Si la app aún no arrancó, se lanza el bootstrap
+  // (ensureUserDoc → startApp); si ya estaba en pantalla, se refresca la UI.
+  // onAuthStateChanged ya dispara lo mismo después; ambas llamadas son
+  // idempotentes (startApp guarda con appStarted) y seguras.
+  function redrawSession(user) {
+    if (!user) return;
+    currentUser = user;
+    userId = user.uid;
+    isAnon = false;
+    V.currentUser = user;
+    V.userId = userId;
+    V.isAnon = isAnon;
+    if (appStarted) {
+      refreshAuthUi();
+      return;
+    }
+    ensureUserDoc(user).then(function (r) { startApp(r.rol); }).catch(function () {});
   }
 
   /* ─── EVENTS ──────────────────────────────────────────────── */

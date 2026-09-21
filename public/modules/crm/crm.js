@@ -483,6 +483,53 @@
     renderUbicacion();
   }
 
+  /* ─── RECÁLCULO DE LAYOUT DE LA TABLA ────────────────────── */
+  // La primera vez se entra al módulo, la tabla se pinta mientras
+  // #viewAdmin está oculto (display:none). En ese estado el navegador
+  // fija un grid de columnas comprimido/desalineado que no se corrige
+  // al mostrar la vista; solo un refresh manual lo recompone. Al
+  // volver visible la sección (o tras cargar los datos), se reinserta
+  // la tabla dentro de su contenedor usando requestAnimationFrame +
+  // setTimeout para forzar una nueva medición de los anchos de columna.
+  var _adminRelayoutScheduled = false;
+
+  function isAdminViewVisible() {
+    var view = $('viewAdmin');
+    return !!(view && view.classList.contains('active') && view.offsetParent !== null);
+  }
+
+  function forceAdminTableRelayout() {
+    _adminRelayoutScheduled = false;
+    if (!isAdminViewVisible()) return;
+    var wrap = document.querySelector('#viewAdmin .admin-table-wrap');
+    var table = document.querySelector('#viewAdmin .admin-table');
+    if (!wrap || !table || table.parentNode !== wrap) return;
+    var next = table.nextSibling;
+    wrap.removeChild(table);
+    if (next && next.parentNode === wrap) wrap.insertBefore(table, next);
+    else wrap.appendChild(table);
+  }
+
+  function scheduleAdminTableRelayout() {
+    if (_adminRelayoutScheduled) return;
+    _adminRelayoutScheduled = true;
+    requestAnimationFrame(function () {
+      setTimeout(forceAdminTableRelayout, 0);
+    });
+  }
+
+  // Cada vez que el view pasa a mostrarse se re-mide la tabla para
+  // que las columnas ajusten su ancho sin necesidad de refrescar.
+  function watchAdminSectionLayout() {
+    var view = $('viewAdmin');
+    if (!view || typeof MutationObserver === 'undefined') return;
+    var observer = new MutationObserver(function () {
+      if (view.classList.contains('active')) scheduleAdminTableRelayout();
+    });
+    observer.observe(view, { attributes: true, attributeFilter: ['class'] });
+    if (isAdminViewVisible()) scheduleAdminTableRelayout();
+  }
+
   /* ─── STATS (row 1: summary — clickable to filter) ───────── */
   function renderStats() {
     var stats = $('adminSummaryStats');
@@ -866,6 +913,28 @@ td.setAttribute('colspan', '13');
   }
 
   /* ─── BULK DELETE ─────────────────────────────────────────── */
+  // Ejecuta worker sobre items con un máximo de `limit` llamadas simultáneas.
+  function mapLimit(items, limit, worker) {
+    var index = 0;
+    var active = 0;
+    var ok = 0, errs = 0;
+    return new Promise(function (resolve) {
+      function next() {
+        while (active < limit && index < items.length) {
+          (function (uid) {
+            active++;
+            worker(uid)
+              .then(function (r) { if (r) ok++; else errs++; })
+              .catch(function () { errs++; })
+              .then(function () { active--; next(); });
+          })(items[index++]);
+        }
+        if (index >= items.length && active === 0) resolve([ok, errs]);
+      }
+      next();
+    });
+  }
+
   function bulkDeleteUsers() {
     var ids = Array.from(selectedUids);
     if (!ids.length) return;
@@ -874,20 +943,24 @@ td.setAttribute('colspan', '13');
       return;
     }
     if (!confirm('¿Eliminar ' + ids.length + (ids.length === 1 ? ' usuario' : ' usuarios') + ' seleccionado' + (ids.length === 1 ? '' : 's') + '? Esta acción no se puede deshacer.')) return;
+    if (!V.functions) {
+      V.toast('La eliminación raíz no está disponible en este dispositivo.', true);
+      return;
+    }
 
-    var db = V.db;
-    var batch = db.batch();
-    ids.forEach(function (uid) { batch.delete(db.collection(V.COL_USUARIOS).doc(uid)); });
+    var fn = V.functions.httpsCallable('eliminarUsuario');
+    clearSelection();
+    V.toast('Eliminando ' + ids.length + ' usuario(s)…');
 
-    batch.commit()
-      .then(function () {
-        V.toast(ids.length + (ids.length === 1 ? ' usuario' : ' usuarios') + ' eliminado' + (ids.length === 1 ? '' : 's') + ' ✓');
-        clearSelection();
-      })
-      .catch(function (e) {
-        V.toast('Error al eliminar: ' + e.message, true);
-        renderTable();
+    mapLimit(ids, 5, function (uid) {
+      return fn({ uid: uid }).then(function (res) {
+        var data = res && res.data ? res.data : {};
+        return !!(data && data.ok);
       });
+    }).then(function (res) {
+      var ok = res[0], errs = res[1];
+      V.toast((ok ? ok + ' eliminado(s) ✓' : 'Sin eliminaciones.') + (errs ? ' · ' + errs + ' con error' : ''));
+    });
   }
 
   /* ─── FIELD UPDATE ────────────────────────────────────────── */
@@ -902,12 +975,38 @@ td.setAttribute('colspan', '13');
   }
 
   /* ─── DELETE USER ─────────────────────────────────────────── */
+  // Traduce los códigos de error devueltos por la Cloud Function.
+  function errorDeFuncion(code) {
+    var map = {
+      'uid-invalido': 'El identificador del usuario no es válido.',
+      'no-autenticado': 'No hay sesión activa.',
+      'no-te-puedes-eliminar': 'No puedes eliminar tu propia cuenta.',
+      'permiso-denegado': 'Solo un Superadmin puede eliminar cuentas.',
+      'error-auth': 'No se pudo borrar la cuenta de autenticación en Firebase.'
+    };
+    return map[code] || 'Error desconocido en el servidor.';
+  }
+
   function deleteUser(uid, email) {
     if (!confirm('¿Eliminar al usuario "' + (email || uid) + '"? Esta acción no se puede deshacer.')) return;
     if (uid === V.userId) { V.toast('No puedes eliminar tu propia cuenta.', true); return; }
-    V.db.collection(V.COL_USUARIOS).doc(uid).delete()
-      .then(function () { V.toast('Usuario eliminado ✓'); })
-      .catch(function (e) { V.toast('Error: ' + e.message, true); });
+    if (!V.functions) {
+      V.toast('La eliminación raíz no está disponible en este dispositivo.', true);
+      return;
+    }
+    var fn = V.functions.httpsCallable('eliminarUsuario');
+    fn({ uid: uid })
+      .then(function (res) {
+        var data = res && res.data ? res.data : {};
+        if (data.ok) {
+          V.toast('Usuario eliminado de raíz (registro y autenticación) ✓');
+        } else {
+          V.toast(errorDeFuncion(data.error), true);
+        }
+      })
+      .catch(function (err) {
+        V.toast('No se pudo eliminar: ' + (err.message || err), true);
+      });
   }
 
   /* ─── VIEW USER (ficha de solo lectura) ───────────────────── */
@@ -2253,6 +2352,7 @@ td.setAttribute('colspan', '13');
       subscribeOficios();
       subscribeUbicacion();
       bindFilters();
+      watchAdminSectionLayout();
 
       // Bulk actions
       var checkAll = $('adminCheckAll');

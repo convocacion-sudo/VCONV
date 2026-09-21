@@ -4,24 +4,28 @@ service cloud.firestore {
 
     /* ─── IDENTIDAD ───────────────────────────────────────────
        Tres niveles que determinan toda la política de acceso:
-       - signedIn(): cualquier sesión de Firebase Auth, incluye
-         anónimas (visitantes). Login anónimo automático.
-       - isAnonymous(): visitantes con UID temporal. Catálogo general
-         + contenido sin restricción estricta (falla a prueba gratuita
-         cuando `acceso` falta o es cualquier valor no bloqueante).
-       - isRegistered(): cuentas formales (correo/contraseña o
-         Google). Acceso completo al contenido habilitado.
-       La distinción se hace con request.auth.token.firebase
-       .sign_in_provider — para anónimos vale 'anonymous'.        */
+       - esPublico(): NO hay sesión en Firebase Authentication
+         (visitante sin cuenta): el visitante navega sin
+         autenticarse y NO genera ningún registro en Firebase
+         Authentication (cero fantasmas). Solo puede LEER el
+         catálogo publicado y el contenido de prueba (acceso no
+         restringido); nunca escribe.
+       - isRegistered(): cualquier cuenta real de Firebase Auth
+         (correo/contraseña o Google). Acceso completo al contenido.
+       - isAdmin()/isGestor(): roles de gestión (superadmin/gestor).
+       La identidad anónima automática fue ELIMINADA: un visitante
+       sin sesión equivale a request.auth == null.                  */
     function signedIn() {
       return request.auth != null;
     }
-    function isAnonymous() {
-      return signedIn() &&
-        request.auth.token.firebase.sign_in_provider == 'anonymous';
+    // Visitante sin sesión en Firebase Authentication. Sustituye al
+    // antiguo login anónimo automático: navegación 100 % local, cero
+    // registros fantasma en Auth.
+    function esPublico() {
+      return request.auth == null;
     }
     function isRegistered() {
-      return signedIn() && !isAnonymous();
+      return signedIn();
     }
     function isAdmin() {
       return isRegistered() &&
@@ -52,7 +56,7 @@ service cloud.firestore {
 
     /* ── USUARIOS (CRM y perfiles) ─────────────────────────── */
     // Lectura ESTRICTAMENTE AISLADA (red multi-nivel, hasta 5 niveles):
-    //   - el propio perfil (uid == sesión, incluye visitantes anónimos),
+    //   - el propio perfil (uid == sesión),
     //   - descendientes por patrocinio (esMiArbol): Nivel 1 es el hijo
     //     directo (sponsorId == sesión); cada nivel N comprueba subiendo
     //     por la cadena sponsorId que el ancestro (N-1) generaciones
@@ -140,11 +144,11 @@ service cloud.firestore {
 
     /* ── MAPEO DE CÓDIGOS DE REFERIDO (MLM) ────────────────── */
     // Cada documento referidos/{code} solo expone { userId }. La lectura
-    // es pública para sesiones autenticadas (permite validar un código
-    // antes de registrarse, incluso siendo visitante anónimo); la
-    // escritura queda restringida al dueño del código, ya registrado.
+    // es pública (incluye visitantes sin sesión: permite validar un código
+    // de referido antes de registrarse, sin cuenta ni registro fantasma);
+    // la escritura queda restringida al dueño del código, ya registrado.
     match /referidos/{code} {
-      allow read: if signedIn();
+      allow read: if esPublico() || signedIn();
       allow write: if isAdmin() || (isRegistered() && request.resource.data.userId == request.auth.uid);
     }
 
@@ -157,8 +161,11 @@ service cloud.firestore {
     //   leccion.acceso = 'prueba' | 'gratis' | 'completo' (lección
     //   de prueba gratuita o de acceso libre para los visitantes)
     //
-    // - Catálogo general: cualquier sesión (incl. anónima) puede leer
-    //   los metadatos de cursos publicados y TODOS sus bloques/módulos.
+    // - Catálogo general: lectura PÚBLICA de los metadatos de cursos
+    //   publicados y de TODOS sus bloques/módulos (incluye visitantes
+    //   sin sesión: esPublico() == request.auth == null). Los visitantes
+    //   NO se autentican de forma anónima; navegan sin generar ningún
+    //   registro en Firebase Authentication.
     // - Lecciones: policy TOLERANTE para visitantes — se muestra como prueba
     //   gratuita TODO documento cuyo `acceso` NO sea restricción estricta
     //   ('completo'/'pago'), incluidos los que no tienen el campo.
@@ -169,13 +176,13 @@ service cloud.firestore {
     //   los bloques nunca ocultan a un visitante un curso publicado.
     // - Escritura de contenido: exclusiva de gestores/superadmin.
     match /categorias/{catId} {
-      allow read: if signedIn();
+      allow read: if canManage() || isRegistered() || esPublico();
       allow write: if canManage();
 
       match /cursos/{id} {
         allow read: if canManage()
           || isRegistered()
-          || (isAnonymous() && resource.data.publicado == true);
+          || (esPublico() && resource.data.publicado == true);
         // Gestores y superadmin escriben el curso con libertad total de
         // campos (incluye `catId`/`categoryId` y cualquier otro dato del
         // documento): create/update/delete no están restringidos por campo.
@@ -190,23 +197,22 @@ service cloud.firestore {
           // de lección individual (`acceso` del propio documento).
           allow read: if canManage()
             || isRegistered()
-            || (isAnonymous() && cursoPublicado());
+            || (esPublico() && cursoPublicado());
           allow write: if canManage();
 
           match /lecciones/{lid} {
             allow read: if canManage()
               || isRegistered()
-              || (isAnonymous() && cursoPublicado()
+              || (esPublico() && cursoPublicado()
                     && !accesoRestringido(resource.data.acceso));
             allow write: if canManage();
           }
         }
 
         // Progreso del estudiante (subcolección de cada curso):
-        // solo el propio usuario (incl. visitante anónimo) lee/escribe
-        // su avance. Gracias al account linking el UID anónimo se
-        // preserva al convertirse en cuenta real, por lo que el
-        // progreso se transfiere sin copias.
+        // solo el propio usuario registrado lee/escribe su avance. Los
+        // visitantes sin sesión NO tienen UID: su navegación es de solo
+        // lectura (request.auth == null y g subscribeProg se omite).
         match /progreso/{uid} {
           allow read, write: if isAdmin() || (signedIn() && request.auth.uid == uid);
         }
@@ -218,7 +224,7 @@ service cloud.firestore {
     match /cursos/{id} {
       allow read: if canManage()
         || isRegistered()
-        || (isAnonymous() && resource.data.publicado == true);
+        || (esPublico() && resource.data.publicado == true);
       // Igual política de escritura que los cursos anidados: gestores y
       // superadmin pueden crear/actualizar/eliminar el documento raíz con
       // todos sus campos, incluidos `catId` y `categoryId`, sin restricción.
@@ -233,13 +239,13 @@ service cloud.firestore {
         // de lección individual (`acceso` del propio documento).
         allow read: if canManage()
           || isRegistered()
-          || (isAnonymous() && cursoPublicado());
+          || (esPublico() && cursoPublicado());
         allow write: if canManage();
 
         match /lecciones/{lid} {
           allow read: if canManage()
             || isRegistered()
-            || (isAnonymous() && cursoPublicado()
+            || (esPublico() && cursoPublicado()
                   && !accesoRestringido(resource.data.acceso));
           allow write: if canManage();
         }

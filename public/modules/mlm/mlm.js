@@ -38,6 +38,15 @@
 
   function loadConfig() {
     if (cfgPromise) return cfgPromise;
+    // Visitante sin sesión: config/* exige signedIn() en las reglas. Se
+    // omiten la consulta y el cacheo (no se bloquea el reuso tras un login).
+    if (V.isAnon) {
+      cfg = {
+        mlmEnabled: DEFAULT_CONFIG.mlmEnabled,
+        porcentajes: normalizePorcentajes(DEFAULT_CONFIG.porcentajes)
+      };
+      return Promise.resolve(cfg);
+    }
     cfgPromise = (V.db ? V.db.collection(CONFIG_COLLECTION).doc(MLM_DOC).get() : Promise.resolve(null))
       .then(function (doc) {
         var raw = doc && doc.exists ? doc.data() : {};
@@ -1322,11 +1331,16 @@
 
   function init() {
     bindGlobalEvents();
-    loadConfig().then(function (c) {
-      V.mlm._initialConfig = c;
-      aplicarEstadoRegistro();
-      applyMlmUiState();
-    }).catch(function () {});
+    // En el arranque (DOMContentLoaded) aún no hay sesión resuelta; la carga
+    // real de config/* (que exige signedIn()) ocurre en onReady tras
+    // autenticar. Solo se consulta si ya existe una sesión activa.
+    if (V.uidSesion()) {
+      loadConfig().then(function (c) {
+        V.mlm._initialConfig = c;
+        aplicarEstadoRegistro();
+        applyMlmUiState();
+      }).catch(function () {});
+    }
   }
 
   if (document.readyState === 'loading') {

@@ -237,10 +237,10 @@
     document.body.style.overflow = '';
   }
 
-  // Sesión formal realmente autenticada (los visitantes anónimos no
-  // cuentan como sesión: deben poder registrarse/iniciar sesión).
+  // Sesión real autenticada (los visitantes navegan sin sesión de Firebase,
+  // en modo local de solo lectura: deben poder registrarse/iniciar sesión).
   function hasRealSession() {
-    return !!(V.auth && V.auth.currentUser && !V.auth.currentUser.isAnonymous);
+    return !!(V.auth && V.auth.currentUser);
   }
 
   function bindPortalEvents() {

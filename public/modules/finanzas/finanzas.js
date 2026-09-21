@@ -119,6 +119,18 @@
 
   function loadConfig(force) {
     if (cfgPromise && !force) return cfgPromise;
+    // Visitante sin sesión: config/* exige signedIn() en las reglas. Se
+    // omiten la consulta y el cacheo (no se bloquea el reuso tras un login).
+    if (V.isAnon) {
+      cfg = {
+        finanzasEnabled: DEFAULT_CONFIG.finanzasEnabled,
+        porcentajeCoordinador: DEFAULT_CONFIG.porcentajeCoordinador,
+        porcentajes: normalizePorcentajes(DEFAULT_CONFIG.porcentajes),
+        porcentajeCaja: DEFAULT_CONFIG.porcentajeCaja,
+        categorias: normalizeCategorias(DEFAULT_CONFIG.categorias)
+      };
+      return Promise.resolve(cfg);
+    }
     cfgPromise = (V.db ? V.db.collection('config').doc(CONFIG_DOC).get() : Promise.resolve(null))
       .then(function (doc) {
         var raw = doc && doc.exists ? doc.data() : {};
@@ -3072,10 +3084,15 @@
     wrapDashboardShow();
     V.onFinanzasShow = onFinanzasShow;
     V.onReportesShow = onReportesShow;
-    loadConfig().then(function (c) {
-      V.finanzas._initialConfig = c;
-      applyFinanzasUiState();
-    }).catch(logConfigError);
+    // En el arranque (DOMContentLoaded) aún no hay sesión resuelta; la carga
+    // real de config/* (que exige signedIn()) ocurre en onReady tras
+    // autenticar. Solo se consulta si ya existe una sesión activa.
+    if (V.uidSesion()) {
+      loadConfig().then(function (c) {
+        V.finanzas._initialConfig = c;
+        applyFinanzasUiState();
+      }).catch(logConfigError);
+    }
   }
 
   if (document.readyState === 'loading') {

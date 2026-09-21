@@ -112,8 +112,11 @@
 
   // Progresión secuencial estricta: primera lección abierta; el resto
   // se desbloquea al completar la anterior (o re-abriendo una ya completada).
+  // Visitante (modo local, solo lectura): todas las lecciones de prueba
+  // visibles están abiertas; no hay progresión que desbloquear.
   function isLessonUnlocked(seq, completed, i) {
     if (!seq[i] || !seq[i].leccion || seq[i].leccion.id === undefined) return false;
+    if (anonMode()) return true;
     if (i <= 0) return true;
     if (completed.indexOf(String(seq[i].leccion.id)) !== -1) return true;
     return completed.indexOf(String(seq[i - 1].leccion.id)) !== -1;
@@ -1104,7 +1107,13 @@
     var done = completed.indexOf(String(seq[indice].leccion.id)) !== -1;
     var completeLabel = $('completeLabel');
     var btnComplete = $('btnCompleteLesson');
-    if (done) {
+    if (anonMode()) {
+      // Visitante (modo local, solo lectura): no hay progreso que guardar.
+      btnComplete.textContent = '🔐 Crear cuenta';
+      btnComplete.disabled = false;
+      completeLabel.textContent = 'Estás como visitante: crea tu cuenta para guardar tu avance.';
+      completeLabel.className = 'complete-label';
+    } else if (done) {
       btnComplete.textContent = '✓ Completada';
       btnComplete.disabled = true;
       completeLabel.textContent = 'Lección completada';
@@ -1122,12 +1131,20 @@
   /* ─── PROGRESS ────────────────────────────────────────────── */
   function saveProgress(curso, update) {
     if (!V.db) return Promise.resolve();
+    // Visitante (modo local): sin sesión no hay UID válido ni permiso de
+    // escritura en Firestore (reglas exigen request.auth.uid == uid). No se
+    // intenta escribir nada; se avisa para que cree su cuenta.
+    if (!uidSesion()) {
+      V.toast('Crea tu cuenta para guardar tu progreso.');
+      return Promise.resolve();
+    }
     return progRefFromCurso(curso).set(update, { merge: true })
       .catch(function (e) { V.toast('No se pudo guardar el progreso: ' + e.message, true); });
   }
 
   function markLessonComplete() {
     if (!leccionActual) return;
+    if (anonMode()) { V.openAuth('register'); return; }
     var curso = leccionActual.curso;
     var lp = leccionActual.seq[leccionActual.indice].leccion;
     var prog = progresoCache[curso.id] || {};
