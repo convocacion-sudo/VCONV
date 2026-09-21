@@ -11,6 +11,8 @@
   var profileDirty = false;
   var pfCustomBarrio = '';
   var ubicacionData = { departamentos: [], ciudades: {}, barrios: {} };
+  var pfProfesionesOptions = [];
+  var pfOficiosOptions = [];
 
   function $(id) { return V.$(id); }
   function el(tag, cls, text) { return V.el(tag, cls, text); }
@@ -41,6 +43,79 @@
       .catch(function () {
         return ubicacionData;
       });
+  }
+
+  // Carga una lista maestra de opciones desde config/{doc} (categorias).
+  function loadOptionList(docName) {
+    if (!V.db) return Promise.resolve([]);
+    return V.db.collection('config').doc(docName).get()
+      .then(function (doc) {
+        var raw = doc.exists ? (doc.data().categorias || []) : [];
+        return Array.isArray(raw)
+          ? raw.filter(function (x) { return typeof x === 'string' && x.trim(); }).map(function (x) { return x.trim(); })
+          : [];
+      })
+      .catch(function () { return []; });
+  }
+
+  // Carga en paralelo Profesiones y Oficios para el formulario de edición.
+  // Se mutan los arreglos en sitio para que los closures de bindPfOtro que
+  // capturan la referencia sigan viendo las opciones cargadas.
+  function loadProfeOficioOptions() {
+    return Promise.all([loadOptionList('profesiones'), loadOptionList('oficios')])
+      .then(function (res) {
+        pfProfesionesOptions.length = 0;
+        res[0].forEach(function (o) { pfProfesionesOptions.push(o); });
+        pfOficiosOptions.length = 0;
+        res[1].forEach(function (o) { pfOficiosOptions.push(o); });
+      });
+  }
+
+  // Rellena un select (id) con las opciones de la lista, la opción seleccionada
+  // (aunque no exista en la lista) y la opción "Otros..." para creación dinámica.
+  function populatePfListSelect(selId, options, selected) {
+    var sel = $(selId);
+    if (!sel) return;
+    sel.innerHTML = '<option value="">—</option>';
+    var has = false;
+    options.forEach(function (o) {
+      var opt = document.createElement('option');
+      opt.value = o; opt.textContent = o;
+      if (String(selected || '') === o) { opt.selected = true; has = true; }
+      sel.appendChild(opt);
+    });
+    if (selected && !has) {
+      var cur = document.createElement('option');
+      cur.value = selected; cur.textContent = selected;
+      cur.selected = true;
+      sel.appendChild(cur);
+    }
+    var optOtro = document.createElement('option');
+    optOtro.value = '__otro__'; optOtro.textContent = 'Otros...';
+    sel.appendChild(optOtro);
+  }
+
+  // Binding "Otros...": permite escribir un valor nuevo, lo suma a la lista local
+  // y, en silencio, intenta agregarlo a la lista maestra (solo el admin puede
+  // escribir config/; para el resto el valor se guarda en su propio perfil).
+  function bindPfOtro(selId, optionsRef, label, docName) {
+    var sel = $(selId);
+    if (!sel) return;
+    sel.addEventListener('change', function () {
+      if (this.value !== '__otro__') { markDirty(); return; }
+      var custom = prompt('Escribe ' + label + ':');
+      if (custom === null || !custom.trim()) {
+        populatePfListSelect(selId, optionsRef, '');
+        return;
+      }
+      var val = custom.trim();
+      if (optionsRef.indexOf(val) === -1) optionsRef.push(val);
+      populatePfListSelect(selId, optionsRef, val);
+      if (V.db) {
+        V.db.collection('config').doc(docName).set({ categorias: optionsRef }, { merge: true }).catch(function () {});
+      }
+      markDirty();
+    });
   }
 
   /* ─── ACCESS CARDS ───────────────────────────────────────── */
@@ -188,6 +263,8 @@
       });
       $('pfSexoOtro').addEventListener('input', markDirty);
     }
+    bindPfOtro('pfProfesion', pfProfesionesOptions, 'la profesión', 'profesiones');
+    bindPfOtro('pfOficio', pfOficiosOptions, 'el oficio', 'oficios');
   }
 
   function setCascade(user) {
@@ -223,25 +300,139 @@
     return row;
   }
 
+  // Fila dedicada del código de referido con botón de copiar,
+  // seguida del enlace de referido completo en un campo de solo lectura.
+  function profileRefRow(code) {
+    var wrap = el('div', 'dash-profile-ref-block');
+    wrap.setAttribute('data-dash-referido', '1');
+
+    var hasMlm = V.mlm && typeof V.mlm.copiarAlPortapapeles === 'function';
+
+    var codeRow = el('div', 'dash-profile-row');
+    codeRow.appendChild(el('span', 'dash-profile-label', 'Código de referido'));
+    var codeGroup = el('div', 'dash-profile-ref');
+    codeGroup.appendChild(el('span', 'dash-profile-value', code || '—'));
+    if (code && hasMlm) {
+      var copyBtn = el('button', 'btn btn-outline btn-sm dash-ref-copy', '📋 Copiar');
+      copyBtn.type = 'button';
+      copyBtn.title = 'Copiar código de referido';
+      copyBtn.addEventListener('click', function () {
+        V.mlm.copiarAlPortapapeles(code).then(function () {
+          V.toast('Código de referido copiado ✓');
+        }).catch(function () {
+          V.toast('No se pudo copiar el código', true);
+        });
+      });
+      codeGroup.appendChild(copyBtn);
+    }
+    codeRow.appendChild(codeGroup);
+    wrap.appendChild(codeRow);
+
+    var linkRow = el('div', 'dash-profile-row');
+    linkRow.appendChild(el('span', 'dash-profile-label', 'Enlace de referido'));
+    var linkGroup = el('div', 'dash-profile-ref');
+    var link = (code && V.mlm && typeof V.mlm.enlaceInvitacion === 'function') ? V.mlm.enlaceInvitacion(code) : '';
+    if (link) {
+      var input = document.createElement('input');
+      input.type = 'text';
+      input.readOnly = true;
+      input.className = 'input dash-mlm-link';
+      input.value = link;
+      input.setAttribute('aria-label', 'Enlace de referido');
+      linkGroup.appendChild(input);
+      if (hasMlm) {
+        var copyLinkBtn = el('button', 'btn btn-outline btn-sm dash-ref-copy', '🔗 Copiar Enlace');
+        copyLinkBtn.type = 'button';
+        copyLinkBtn.title = 'Copiar enlace de referido';
+        copyLinkBtn.addEventListener('click', function () {
+          V.mlm.copiarAlPortapapeles(link).then(function () {
+            V.toast('Enlace de referido copiado ✓');
+          }).catch(function () {
+            V.toast('No se pudo copiar el enlace', true);
+          });
+        });
+        linkGroup.appendChild(copyLinkBtn);
+      }
+    } else {
+      linkGroup.appendChild(el('span', 'dash-profile-value', '—'));
+    }
+    linkRow.appendChild(linkGroup);
+    wrap.appendChild(linkRow);
+
+    return wrap;
+  }
+
+  // Actualiza (o crea) la fila del código en la vista de perfil sin borrar el resto.
+  function refreshProfileReferido(code) {
+    var container = $('dashProfileView');
+    if (!container) return;
+    var old = container.querySelector('[data-dash-referido]');
+    var host = old ? old.parentElement : null;
+    if (old) old.remove();
+    if (host && host.classList.contains('dash-prof-section-body')) {
+      host.appendChild(profileRefRow(code || ''));
+      return;
+    }
+    var sectionBody = container.querySelector('.dash-prof-section-body');
+    if (sectionBody) sectionBody.appendChild(profileRefRow(code || ''));
+  }
+
+  // Crea un bloque de sección con barra de encabezado de color y contenedor de filas.
+  function profileSection(colorCls, title) {
+    var section = el('section', 'dash-prof-section');
+    section.appendChild(el('h5', 'dash-prof-section-head ' + colorCls, title));
+    var body = el('div', 'dash-prof-section-body');
+    section.appendChild(body);
+    return { el: section, body: body };
+  }
+
   function renderProfileView(user) {
     var container = $('dashProfileView');
     if (!container) return;
     container.innerHTML = '';
     var ubicacion = [user.departamento, user.ciudad, user.barrio].filter(Boolean).join(', ');
-    container.appendChild(profileRow('Nombre', ((user.nombre || '') + ' ' + (user.apellido || '')).trim()));
-    container.appendChild(profileRow('Correo', user.email || ''));
-    container.appendChild(profileRow('Documento', user.documento));
-    container.appendChild(profileRow('Teléfono', user.telefono));
-    container.appendChild(profileRow('Sexo', user.sexo === 'Otro' ? (user.sexoCustom || 'Otro') : user.sexo));
-    container.appendChild(profileRow('Rol', ROLES[user.rol] ? (ROLES[user.rol].icon + ' ' + ROLES[user.rol].label) : (user.rol || '—')));
-    container.appendChild(profileRow('Rango de edad', user.rangoEdad));
-    container.appendChild(profileRow('Ubicación', ubicacion));
     var bancoNum = [user.banco, user.numeroCuenta].filter(Boolean).join(' · ');
-    container.appendChild(profileRow('Banco', bancoNum || '—'));
-    container.appendChild(profileRow('Estado en banco/portal', user.registradoPortal ? '✅ Registrado para pagos' : '—'));
-    container.appendChild(profileRow('Fecha de suscripción', V.fmtDate(getFechaSuscripcion(user))));
-    container.appendChild(profileRow('Notas', user.notas));
-    container.appendChild(profileRow('Registro', user.creado ? V.fmtDate(user.creado) : '—'));
+    var nombre = ((user.nombre || '') + ' ' + (user.apellido || '')).trim();
+
+    // DATOS PERSONALES · azul oscuro
+    var sPersonal = profileSection('prof-blue', 'DATOS PERSONALES');
+    sPersonal.body.appendChild(profileRow('Nombre', nombre));
+    sPersonal.body.appendChild(profileRow('Correo', user.email || ''));
+    sPersonal.body.appendChild(profileRow('Documento', user.documento));
+    sPersonal.body.appendChild(profileRow('Teléfono', user.telefono));
+    sPersonal.body.appendChild(profileRow('Sexo', user.sexo === 'Otro' ? (user.sexoCustom || 'Otro') : user.sexo));
+    sPersonal.body.appendChild(profileRow('Rango de edad', user.rangoEdad));
+    sPersonal.body.appendChild(profileRow('Notas', user.notas));
+    container.appendChild(sPersonal.el);
+
+    // INFORMACIÓN DE CUENTA · magenta
+    var sCuenta = profileSection('prof-magenta', 'INFORMACIÓN DE CUENTA');
+    sCuenta.body.appendChild(profileRow('Rol', ROLES[user.rol] ? (ROLES[user.rol].icon + ' ' + ROLES[user.rol].label) : (user.rol || '—')));
+    sCuenta.body.appendChild(profileRow('Fecha de suscripción', V.fmtDate(getFechaSuscripcion(user))));
+    sCuenta.body.appendChild(profileRow('Registro', user.creado ? V.fmtDate(user.creado) : '—'));
+    sCuenta.body.appendChild(profileRow('Estado en banco/portal', user.registradoPortal ? '✅ Registrado para pagos' : '—'));
+    container.appendChild(sCuenta.el);
+
+    // PROFESIÓN Y OFICIO · naranja
+    var sProf = profileSection('prof-orange', 'PROFESIÓN Y OFICIO');
+    sProf.body.appendChild(profileRow('Profesión', user.profesion));
+    sProf.body.appendChild(profileRow('Oficio', user.oficio));
+    container.appendChild(sProf.el);
+
+    // RED Y REFERIDOS · verde esmeralda
+    var sRed = profileSection('prof-green', 'RED Y REFERIDOS');
+    sRed.body.appendChild(profileRefRow(user.referralCode || ''));
+    container.appendChild(sRed.el);
+
+    // UBICACIÓN · púrpura
+    var sUbi = profileSection('prof-purple', 'UBICACIÓN');
+    sUbi.body.appendChild(profileRow('Ubicación', ubicacion));
+    container.appendChild(sUbi.el);
+
+    // DATOS BANCARIOS · marrón
+    var sBanco = profileSection('prof-brown', 'DATOS BANCARIOS');
+    sBanco.body.appendChild(profileRow('Banco', bancoNum || '—'));
+    container.appendChild(sBanco.el);
   }
 
   function fillForm(user) {
@@ -264,9 +455,15 @@
     if ((el = $('pfRegistradoPortal'))) el.checked = !!user.registradoPortal;
     pfCustomBarrio = '';
     profileDirty = false;
-    return loadUbicacionFromConfig().then(function () {
-      setCascade(user);
-    });
+    return Promise.all([
+      loadUbicacionFromConfig().then(function () {
+        setCascade(user);
+      }),
+      loadProfeOficioOptions().then(function () {
+        populatePfListSelect('pfProfesion', pfProfesionesOptions, user.profesion);
+        populatePfListSelect('pfOficio', pfOficiosOptions, user.oficio);
+      })
+    ]).then(function () {});
   }
 
   function collectForm() {
@@ -279,6 +476,8 @@
       sexo: $('pfSexo').value,
       sexoCustom: $('pfSexo').value === 'Otro' ? $('pfSexoOtro').value.trim() : '',
       rangoEdad: $('pfRangoEdad').value,
+      profesion: $('pfProfesion').value,
+      oficio: $('pfOficio').value,
       departamento: $('pfDepartamento').value,
       ciudad: $('pfCiudad').value,
       barrio: barrioVal === '__otro__' ? (pfCustomBarrio || '') : barrioVal,
@@ -300,7 +499,7 @@
     if (!V.db || !V.userId) return;
     if (!profileDirty) { V.toast('No hay cambios que guardar.'); return; }
     var data = collectForm();
-    var linked = { apellido: data.apellido, documento: data.documento, telefono: data.telefono, sexo: data.sexo, sexoCustom: data.sexoCustom, rangoEdad: data.rangoEdad, departamento: data.departamento, ciudad: data.ciudad, barrio: data.barrio, notas: data.notas, banco: data.banco, numeroCuenta: data.numeroCuenta, registradoPortal: data.registradoPortal };
+    var linked = { apellido: data.apellido, documento: data.documento, telefono: data.telefono, sexo: data.sexo, sexoCustom: data.sexoCustom, rangoEdad: data.rangoEdad, profesion: data.profesion, oficio: data.oficio, departamento: data.departamento, ciudad: data.ciudad, barrio: data.barrio, notas: data.notas, banco: data.banco, numeroCuenta: data.numeroCuenta, registradoPortal: data.registradoPortal };
     var current = V._lastUserDoc || {};
     if (!current.fechaSuscripcion && !current.createdAt) {
       linked.fechaSuscripcion = new Date().toISOString();
@@ -392,6 +591,7 @@
       user.referralCode = theUser.referralCode || user.referralCode;
       user.sponsorId = theUser.sponsorId || user.sponsorId;
       V._lastUserDoc = user;
+      refreshProfileReferido(user.referralCode);
       draw(theUser);
     }).catch(function () { draw(user); });
   }

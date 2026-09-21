@@ -13,8 +13,10 @@
   var CONFIG_COLLECTION = 'config';
   var PROFILES_DOC = 'perfiles';
   var PROFESIONES_DOC = 'profesiones';
+  var OFICIOS_DOC = 'oficios';
   var UBICACION_DOC = 'ubicacion';
   var DEFAULT_PROFESIONES = ['Abogado', 'Administrador', 'Docente', 'Líder religioso', 'Enfermero/a', 'Médico', 'Chef'];
+  var DEFAULT_OFICIOS = ['Ama de casa', 'Carpintero', 'Conductor', 'Mecánico', 'Operario/a', 'Panadero', 'Vendedor/a'];
   var DEFAULT_UBICACION = {
     departamentos: ['Antioquia', 'Bogotá D.C.', 'Valle del Cauca'],
     ciudades: {
@@ -38,17 +40,20 @@
   var perfilesUnsub = null;
   var profesionesCache = [];
   var profesionesUnsub = null;
+  var oficiosCache = [];
+  var oficiosUnsub = null;
   var ubicacionData = { departamentos: [], ciudades: {}, barrios: {} };
   var ubicacionUnsub = null;
   var editingUser = null;
   var editingProfileIndex = null;
   var editingProfesionIndex = null;
+  var editingOficioIndex = null;
   var editingDeptoIndex = null;
   var editingCiudadDepto = null;
   var editingCiudadIndex = null;
   var editingBarrioCiudad = null;
   var editingBarrioIndex = null;
-  var filters = { search: '', rol: '', estado: '', perfil: '', profesion: '', ciudad: '', barrio: '' };
+  var filters = { search: '', rol: '', estado: '', perfil: '', profesion: '', oficio: '', ciudad: '', barrio: '' };
   var selectedUids = new Set();
 
   /* ─── HELPERS ─────────────────────────────────────────────── */
@@ -61,7 +66,7 @@
 
   function clearAllFilters() {
     filters.search = ''; filters.rol = ''; filters.estado = '';
-    filters.perfil = ''; filters.profesion = ''; filters.ciudad = ''; filters.barrio = '';
+    filters.perfil = ''; filters.profesion = ''; filters.oficio = ''; filters.ciudad = ''; filters.barrio = '';
   }
 
   function syncFilterDropdowns() {
@@ -70,6 +75,7 @@
     var e = $('adminFilterEstado'); if (e) e.value = filters.estado;
     var p = $('adminFilterPerfil'); if (p) p.value = filters.perfil;
     var pr = $('adminFilterProfesion'); if (pr) pr.value = filters.profesion;
+    var of = $('adminFilterOficio'); if (of) of.value = filters.oficio;
   }
 
   function normFieldVal(field, val) {
@@ -394,6 +400,77 @@
     return true;
   }
 
+  /* ─── SUBSCRIBE OFICIOS ──────────────────────────────────── */
+  function normalizeOficios(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(function (o) { return typeof o === 'string' && o.trim(); })
+      .map(function (o) { return o.trim(); });
+  }
+
+  function applyOficios(next) {
+    oficiosCache = next;
+    return oficiosCache;
+  }
+
+  function defaultsOficiosIfEmpty(next) {
+    if (!next.length) {
+      oficiosCache = DEFAULT_OFICIOS.slice();
+      saveOficios();
+      return oficiosCache;
+    }
+    oficiosCache = next;
+    return oficiosCache;
+  }
+
+  function subscribeOficios() {
+    if (!V.db) { return; }
+    if (V.userRole !== 'superadmin') { return; }
+    if (oficiosUnsub) return;
+    try {
+      oficiosUnsub = V.db.collection(CONFIG_COLLECTION).doc(OFICIOS_DOC).onSnapshot(function (doc) {
+        var raw = doc.exists ? (doc.data().categorias || []) : [];
+        defaultsOficiosIfEmpty(normalizeOficios(raw));
+        renderAll();
+        var overlay = $('crmFormOverlay');
+        if (overlay && overlay.classList.contains('show') && editingUser) populateOficioSelect(editingUser.oficio);
+      }, function () {
+        defaultsOficiosIfEmpty([]);
+        renderAll();
+      });
+    } catch (e) {
+      defaultsOficiosIfEmpty([]);
+      renderAll();
+    }
+  }
+
+  function saveOficios() {
+    if (!V.db) return;
+    V.db.collection(CONFIG_COLLECTION).doc(OFICIOS_DOC).set({ categorias: oficiosCache }, { merge: true })
+      .then(function () { })
+      .catch(function (e) {
+        V.toast('Error al guardar oficios: ' + e.message, true);
+      });
+  }
+
+  function loadOficiosFromDb() {
+    if (!V.db) { return Promise.resolve(oficiosCache); }
+    return V.db.collection(CONFIG_COLLECTION).doc(OFICIOS_DOC).get()
+      .then(function (doc) {
+        var raw = doc.exists ? (doc.data().categorias || []) : [];
+        return defaultsOficiosIfEmpty(normalizeOficios(raw));
+      })
+      .catch(function () {
+        return defaultsOficiosIfEmpty([]);
+      });
+  }
+
+  function addOficioToList(name) {
+    if (!name || oficiosCache.indexOf(name) !== -1) return false;
+    oficiosCache.push(name);
+    saveOficios();
+    return true;
+  }
+
   /* ─── RENDER ALL ──────────────────────────────────────────── */
   function renderAll() {
     renderStats();
@@ -402,6 +479,7 @@
     renderTable();
     renderProfiles();
     renderProfesiones();
+    renderOficios();
     renderUbicacion();
   }
 
@@ -447,6 +525,7 @@
     [
       { key: 'perfil', label: 'Perfiles', filterKey: 'perfil' },
       { key: 'profesion', label: 'Profesiones', filterKey: 'profesion' },
+      { key: 'oficio', label: 'Oficios', filterKey: 'oficio' },
       { key: 'estado', label: 'Estados', filterKey: 'estado' },
       { key: 'ciudad', label: 'Ciudades', filterKey: 'ciudad' },
       { key: 'barrio', label: 'Barrios', filterKey: 'barrio' }
@@ -487,6 +566,7 @@
     if (filters.estado) active.push({ label: 'Estado: ' + labelOf('estado', filters.estado), key: 'estado' });
     if (filters.perfil) active.push({ label: 'Perfil: ' + labelOf('perfil', filters.perfil), key: 'perfil' });
     if (filters.profesion) active.push({ label: 'Profesión: ' + labelOf('profesion', filters.profesion), key: 'profesion' });
+    if (filters.oficio) active.push({ label: 'Oficio: ' + labelOf('oficio', filters.oficio), key: 'oficio' });
     if (filters.ciudad) active.push({ label: 'Ciudad: ' + labelOf('ciudad', filters.ciudad), key: 'ciudad' });
     if (filters.barrio) active.push({ label: 'Barrio: ' + labelOf('barrio', filters.barrio), key: 'barrio' });
     if (filters.search) active.push({ label: 'Búsqueda: "' + filters.search + '"', key: 'search' });
@@ -513,13 +593,14 @@
     return usuariosCache.filter(function (u) {
       if (filters.search) {
         var q = filters.search.toLowerCase();
-        var match = ((u.email || '') + ' ' + (u.nombre || '') + ' ' + (u.apellido || '') + ' ' + (u.documento || '') + ' ' + (u.telefono || '') + ' ' + (u.departamento || '') + ' ' + (u.ciudad || '') + ' ' + (u.barrio || '') + ' ' + (u.profesion || '') + ' ' + (u.perfil || '')).toLowerCase();
+        var match = ((u.email || '') + ' ' + (u.nombre || '') + ' ' + (u.apellido || '') + ' ' + (u.documento || '') + ' ' + (u.telefono || '') + ' ' + (u.departamento || '') + ' ' + (u.ciudad || '') + ' ' + (u.barrio || '') + ' ' + (u.profesion || '') + ' ' + (u.oficio || '') + ' ' + (u.perfil || '')).toLowerCase();
         if (match.indexOf(q) === -1) return false;
       }
       if (filters.rol && u.rol !== filters.rol) return false;
       if (filters.estado && (u.estado || 'Activo') !== filters.estado) return false;
       if (filters.perfil && (u.perfil || '—') !== filters.perfil) return false;
       if (filters.profesion && (u.profesion || '—') !== filters.profesion) return false;
+      if (filters.oficio && (u.oficio || '—') !== filters.oficio) return false;
       if (filters.ciudad && (u.ciudad || '—') !== filters.ciudad) return false;
       if (filters.barrio && (u.barrio || '—') !== filters.barrio) return false;
       return true;
@@ -536,7 +617,7 @@
     if (!filtered.length) {
       var tr = el('tr');
       var td = el('td', 'admin-empty', usuariosCache.length ? 'Sin resultados para los filtros aplicados.' : 'No hay usuarios registrados.');
-td.setAttribute('colspan', '12');
+td.setAttribute('colspan', '13');
       tr.appendChild(td);
       tbody.appendChild(tr);
       renderCheckAll();
@@ -666,6 +747,23 @@ td.setAttribute('colspan', '12');
       selProfesion.addEventListener('change', function () { updateField(u.uid, 'profesion', this.value); });
       tdProfesion.appendChild(selProfesion);
       tr.appendChild(tdProfesion);
+
+      // Oficio
+      var tdOficio = el('td');
+      var selOficio = document.createElement('select');
+      selOficio.className = 'admin-role-select';
+      var optNoneOfi = document.createElement('option');
+      optNoneOfi.value = ''; optNoneOfi.textContent = '—';
+      selOficio.appendChild(optNoneOfi);
+      oficiosCache.forEach(function (p) {
+        var opt = document.createElement('option');
+        opt.value = p; opt.textContent = p;
+        opt.selected = u.oficio === p;
+        selOficio.appendChild(opt);
+      });
+      selOficio.addEventListener('change', function () { updateField(u.uid, 'oficio', this.value); });
+      tdOficio.appendChild(selOficio);
+      tr.appendChild(tdOficio);
 
       <!-- Acciones -->
       var tdActions = el('td', 'admin-actions');
@@ -872,7 +970,8 @@ td.setAttribute('colspan', '12');
       ['Rol en la plataforma', rolLabel(user.rol || 'estudiante')],
       ['Estado de cuenta', user.estado || 'Activo'],
       ['Perfil organizacional', user.perfil],
-      ['Profesión u Oficio', user.profesion]
+      ['Profesión', user.profesion],
+      ['Oficio', user.oficio]
     ]));
 
     // Red de Referidos (MLM): se rellena el sponsor de forma asíncrona.
@@ -1075,6 +1174,12 @@ td.setAttribute('colspan', '12');
       populateProfesionSelect(user.profesion);
     });
 
+    // Oficio: carga en directo desde config/oficios.
+    populateOficioSelect(user.oficio);
+    loadOficiosFromDb().then(function () {
+      populateOficioSelect(user.oficio);
+    });
+
     // Ubicación: carga en directo desde config/ubicacion (Departamento → Ciudad → Barrio).
     populateDeptoSelect(user.departamento);
     populateCiudadSelect(user.ciudad);
@@ -1164,7 +1269,7 @@ td.setAttribute('colspan', '12');
     var sel = $('crmProfesion');
     if (!sel) return;
     if (sel.value !== '__otro__') return;
-    var custom = prompt('Escribe la profesión u oficio:');
+    var custom = prompt('Escribe la profesión:');
     if (custom === null || !custom.trim()) {
       populateProfesionSelect(editingUser ? editingUser.profesion : '');
       return;
@@ -1173,6 +1278,45 @@ td.setAttribute('colspan', '12');
     addProfesionToList(val);
     populateProfesionSelect(val);
     V.toast('Profesión "' + val + '" añadida ✓');
+  }
+
+  function populateOficioSelect(selected) {
+    var sel = $('crmOficio');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">—</option>';
+    if (!oficiosCache.length) {
+      var hint = document.createElement('option');
+      hint.value = ''; hint.disabled = true;
+      hint.textContent = '(Sin oficios configurados)';
+      sel.appendChild(hint);
+    }
+    oficiosCache.forEach(function (o) {
+      var opt = document.createElement('option');
+      opt.value = o; opt.textContent = o;
+      opt.selected = String(selected || '') === o;
+      sel.appendChild(opt);
+    });
+    var optOtro = document.createElement('option');
+    optOtro.value = '__otro__'; optOtro.textContent = 'Otros...';
+    sel.appendChild(optOtro);
+    if (selected && oficiosCache.indexOf(selected) === -1 && selected !== '') {
+      optOtro.selected = true;
+    }
+  }
+
+  function handleOficioOtro() {
+    var sel = $('crmOficio');
+    if (!sel) return;
+    if (sel.value !== '__otro__') return;
+    var custom = prompt('Escribe el oficio:');
+    if (custom === null || !custom.trim()) {
+      populateOficioSelect(editingUser ? editingUser.oficio : '');
+      return;
+    }
+    var val = custom.trim();
+    addOficioToList(val);
+    populateOficioSelect(val);
+    V.toast('Oficio "' + val + '" añadido ✓');
   }
 
   function loadPerfilesFromDb() {
@@ -1262,12 +1406,22 @@ td.setAttribute('colspan', '12');
     if (!editingUser || !V.db) return;
     var profesionVal = $('crmProfesion').value;
     if (profesionVal === '__otro__') {
-      var custom = prompt('Escribe la profesión u oficio:');
+      var custom = prompt('Escribe la profesión:');
       if (custom && custom.trim()) {
         profesionVal = custom.trim();
         addProfesionToList(profesionVal);
       } else {
         profesionVal = '';
+      }
+    }
+    var oficioVal = $('crmOficio').value;
+    if (oficioVal === '__otro__') {
+      var customOficio = prompt('Escribe el oficio:');
+      if (customOficio && customOficio.trim()) {
+        oficioVal = customOficio.trim();
+        addOficioToList(oficioVal);
+      } else {
+        oficioVal = '';
       }
     }
     // Barrio: si quedó en "__otro__", pedir el valor y añadirlo a config.
@@ -1298,6 +1452,7 @@ td.setAttribute('colspan', '12');
       estado: $('crmEstado').value,
       perfil: $('crmPerfil').value,
       profesion: profesionVal,
+      oficio: oficioVal,
       nombre: $('crmNombre').value.trim(),
       notas: $('crmNotas').value.trim(),
       banco: $('crmBanco').value,
@@ -1579,6 +1734,108 @@ td.setAttribute('colspan', '12');
     }
     renderProfesiones();
     V.toast('Profesión eliminada ✓');
+  }
+
+  /* ─── OFICIO MANAGEMENT ───────────────────────────────────── */
+  function renderOficios() {
+    var list = $('adminOficiosList');
+    if (!list) return;
+    list.innerHTML = '';
+    oficiosCache.forEach(function (o, i) {
+      if (editingOficioIndex === i) {
+        list.appendChild(renderOficioEditor(i, o));
+        return;
+      }
+      var tag = el('span', 'profile-tag');
+      tag.appendChild(document.createTextNode(o));
+      var edit = el('button', 'profile-tag-edit', '✏');
+      edit.title = 'Renombrar oficio';
+      edit.addEventListener('click', function () { editingOficioIndex = i; renderOficios(); });
+      var del = el('button', 'profile-tag-delete', '✕');
+      del.title = 'Eliminar oficio';
+      del.addEventListener('click', function () { removeOficio(i); });
+      tag.appendChild(edit);
+      tag.appendChild(del);
+      list.appendChild(tag);
+    });
+    populateFilterOficios();
+  }
+
+  function renderOficioEditor(index, oldName) {
+    var tag = el('span', 'profile-tag editing');
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.className = 'profile-tag-input';
+    inp.value = oldName;
+    inp.maxLength = 60;
+    tag.appendChild(inp);
+
+    var save = el('button', 'profile-tag-save', '✓');
+    save.title = 'Guardar';
+    save.addEventListener('click', function () { commitOficioRename(index, inp.value); });
+    var cancel = el('button', 'profile-tag-delete', '✕');
+    cancel.title = 'Cancelar';
+    cancel.addEventListener('click', function () { editingOficioIndex = null; renderOficios(); });
+    tag.appendChild(save);
+    tag.appendChild(cancel);
+
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commitOficioRename(index, inp.value); }
+      if (e.key === 'Escape') { editingOficioIndex = null; renderOficios(); }
+    });
+    setTimeout(function () { inp.focus(); inp.select(); }, 0);
+    return tag;
+  }
+
+  function commitOficioRename(index, rawValue) {
+    var val = (rawValue || '').trim();
+    var oldName = oficiosCache[index];
+    if (!val || val === oldName) { editingOficioIndex = null; renderOficios(); return; }
+    if (oficiosCache.indexOf(val) !== -1) { V.toast('Ese oficio ya existe.', true); return; }
+    oficiosCache[index] = val;
+    saveOficios();
+    if (oldName && V.db) {
+      V.db.collection(V.COL_USUARIOS).where('oficio', '==', oldName).get()
+        .then(function (snap) {
+          var updates = [];
+          snap.forEach(function (doc) { updates.push(doc.ref.update({ oficio: val })); });
+          return Promise.all(updates);
+        })
+        .catch(function () {});
+    }
+    editingOficioIndex = null;
+    V.toast('Oficio renombrado ✓');
+    renderOficios();
+  }
+
+  function addOficio() {
+    var input = $('adminOficioInput');
+    var val = input.value.trim();
+    if (!val) return;
+    if (oficiosCache.indexOf(val) !== -1) { V.toast('Ese oficio ya existe.', true); return; }
+    oficiosCache.push(val);
+    saveOficios();
+    input.value = '';
+    renderOficios();
+    V.toast('Oficio "' + val + '" añadido ✓');
+  }
+
+  function removeOficio(index) {
+    var name = oficiosCache[index];
+    if (!confirm('¿Eliminar el oficio "' + name + '"? Los usuarios con este oficio quedarán sin oficio asignado.')) return;
+    oficiosCache.splice(index, 1);
+    saveOficios();
+    if (name && V.db) {
+      V.db.collection(V.COL_USUARIOS).where('oficio', '==', name).get()
+        .then(function (snap) {
+          var updates = [];
+          snap.forEach(function (doc) { updates.push(doc.ref.update({ oficio: '' })); });
+          return Promise.all(updates);
+        })
+        .catch(function () {});
+    }
+    renderOficios();
+    V.toast('Oficio eliminado ✓');
   }
 
   /* ─── UBICACION MANAGEMENT (Departamento → Ciudad → Barrio) ─ */
@@ -1907,6 +2164,7 @@ td.setAttribute('colspan', '12');
     var estadoSelect = $('adminFilterEstado');
     var perfilSelect = $('adminFilterPerfil');
     var profesionSelect = $('adminFilterProfesion');
+    var oficioSelect = $('adminFilterOficio');
 
     if (searchInput) {
       searchInput.addEventListener('input', function () {
@@ -1939,6 +2197,12 @@ td.setAttribute('colspan', '12');
         filterUpdate();
       });
     }
+    if (oficioSelect) {
+      oficioSelect.addEventListener('change', function () {
+        filters.oficio = this.value;
+        filterUpdate();
+      });
+    }
   }
 
   function populateFilterProfiles() {
@@ -1963,6 +2227,17 @@ td.setAttribute('colspan', '12');
     });
   }
 
+  function populateFilterOficios() {
+    var sel = $('adminFilterOficio');
+    if (!sel) return;
+    while (sel.options.length > 1) sel.remove(1);
+    oficiosCache.forEach(function (o) {
+      var opt = document.createElement('option');
+      opt.value = o; opt.textContent = o;
+      sel.appendChild(opt);
+    });
+  }
+
   /* ─── MODULE INTERFACE ────────────────────────────────────── */
   var CrmModule = {
     onReady: function () {
@@ -1975,6 +2250,7 @@ td.setAttribute('colspan', '12');
       subscribeUsuarios();
       subscribePerfiles();
       subscribeProfesiones();
+      subscribeOficios();
       subscribeUbicacion();
       bindFilters();
 
@@ -2035,9 +2311,19 @@ td.setAttribute('colspan', '12');
         if (e.key === 'Enter') { e.preventDefault(); addProfesion(); }
       });
 
+      // Oficio management
+      $('adminOficioAdd').addEventListener('click', addOficio);
+      $('adminOficioInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); addOficio(); }
+      });
+
       // Profesión "Otros..." handler in modal
       var crmProf = $('crmProfesion');
       if (crmProf) crmProf.addEventListener('change', handleProfesionOtro);
+
+      // Oficio "Otros..." handler in modal
+      var crmOfi = $('crmOficio');
+      if (crmOfi) crmOfi.addEventListener('change', handleOficioOtro);
 
       // Ubicación management
       $('adminDeptoAdd').addEventListener('click', addDepto);

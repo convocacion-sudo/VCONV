@@ -341,7 +341,7 @@
       var ad = a.data() || {};
       var upd = {};
       ['nombre', 'apellido', 'documento', 'telefono', 'sexo', 'sexoCustom',
-        'rangoEdad', 'departamento', 'ciudad', 'barrio', 'notas', 'perfil', 'profesion'].forEach(function (k) {
+        'rangoEdad', 'departamento', 'ciudad', 'barrio', 'notas', 'perfil', 'profesion', 'oficio'].forEach(function (k) {
         if (ad[k] && (ad[k] + '').trim() !== '') upd[k] = ad[k];
       });
       if (t.exists) {

@@ -64,15 +64,54 @@
   padding: 0.6rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap;
 }
 .dash-profile-row:last-child { border-bottom: none; }
-.dash-profile-label { font-size: 0.78rem; color: var(--text-muted); font-weight: 600; }
+/* Títulos (labels) en cian brillante y valores en tono claro: mayor contraste. */
+.dash-profile-label { font-size: 0.78rem; color: #00BCD4; font-weight: 700; }
 .dash-profile-value { font-size: 0.88rem; color: var(--text-primary); font-weight: 600; text-align: right; }
+.dash-profile-ref { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.dash-ref-copy { flex: 0 0 auto; }
 .dash-profile-form { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 1rem; }
 .dash-profile-form .form-row { margin-bottom: 0; }
+
+/* ── PROFILE SECTIONS (bloques con barra de color) ─── */
+.dash-prof-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+.dash-prof-section-head {
+  margin: 0;
+  padding: 0.55rem 1rem 0.5rem;
+  color: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.dash-prof-section-body {
+  padding: 0.15rem 1rem 0.4rem;
+}
+.dash-prof-section-head.prof-blue { background: #0d3b66; }
+.dash-prof-section-head.prof-magenta { background: #be185d; }
+.dash-prof-section-head.prof-green { background: #0e7a5d; }
+.dash-prof-section-head.prof-orange { background: #d9660f; }
+.dash-prof-section-head.prof-purple { background: #6d28b8; }
+.dash-prof-section-head.prof-brown { background: #6f4c32; }
+html[data-theme="light"] .dash-prof-section-head {
+  color: #fff;
+}
+html[data-theme="light"] .dash-prof-section {
+  background: #ffffff;
+}
+html[data-theme="light"] .dash-profile-label { color: #0097a7; }
 
 @media (max-width: 600px) {
   .dash-hero { padding: 1.25rem 1.1rem; }
   .dash-card { padding: 1.1rem 1.2rem; }
   .dash-panel { padding: 1.1rem; }
+  .dash-prof-section-body { padding: 0.1rem 0.8rem 0.3rem; }
+  .dash-prof-section-head { padding: 0.5rem 0.8rem 0.45rem; }
 }
 
 /* ── MI RED (MLM) ────────────────────────────────────── */

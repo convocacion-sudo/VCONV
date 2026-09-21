@@ -183,6 +183,17 @@
               </div>
             </div>
             <div class="form-row">
+              <div class="field">
+                <label for="pfProfesion">Profesión</label>
+                <select id="pfProfesion" class="select"></select>
+              </div>
+              <div class="field">
+                <label for="pfOficio">Oficio</label>
+                <select id="pfOficio" class="select"></select>
+              </div>
+            </div>
+
+            <div class="form-row">
               <div class="field field-full">
                 <label for="pfFechaSuscripcion">Fecha de suscripción</label>
                 <input type="text" id="pfFechaSuscripcion" class="input" readonly placeholder="—">
@@ -458,6 +469,9 @@
         <select id="adminFilterProfesion" class="admin-filter-select">
           <option value="">Todas las profesiones</option>
         </select>
+        <select id="adminFilterOficio" class="admin-filter-select">
+          <option value="">Todos los oficios</option>
+        </select>
       </div>
 
       <div class="admin-bulk-bar" id="adminBulkBar">
@@ -481,6 +495,7 @@
               <th>Estado</th>
               <th>Perfil</th>
               <th>Profesión</th>
+              <th>Oficio</th>
               <th>Acciones</th>
             </tr>
           </thead>
@@ -497,14 +512,23 @@
         </div>
       </div>
 
-      <div class="admin-profiles">
-        <h3>Profesión u Oficio</h3>
-        <div class="admin-profiles-list" id="adminProfesionesList"></div>
-        <div class="admin-profiles-add">
-          <input type="text" id="adminProfesionInput" class="input" placeholder="Nueva profesión…">
-          <button class="btn btn-primary btn-sm" id="adminProfesionAdd">Añadir</button>
+<div class="admin-profiles">
+          <h3>Profesión</h3>
+          <div class="admin-profiles-list" id="adminProfesionesList"></div>
+          <div class="admin-profiles-add">
+            <input type="text" id="adminProfesionInput" class="input" placeholder="Nueva profesión…">
+            <button class="btn btn-primary btn-sm" id="adminProfesionAdd">Añadir</button>
+          </div>
         </div>
-      </div>
+
+        <div class="admin-profiles">
+          <h3>Oficio</h3>
+          <div class="admin-profiles-list" id="adminOficiosList"></div>
+          <div class="admin-profiles-add">
+            <input type="text" id="adminOficioInput" class="input" placeholder="Nuevo oficio…">
+            <button class="btn btn-primary btn-sm" id="adminOficioAdd">Añadir</button>
+          </div>
+        </div>
 
       <div class="admin-profiles">
         <h3>Ubicación · Departamentos</h3>
@@ -923,8 +947,16 @@
               </select>
             </div>
             <div class="field">
-              <label for="crmProfesion">Profesión u Oficio</label>
+              <label for="crmProfesion">Profesión</label>
               <select id="crmProfesion" class="select">
+                <option value="">—</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field field-full">
+              <label for="crmOficio">Oficio</label>
+              <select id="crmOficio" class="select">
                 <option value="">—</option>
               </select>
             </div>
