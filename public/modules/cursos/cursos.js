@@ -38,7 +38,28 @@
   function cursoRef(catId, cursoId) { return catRef(catId).collection(V.COL_CURSOS).doc(cursoId); }
   function bloqueRef(catId, cursoId, bloqueId) { return cursoRef(catId, cursoId).collection(V.COL_BLOQUES).doc(bloqueId); }
   function leccionRef(catId, cursoId, bloqueId, leccionId) { return bloqueRef(catId, cursoId, bloqueId).collection(V.COL_LECCIONES).doc(leccionId); }
-  function progRef(catId, cursoId) { return cursoRef(catId, cursoId).collection(V.COL_PROGRESO).doc(V.userId); }
+  // UID autoritativo de la sesión para progreso. Siempre coincide con el
+  // request.auth.uid validado en las reglas de Firestore (progreso/{uid}:
+  // allow read, write si request.auth.uid == uid). Se delega en la FUENTE
+  // ÚNICA central (core/app.js → V.uidSesion) para que nunca haya dos IDs
+  // de sesión distintos en la app: cualquier operación de lectura/escritura
+  // a Firestore que deba usar la identidad del usuario actual usa este
+  // mismo UID. No hay fallback a una variable local desactualizada.      */
+  function uidSesion() {
+    return V.uidSesion ? V.uidSesion() : '';
+  }
+
+  // Error de Firestore por reglas de seguridad (UID distinto al de la sesión,
+  // típico durante la migración anónimo → cuenta registrada). Son
+  // transitorios: la suscripción se soltó y debe reconstruirse con el UID
+  // correcto; no merecen un toast rojo alarmante.
+  function esErrorPermisos(e) {
+    var code = e && e.code ? e.code : '';
+    if (code === 'permission-denied') return true;
+    return !!(e && e.message && /missing or insufficient permissions/i.test(e.message));
+  }
+
+  function progRef(catId, cursoId) { return cursoRef(catId, cursoId).collection(V.COL_PROGRESO).doc(uidSesion()); }
 
   // Ruta base de un curso: anidada (categoria) o raíz legacy (sin categoría).
   function cursoBaseRef(curso) {
@@ -53,7 +74,7 @@
     return V.db.collection(V.COL_CURSOS).doc(curso.id).collection(V.COL_MODULOS).doc(b.id);
   }
   function progRefFromCurso(curso) {
-    return cursoBaseRef(curso).collection(V.COL_PROGRESO).doc(V.userId);
+    return cursoBaseRef(curso).collection(V.COL_PROGRESO).doc(uidSesion());
   }
 
   function getCategoriaById(id) {
@@ -1122,6 +1143,10 @@
 
   function subscribeProgreso(curso) {
     if (!V.db || !curso) return;
+    // Sin sesión activa no hay UID válido: suscribirse apuntaría a
+    // `progreso/{''}` y el servidor lo denegaría. Se espera a que la
+    // identidad de sesión esté lista (V.onSessionRefresh reconstruye).
+    if (!uidSesion()) return;
     var courseId = curso.id;
     if (progresoSubscribed[courseId]) return;
     progresoSubscribed[courseId] = true;
@@ -1134,6 +1159,14 @@
       renderCatalog();
       updateProgressBar();
     }, function (e) {
+      // Error transitorio de permisos (migración anónimo → cuenta): se suelta
+      // la suscripción en silencio; será reconstruida con el UID correcto por
+      // V.onSessionRefresh / V.onModeChange. El resto de errores sí se avisa.
+      if (esErrorPermisos(e)) {
+        if (curso._unsubProg) { try { curso._unsubProg(); } catch (e2) {} curso._unsubProg = null; }
+        delete progresoSubscribed[courseId];
+        return;
+      }
       V.toast('Error al sincronizar el progreso: ' + e.message, true);
     });
   }
@@ -2127,36 +2160,57 @@
 
   V.onNewCourse = function () { openEditor(null); };
 
-  V.onModeChange = function (m) {
+  // Reconstruye las suscripciones a Firestore bajo la identidad de sesión
+  // ACTUAL. Devuelve true si la identidad cambió y se reconstruyó. Es clave
+  // que corra en cuanto el UID de la sesión cambia (V.onSessionRefresh) y
+  // también desde el cambio de modo (V.onModeChange): si se espera al arranque
+  // de la app (ensureUserDoc + startApp), las suscripciones de progreso del
+  // UID ANTERIOR siguen vivas en el intervalo y Firestore las deniega porque
+  // request.auth.uid ya es el usuario nuevo ('Missing or insufficient
+  // permissions' → toast rojo al hacer login).
+  function rebuildSuscripciones() {
+    if (!V.db) return false;
     var currentMode = anonMode() ? 'anon' : 'registrado';
     // Sesión anónima ⇄ registrada: se reconstruyen las consultas de cursos y
     // se invalidan los árboles cacheados para que las cuentas registradas
     // vuelvan a ver la totalidad de bloques y lecciones (sin filtro de prueba).
-    if (currentMode !== authSubsMode) {
-      authSubsMode = currentMode;
-      if (categoriasSub) { try { categoriasSub(); } catch (e) {} categoriasSub = null; }
-      Object.keys(cursoCatSubs).forEach(unsubscribeCursosForCategory);
-      if (legacyCursoSub) { try { legacyCursoSub(); } catch (e) {} legacyCursoSub = null; }
-      cursosCache.forEach(function (c) {
-        c.bloquesLoaded = false;
-        c._treeMode = null;
-        if (c._unsubContent) { try { c._unsubContent(); } catch (e) {} }
-        if (c._unsubProg) { try { c._unsubProg(); } catch (e) {} }
-        delete progresoSubscribed[c.id];
+    if (currentMode === authSubsMode) return false;
+    authSubsMode = currentMode;
+    if (categoriasSub) { try { categoriasSub(); } catch (e) {} categoriasSub = null; }
+    Object.keys(cursoCatSubs).forEach(unsubscribeCursosForCategory);
+    if (legacyCursoSub) { try { legacyCursoSub(); } catch (e) {} legacyCursoSub = null; }
+    cursosCache.forEach(function (c) {
+      c.bloquesLoaded = false;
+      c._treeMode = null;
+      if (c._unsubContent) { try { c._unsubContent(); } catch (e) {} }
+      if (c._unsubProg) { try { c._unsubProg(); } catch (e) {} }
+      delete progresoSubscribed[c.id];
+    });
+    categoriasCache = [];
+    cursosCache = [];
+    subscribeCategorias();
+    subscribeCursos();
+    if (cursoActualId) {
+      ensureCourse(cursoActualId).then(function (curso) {
+        if (curso && cursoActualId === curso.id) {
+          subscribeCursoContent(curso);
+          renderCourseLessons(curso);
+        }
       });
-      categoriasCache = [];
-      cursosCache = [];
-      subscribeCategorias();
-      subscribeCursos();
-      if (cursoActualId) {
-        ensureCourse(cursoActualId).then(function (curso) {
-          if (curso && cursoActualId === curso.id) {
-            subscribeCursoContent(curso);
-            renderCourseLessons(curso);
-          }
-        });
-      }
     }
+    return true;
+  }
+
+  // La identidad de sesión YA cambió (login, registro, fusión o restauración
+  // de sesión al cargar): se reconstruyen las suscripciones de inmediato, SIN
+  // esperar a startApp. Lo invoca core/app.js desde onAuthStateChanged justo
+  // antes de leer el perfil en Firestore.
+  V.onSessionRefresh = function () {
+    rebuildSuscripciones();
+  };
+
+  V.onModeChange = function (m) {
+    rebuildSuscripciones();
     if (m !== 'admin') renderCatalog();
   };
 

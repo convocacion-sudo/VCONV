@@ -54,10 +54,34 @@
   // cadenas de patrocinio, límites de asignación y restricciones de edición.
   function esAdmin() { return userRole === 'superadmin'; }
   function canManage() { return userRole === 'superadmin' || userRole === 'gestor'; }
+
+  /* ─── UID DE SESIÓN (FUENTE ÚNICA) ── Centralizado aquí.
+     DEBE usarse en absolutamente TODAS las operaciones de lectura y
+     escritura a Firestore de cualquier módulo. Devuelve estrictamente
+     el UID real de la sesión activa de Firebase Authentication
+     (firebase.auth().currentUser.uid), que es exactamente el
+     request.auth.uid que validan las reglas de Firestore (
+     `progreso/{uid}: request.auth.uid == uid`, `usuarios/{uid}`,
+     finanzas, MLM, CRM…). Nunca usa una variable local de ID
+     desactualizada (V.userId cacheado en localStorage) que quede vacía
+     o desfasada tras el registro/login/vinculación y provoque
+     'Missing or insufficient permissions'.                                 */
+  function uidSesion() {
+    if (auth && auth.currentUser && auth.currentUser.uid) return String(auth.currentUser.uid);
+    // Sin sesión autenticada no hay documento de usuario válido: devolver
+    // vacío fuerza que la consulta se deniegue limpiamente en lugar de
+    // escribir bajo un UID obsoleto.
+    return '';
+  }
+
   var mode = localStorage.getItem('vconv_mode') || 'gestor';
   var theme = localStorage.getItem('vconv_theme') || 'dark';
   var fontScale = parseFloat(localStorage.getItem('vconv_font') || '1');
   var authInitFailure = null;
+  // Bandera de redirección forzosa al login: el documento de registro del
+  // usuario fue eliminado de Firestore. Mientras está activa no se reabre
+  // la sesión anónima automática ni se deja cargar el escritorio.
+  var forceLoginPending = false;
 
   /* ─── DOM HELPERS ─────────────────────────────────────────── */
   function $(id) { return document.getElementById(id); }
@@ -98,6 +122,7 @@
       db.settings({ ignoreUndefinedProperties: true });
       auth = firebase.auth();
       storage = firebase.storage();
+      if (firebase.functions) V.functions = firebase.functions();
     } catch (e) {
       showFbError('Error al inicializar Firebase: ' + e.message);
     }
@@ -219,6 +244,7 @@
     // UID anónimo para transferir el progreso.
     if (anonUid) _anonUidToMerge = anonUid;
 
+    formalAuthInProgress = true;
     var op = anonUid ? current.linkWithPopup(provider) : auth.signInWithPopup(provider);
 
     op.then(function (result) {
@@ -265,6 +291,7 @@
       })
       .then(function () {
         socialPending = false;
+        formalAuthInProgress = false;
         setAuthLoading(btn, false);
       });
   }
@@ -416,15 +443,67 @@
 
   // Único punto de creación del perfil en Firestore (solo dentro de
   // handleRegister). Aquí únicamente se LEE el documento existente: si no
-  // existe (p. ej. visitante anónimo o sesión a medio formar) no se crea
-  // nada; se devuelve el rol por defecto 'estudiante' y la app funciona
-  // leyendo el perfil de forma tolerante (dashboard, MLM, etc.).
-  function ensureUserDoc(user) {
+  // existe (p. ej. visitante anónimo) se devuelve el rol por defecto
+  // 'estudiante' y la app funciona de forma tolerante leyendo el perfil.
+  // Para cuentas FORMALES (correo/Google), un documento de registro
+  // inexistente es un perfil eliminado o no creado: se fuerza el cierre de
+  // sesión y se redirige al login, evitando que el escritorio intente
+  // consultar subcolecciones sin permiso ('Missing or insufficient
+  // permissions'). Con reintentos cortos para no romper el alta recién
+  // terminada (la creación del perfil se encadena tras la autenticación).
+  function ensureUserDoc(user, intentos) {
     var ref = db.collection(COL_USUARIOS).doc(user.uid);
-    return ref.get().then(function (doc) {
-      if (doc.exists) return { rol: doc.data().rol || 'estudiante' };
-      return { rol: 'estudiante' };
-    });
+    return ref.get()
+      .then(function (doc) {
+        if (doc.exists) return { rol: doc.data().rol || 'estudiante' };
+        if (user.isAnonymous) return { rol: 'estudiante' };
+        return confirmarPerfilEliminado(user, intentos);
+      })
+      .catch(function (err) {
+        // La lectura del propio perfil fue DENEGADA: sobre un documento
+        // borrado las reglas pueden negar el get() ('permission-denied' /
+        // 'Missing or insufficient permissions'). Se trata igual que un
+        // perfil inexistente. Los fallos de red u otros errores reales se
+        // re-lanzan para que el manejo general los cubra.
+        if (user.isAnonymous) return { rol: 'estudiante' };
+        if (!esPerfilDenegado(err)) throw err;
+        return confirmarPerfilEliminado(user, intentos);
+      });
+  }
+
+  // Reintenta la lectura del perfil (puede estar creándose en ese instante
+  // tras el registro) y, si el documento sigue sin existir o sin poder
+  // leerse, fuerza el cierre de sesión y la redirección al login.
+  function confirmarPerfilEliminado(user, intentos) {
+    if ((intentos || 0) < 5) {
+      return new Promise(function (resolve, reject) {
+        setTimeout(function () {
+          ensureUserDoc(user, (intentos || 0) + 1).then(resolve, reject);
+        }, 400);
+      });
+    }
+    handleMissingUserProfile();
+    throw new Error('perfil-eliminado');
+  }
+
+  function esPerfilDenegado(err) {
+    var code = err && err.code ? err.code : '';
+    if (code === 'permission-denied') return true;
+    return !!(err && err.message && /missing or insufficient permissions/i.test(err.message));
+  }
+
+  // Cierre de sesión forzoso y redirección al login cuando el documento de
+  // registro no existe en Firestore (cuenta eliminada por un administrador).
+  function handleMissingUserProfile() {
+    forceLoginPending = true;
+    var app = $('appRoot');
+    if (app) app.style.display = 'none';
+    var portal = $('portalScreen');
+    if (portal) portal.style.display = 'none';
+    openAuth('login');
+    if (auth && auth.currentUser) {
+      auth.signOut().catch(function () {});
+    }
   }
 
   // Crea/actualiza el perfil de usuario exclusivamente dentro del cierre de
@@ -436,6 +515,11 @@
   // rol, estado ni fecha de creación.
   function crearPerfilRegistro(user, datos) {
     var ref = db.collection(COL_USUARIOS).doc(user.uid);
+    // Código de referido (MLM) OPcional: si llega vacío, nulo o solo
+    // espacios, se normaliza y se OMITE el campo sponsorId por completo
+    // (nunca se persisten '', null ni '  '). Así el documento nace íntegro
+    // y el login/validación de perfil no encuentra valores basura.
+    var sponsor = datos && datos.sponsorId ? String(datos.sponsorId).trim() : '';
     return ref.get().then(function (doc) {
       if (doc.exists) {
         var upd = { anonimo: false, proveedor: datos.proveedor || 'correo' };
@@ -452,7 +536,7 @@
         anonimo: false,
         proveedor: datos.proveedor || 'correo'
       };
-      if (datos.sponsorId) data.sponsorId = datos.sponsorId;
+      if (sponsor) data.sponsorId = sponsor;
       return ref.set(data, { merge: true });
     }).catch(function () { return null; });
   }
@@ -503,6 +587,7 @@
     var anonUid = (auth.currentUser && auth.currentUser.isAnonymous) ? auth.currentUser.uid : null;
     if (anonUid) _anonUidToMerge = anonUid;
 
+    formalAuthInProgress = true;
     auth.signInWithEmailAndPassword(email, pass)
       .then(function (cred) {
         if (anonUid && cred.user && cred.user.uid !== anonUid) {
@@ -516,7 +601,7 @@
         toast('Bienvenido de nuevo.');
       })
       .catch(function (err) { showAuthError(authErrorMessage(err)); })
-      .then(function () { setAuthLoading(btn, false); });
+      .then(function () { formalAuthInProgress = false; setAuthLoading(btn, false); });
   }
 
   function handleForgotPassword(e) {
@@ -590,8 +675,10 @@
 
     // Referido capturado manualmente o desde ?ref= de la URL. El módulo
     // MLM valida el código y lo asocia como sponsor solo si mlmEnabled.
+    // Si el campo queda VACÍO se resuelve sponsorId = null y el perfil se
+    // crea sin sponsorId (omitido), sin romper la validación del login.
     var refInput = $('regReferido');
-    var codigoRef = refInput ? refInput.value.trim().toUpperCase() : '';
+    var codigoRef = refInput ? String(refInput.value || '').trim().toUpperCase() : '';
     var sponsorTask = Promise.resolve(null);
     if (codigoRef && V.mlm) {
       sponsorTask = V.mlm.resolverSponsor(codigoRef).then(function (sponsorId) {
@@ -606,6 +693,7 @@
     }
 
     sponsorTask.then(function (sponsorId) {
+      formalAuthInProgress = true;
       var op;
       if (auth.currentUser && auth.currentUser.isAnonymous) {
         // CUENTA NUEVA sobre una sesión de visitante → account linking:
@@ -618,8 +706,28 @@
         // el perfil se crea abajo, solo tras el envío exitoso del formulario.
         op = auth.createUserWithEmailAndPassword(email, pass);
       }
-      return op.then(function (user) {
+      // createUserWithEmailAndPassword y los métodos de vinculación resuelven
+      // con un UserCredential (el firebase.User vive en cred.user), mientras
+      // linkOrMergeEmail resuelve con el User directamente. Se normaliza:
+      // si la identidad no se sincroniza aquí (y el perfil no se crea),
+      // ensureUserDoc no encuentra el documento y la sesión recién creada se
+      // descarta volviendo a la vista de Visitante.
+      return op.then(function (cred) {
+        var user = (cred && cred.user) ? cred.user : cred;
         if (user && user.uid) {
+          // La cuenta YA quedó autenticada en este mismo paso
+          // (createUserWithEmailAndPassword o account linking). La identidad
+          // de sesión se sincroniza de inmediato para que ningún render
+          // intermedio conserve la vista de 'Visitante'; el escritorio final
+          // se monta cuando onAuthStateChanged → ensureUserDoc → startApp
+          // termine (goDashboard es quien llama a V.onDashboardShow).
+          currentUser = user;
+          userId = user.uid;
+          isAnon = false;
+          V.currentUser = user;
+          V.userId = userId;
+          V.isAnon = false;
+
           // Escritura atómica del perfil: único punto de creación del
           // documento. Nace con correo, nombre, rol inicial y proveedor;
           // el referralCode (y el sponsorId si el MLM está activo) los
@@ -632,12 +740,7 @@
             sponsorId: sponsorId
           }).then(function () {
             var mlmApply = V.mlm ? V.mlm.aplicarPatrocinio(user.uid, sponsorId) : Promise.resolve();
-            return mlmApply.then(function () {
-              if (typeof V.onDashboardShow === 'function') {
-                try { V.onDashboardShow(); } catch (er) { /* noop */ }
-              }
-              return user;
-            });
+            return mlmApply.then(function () { return user; });
           });
         }
         return user;
@@ -648,7 +751,7 @@
         toast('¡Cuenta creada! Bienvenido a VCONV.');
       })
       .catch(function (err) { showAuthError(authErrorMessage(err)); })
-      .then(function () { setAuthLoading(btn, false); });
+      .then(function () { formalAuthInProgress = false; setAuthLoading(btn, false); });
   }
 
   function handleLogout() {
@@ -714,14 +817,27 @@
      se configura en Firebase Console → Authentication → Settings
      (limpieza automática a los 30 días).                             */
   var anonSignInPending = false;
+  // Alta o inicio de sesión FORMAL (correo/Google) en curso. Mientras esté
+  // activo, la sesión anónima automática no debe dispararse ni reemplazar la
+  // cuenta recién creada: si un signInAnonymously quedó pendiente antes de
+  // enviar el formulario, su resultado se ignora silenciosamente para que la
+  // identidad del nuevo usuario no sea "robada" en pleno registro.
+  var formalAuthInProgress = false;
 
   function initAnonymousSession() {
-    if (!auth || anonSignInPending) return;
+    if (!auth || anonSignInPending || formalAuthInProgress) return;
     anonSignInPending = true;
     auth.signInAnonymously()
-      .then(function () { anonSignInPending = false; })
+      .then(function () {
+        anonSignInPending = false;
+        // Un registro/login formal arrancó mientras este sign-in anónimo
+        // estaba en vuelo: no tocamos nada; la sesión anónima en vuelo no
+        // debe ganarle a la cuenta formal ni disparar avisos confusos.
+        if (formalAuthInProgress) return;
+      })
       .catch(function (err) {
         anonSignInPending = false;
+        if (formalAuthInProgress) return;
         var code = err && err.code ? err.code : '';
         if (code === 'auth/operation-not-allowed' || code === 'auth/admin-restricted-operation') {
           showFbError('El acceso de visitantes no está habilitado. Actívalo en Firebase Console → Authentication → Sign-in method (Anónimo).');
@@ -733,14 +849,48 @@
   }
 
   function initAuth() {
+    // UID de la última sesión con la que se construyeron las suscripciones
+    // de los módulos. Permite detectar un cambio de identidad (anónimo →
+    // cuenta, fusión o restauración de sesión al cargar) y reconstruirlas
+    // INMEDIATAMENTE, sin esperar a ensureUserDoc/startApp. Incluye el estado
+    // anónimo: en el account linking el UID se conserva pero la semántica de
+    // las consultas (visitante ⇄ registrado) cambia igual.
+    var lastSessionKey = '';
     auth.onAuthStateChanged(function (user) {
+      // Cierre forzoso por perfil eliminado: la sesión formal ya fue cerrada
+      // en handleMissingUserProfile(); no se reabre la sesión anónima y se
+      // deja el login en pantalla.
+      if (forceLoginPending) {
+        if (!user) {
+          forceLoginPending = false;
+          currentUser = null;
+          isAnon = false;
+          openAuth('login');
+        }
+        return;
+      }
       if (user) {
         currentUser = user;
         userId = user.uid;
         isAnon = !!user.isAnonymous;
+        V.currentUser = user;
+        V.userId = userId;
+        V.isAnon = isAnon;
+        // La identidad de Firebase YA es la nueva; sincronizarla con los
+        // módulos en este mismo instante. Si se espera a ensureUserDoc →
+        // startApp → onModeChange, las suscripciones construidas bajo el UID
+        // anterior (p. ej. visitante anónimo) siguen vivas en el intervalo y
+        // Firestore las deniega porque request.auth.uid ya es el usuario nuevo
+        // ('Missing or insufficient permissions' = toast rojo justo al login).
+        var sessionKey = user.uid + ':' + (user.isAnonymous ? 'anon' : 'formal');
+        if (V.onSessionRefresh && sessionKey !== lastSessionKey) {
+          try { V.onSessionRefresh(); } catch (e) { /* noop */ }
+        }
+        lastSessionKey = sessionKey;
         ensureUserDoc(user)
           .then(function (r) { startApp(r.rol); })
           .catch(function () {
+            if (forceLoginPending) return;
             showFbError('No se pudo inicializar tu perfil. Recarga la página.');
             showPortal();
           });
@@ -1205,6 +1355,7 @@
   V.canManage = canManage;
   V.userRole = userRole;
   V.userId = userId;
+  V.uidSesion = uidSesion;
   V.currentUser = currentUser;
   V.db = db;
   V.auth = auth;
