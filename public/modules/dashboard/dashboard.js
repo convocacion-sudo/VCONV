@@ -379,7 +379,7 @@
 
   // Crea un bloque de sección con barra de encabezado de color y contenedor de filas.
   function profileSection(colorCls, title) {
-    var section = el('section', 'dash-prof-section');
+    var section = el('section', 'dash-prof-section ' + colorCls);
     section.appendChild(el('h5', 'dash-prof-section-head ' + colorCls, title));
     var body = el('div', 'dash-prof-section-body');
     section.appendChild(body);
@@ -394,45 +394,44 @@
     var bancoNum = [user.banco, user.numeroCuenta].filter(Boolean).join(' · ');
     var nombre = ((user.nombre || '') + ' ' + (user.apellido || '')).trim();
 
-    // DATOS PERSONALES · azul oscuro
-    var sPersonal = profileSection('prof-blue', 'DATOS PERSONALES');
+    // DATOS PERSONALES · azul
+    var sPersonal = profileSection('prof-blue', 'Datos personales');
     sPersonal.body.appendChild(profileRow('Nombre', nombre));
     sPersonal.body.appendChild(profileRow('Correo', user.email || ''));
     sPersonal.body.appendChild(profileRow('Documento', user.documento));
     sPersonal.body.appendChild(profileRow('Teléfono', user.telefono));
     sPersonal.body.appendChild(profileRow('Sexo', user.sexo === 'Otro' ? (user.sexoCustom || 'Otro') : user.sexo));
     sPersonal.body.appendChild(profileRow('Rango de edad', user.rangoEdad));
-    sPersonal.body.appendChild(profileRow('Notas', user.notas));
+    sPersonal.body.appendChild(profileRow('Rol', ROLES[user.rol] ? (ROLES[user.rol].icon + ' ' + ROLES[user.rol].label) : (user.rol || '—')));
+    sPersonal.body.appendChild(profileRow('Fecha de suscripción', V.fmtDate(getFechaSuscripcion(user))));
+    sPersonal.body.appendChild(profileRow('Registro', user.creado ? V.fmtDate(user.creado) : '—'));
+    sPersonal.body.appendChild(profileRow('Profesión', user.profesion));
+    sPersonal.body.appendChild(profileRow('Oficio', user.oficio));
     container.appendChild(sPersonal.el);
 
-    // INFORMACIÓN DE CUENTA · magenta
-    var sCuenta = profileSection('prof-magenta', 'INFORMACIÓN DE CUENTA');
-    sCuenta.body.appendChild(profileRow('Rol', ROLES[user.rol] ? (ROLES[user.rol].icon + ' ' + ROLES[user.rol].label) : (user.rol || '—')));
-    sCuenta.body.appendChild(profileRow('Fecha de suscripción', V.fmtDate(getFechaSuscripcion(user))));
-    sCuenta.body.appendChild(profileRow('Registro', user.creado ? V.fmtDate(user.creado) : '—'));
-    sCuenta.body.appendChild(profileRow('Estado en banco/portal', user.registradoPortal ? '✅ Registrado para pagos' : '—'));
-    container.appendChild(sCuenta.el);
-
-    // PROFESIÓN Y OFICIO · naranja
-    var sProf = profileSection('prof-orange', 'PROFESIÓN Y OFICIO');
-    sProf.body.appendChild(profileRow('Profesión', user.profesion));
-    sProf.body.appendChild(profileRow('Oficio', user.oficio));
-    container.appendChild(sProf.el);
-
-    // RED Y REFERIDOS · verde esmeralda
-    var sRed = profileSection('prof-green', 'RED Y REFERIDOS');
-    sRed.body.appendChild(profileRefRow(user.referralCode || ''));
-    container.appendChild(sRed.el);
-
     // UBICACIÓN · púrpura
-    var sUbi = profileSection('prof-purple', 'UBICACIÓN');
+    var sUbi = profileSection('prof-purple', 'Ubicación');
     sUbi.body.appendChild(profileRow('Ubicación', ubicacion));
+    sUbi.body.appendChild(profileRow('Departamento', user.departamento));
+    sUbi.body.appendChild(profileRow('Ciudad', user.ciudad));
+    sUbi.body.appendChild(profileRow('Barrio', user.barrio));
     container.appendChild(sUbi.el);
 
-    // DATOS BANCARIOS · marrón
-    var sBanco = profileSection('prof-brown', 'DATOS BANCARIOS');
+    // DATOS BANCARIOS (PAGOS) · marrón
+    var sBanco = profileSection('prof-brown', 'Datos bancarios (pagos)');
     sBanco.body.appendChild(profileRow('Banco', bancoNum || '—'));
+    sBanco.body.appendChild(profileRow('Estado en banco/portal', user.registradoPortal ? '✅ Registrado para pagos' : '—'));
     container.appendChild(sBanco.el);
+
+    // NOTAS · naranja
+    var sNotas = profileSection('prof-orange', 'Notas');
+    sNotas.body.appendChild(profileRow('Notas', user.notas));
+    container.appendChild(sNotas.el);
+
+    // RED DE REFERIDOS (MLM) · verde esmeralda
+    var sRed = profileSection('prof-green', 'Red de referidos (MLM)');
+    sRed.body.appendChild(profileRefRow(user.referralCode || ''));
+    container.appendChild(sRed.el);
   }
 
   function fillForm(user) {

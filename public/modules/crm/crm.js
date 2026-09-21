@@ -917,8 +917,8 @@ td.setAttribute('colspan', '13');
     return 'Estudiante';
   }
 
-  function viewBlock(icon, chipClass, title, rows) {
-    var block = el('div', 'form-block');
+  function viewBlock(icon, chipClass, title, rows, colorCls) {
+    var block = el('div', 'form-block crm-view-block' + (colorCls ? ' ' + colorCls : ''));
     var head = el('div', 'form-block-head');
     head.appendChild(el('span', 'icon-chip sm' + (chipClass ? ' ' + chipClass : ''), icon));
     head.appendChild(el('h4', null, title));
@@ -954,17 +954,17 @@ td.setAttribute('colspan', '13');
       ['Rango de edad', user.rangoEdad],
       ['Estado civil', user.estadoCivil],
       ['Fecha de suscripción', subDate ? V.fmtDate(subDate) : '']
-    ]));
+    ], 'prof-blue'));
 
     body.appendChild(viewBlock('📍', 'blue', 'Ubicación', [
       ['Departamento', user.departamento],
       ['Ciudad', user.ciudad],
       ['Barrio', user.barrio]
-    ]));
+    ], 'prof-purple'));
 
     body.appendChild(viewBlock('📝', 'gold', 'Notas', [
       ['Notas o detalles adicionales', user.notas]
-    ]));
+    ], 'prof-orange'));
 
     body.appendChild(viewBlock('🛡️', 'blue', 'Rol y Configuración', [
       ['Rol en la plataforma', rolLabel(user.rol || 'estudiante')],
@@ -972,13 +972,13 @@ td.setAttribute('colspan', '13');
       ['Perfil organizacional', user.perfil],
       ['Profesión', user.profesion],
       ['Oficio', user.oficio]
-    ]));
+    ], 'prof-magenta'));
 
     // Red de Referidos (MLM): se rellena el sponsor de forma asíncrona.
     var mlmBlock = viewBlock('🌐', 'gold', 'Red de Referidos (MLM)', [
       ['Código de referido', user.referralCode],
       ['Patrocinador asignado', user.sponsorId || '—']
-    ]);
+    ], 'prof-green');
     body.appendChild(mlmBlock);
     var vals = mlmBlock.querySelectorAll('.crm-view-value');
     if (vals.length > 1) {

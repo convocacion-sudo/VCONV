@@ -259,6 +259,7 @@
 .crm-modal .form-actions { justify-content: flex-end; }
 
 .crm-view-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+#crmViewBody { display: flex; flex-direction: column; gap: 0.85rem; }
 .crm-view-row {
   display: flex; justify-content: space-between; gap: 1rem;
   padding: 0.55rem 0; border-bottom: 1px solid var(--border); flex-wrap: wrap;
@@ -266,6 +267,19 @@
 .crm-view-row:last-child { border-bottom: none; }
 .crm-view-label { font-size: 0.78rem; color: var(--text-muted); font-weight: 600; }
 .crm-view-value { font-size: 0.88rem; color: var(--text-primary); font-weight: 600; text-align: right; word-break: break-word; }
+
+/* ── FICHA CRM: cada sección con un color de fondo distinto ── */
+.crm-view-block { border-top-width: 3px; }
+.crm-view-block.prof-blue   { background: rgba(13, 59, 102, 0.30);  border-color: rgba(13, 59, 102, 0.55); border-top-color: #0d3b66; }
+.crm-view-block.prof-magenta{ background: rgba(190, 24, 93, 0.24);  border-color: rgba(190, 24, 93, 0.50); border-top-color: #be185d; }
+.crm-view-block.prof-green  { background: rgba(14, 122, 93, 0.24);  border-color: rgba(14, 122, 93, 0.50); border-top-color: #0e7a5d; }
+.crm-view-block.prof-orange { background: rgba(217, 102, 15, 0.20); border-color: rgba(217, 102, 15, 0.50); border-top-color: #d9660f; }
+.crm-view-block.prof-purple { background: rgba(109, 40, 184, 0.26); border-color: rgba(109, 40, 184, 0.55); border-top-color: #6d28b8; }
+html[data-theme="light"] .crm-view-block.prof-blue   { background: #dceaf6; border-color: #a8c8e4; border-top-color: #0d3b66; }
+html[data-theme="light"] .crm-view-block.prof-magenta{ background: #fbdfea; border-color: #eba6c4; border-top-color: #be185d; }
+html[data-theme="light"] .crm-view-block.prof-green  { background: #d9f2e8; border-color: #9fd8c0; border-top-color: #0e7a5d; }
+html[data-theme="light"] .crm-view-block.prof-orange { background: #fdeede; border-color: #f2c59e; border-top-color: #d9660f; }
+html[data-theme="light"] .crm-view-block.prof-purple { background: #eae2fa; border-color: #c6b0ee; border-top-color: #6d28b8; }
 
 /* ── NOMBRE EN TABLA (ficha completa) ────────────────── */
 .admin-name-link {
