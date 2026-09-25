@@ -850,7 +850,14 @@
     var btnGestor = $('modeGestor');
     if (btnGestor) btnGestor.style.display = esAvanzado() ? 'none' : '';
     var settings = $('sidebarSettings');
-    if (settings) settings.style.display = userRole === 'estudiante' ? 'none' : '';
+    if (settings) settings.style.display = '';
+    // Solo se oculta el selector de "Modo de vista", no todo el bloque: los
+    // controles A- / A+ viven dentro de sidebarSettings y se comparten con
+    // quien no gestiona cursos. Ocultar el contenedor entero los dejaba
+    // inalcanzables justo para el rol estudiante y el avanzado, que son
+    // quienes más leen.
+    var modeBlock = $('modeSwitchBlock');
+    if (modeBlock) modeBlock.style.display = canManage() ? '' : 'none';
     // Configuración: pendiente; visible como "Próximamente" para gestores
     // y superadmin, oculto para visitantes y estudiantes.
     var linkConfig = $('sidebarLinkConfig');
@@ -989,7 +996,12 @@
     if (ml) ml.textContent = m === 'gestor' ? 'Gestor' : m === 'estudiante' ? 'Estudiante' : 'Admin';
     $('btnNewCourse').style.display = m === 'gestor' ? '' : 'none';
     $('progressBarWrap').style.display = m === 'estudiante' ? '' : 'none';
-    $('fontControls').style.display = m === 'estudiante' ? '' : 'none';
+    // Los controles A- / A+ quedan disponibles en TODOS los modos: solo
+    // redimensionan la letra del cuerpo de texto (párrafos y contenido, ver
+    // la regla de --font-scale en core/styles.css), así que limitarlos a un
+    // modo dejaría sin efecto una función de accesibilidad justo a quien
+    // más la necesita (quien está leyendo).
+    $('fontControls').style.display = '';
     $('catalogTitle').textContent = m === 'gestor' ? 'Mis Cursos' : 'Catálogo de Cursos';
     $('catalogSub').textContent = m === 'gestor'
       ? 'Administra los cursos y sus lecciones.'

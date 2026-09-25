@@ -9,7 +9,7 @@
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: var(--radius-lg); flex-wrap: wrap;
 }
-.dash-hero h2 { font-size: calc(1.4rem * var(--font-scale)); font-weight: 800; letter-spacing: -0.02em; }
+.dash-hero h2 { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.02em; }
 .dash-hero p { color: var(--text-muted); font-size: calc(0.88rem * var(--font-scale)); margin-top: 0.25rem; }
 .dash-hero-main { display: flex; align-items: center; gap: 1rem; }
 .dash-hero .dash-badge { margin-left: auto; }
@@ -51,7 +51,7 @@
 .dash-card-head .status-pill {
   position: absolute; top: 1rem; right: 1rem;
 }
-.dash-card-title { font-size: calc(1.05rem * var(--font-scale)); font-weight: 700; }
+.dash-card-title { font-size: 1.05rem; font-weight: 700; }
 .dash-card-desc { font-size: calc(0.82rem * var(--font-scale)); color: var(--text-muted); margin-top: 0.35rem; line-height: 1.5; }
 
 /* ── PROFILE PANEL ───────────────────────────────────── */
@@ -144,7 +144,7 @@ html[data-theme="light"] .dash-profile-label { color: #0097a7; }
 .dash-mlm-red-details > summary {
   cursor: pointer; list-style: none; user-select: none;
   display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
-  padding: 0.8rem 1rem; font-weight: 700; font-size: calc(0.88rem * var(--font-scale));
+  padding: 0.8rem 1rem; font-weight: 700; font-size: 0.88rem;
 }
 .dash-mlm-red-details > summary::-webkit-details-marker { display: none; }
 .dash-mlm-red-details > summary::after {
@@ -203,7 +203,7 @@ html[data-theme="light"] .dash-profile-label { color: #0097a7; }
 .dash-mlm-arbol-nivel > summary {
   cursor: pointer; list-style: none; user-select: none;
   display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
-  padding: 0.8rem 1rem; font-weight: 700; font-size: calc(0.88rem * var(--font-scale));
+  padding: 0.8rem 1rem; font-weight: 700; font-size: 0.88rem;
 }
 .dash-mlm-arbol-details > summary::-webkit-details-marker,
 .dash-mlm-arbol-nivel > summary::-webkit-details-marker { display: none; }

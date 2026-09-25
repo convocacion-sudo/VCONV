@@ -59,6 +59,29 @@
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* ─── ESCALA DE TEXTO (botones A- / A+) ──────────────────────────
+   A- / A+ cambian ÚNICAMENTE el tamaño de la letra del cuerpo de
+   texto: párrafos y texto corrido del contenido (lecciones, descripciones
+   de tarjetas, introductions, texto de la landing).
+
+   Lo que NO hacen, deliberadamente:
+   · No escalan la raíz (html). Poner el factor en :root convierte los
+     botones en un ZOOM GENERAL: como el proyecto dimensiona casi todo
+     en rem, crecerían también contenedores, paddings, gaps, rejillas,
+     radios y anchos, y el diseño entero se deformaría. Ese fue el
+     defecto de la versión anterior, que además aplicaba el factor dos
+     veces (raíz + cabeceras) y lo disparaba al cuadrado.
+   · No tocan títulos, etiquetas, botones, inputs ni medidas de layout.
+     La jerarquía visual y el diseño se quedan exactamente como están:
+     solo crece la letra del texto corrido. Si un texto ampliado no cabe
+     en su caja, el bloque crece a lo alto; el contenedor no se deforma.
+
+   applyFont() (core/app.js) escribe --font-scale en el estilo inline del
+   <html> y la acota entre 0.75 (-25 %) y 1.6 (+60 %).             */
+p {
+  font-size: calc(1rem * var(--font-scale));
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
   background: var(--bg-primary);
@@ -256,7 +279,7 @@ body.sidebar-open { overflow: hidden; }
 @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
 .section-header { margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
-.section-header h2 { font-size: calc(1.5rem * var(--font-scale)); font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.25rem; }
+.section-header h2 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.25rem; }
 .section-header p { color: var(--text-muted); font-size: calc(0.88rem * var(--font-scale)); }
 
 /* ── BUTTONS ─────────────────────────────────────────── */

@@ -134,7 +134,7 @@ html { scroll-behavior: smooth; }
   font-size: clamp(1.4rem, 3vw, 2rem); font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.6rem;
 }
 .portal-section-head p, .portal-contact-info > p {
-  color: var(--text-muted); font-size: 0.95rem;
+  color: var(--text-muted); font-size: calc(0.95rem * var(--font-scale));
 }
 
 /* ── BLOQUES ──────────────────────────────────────────── */
@@ -188,9 +188,9 @@ html { scroll-behavior: smooth; }
   font-size: clamp(1.2rem, 2.6vw, 1.7rem); font-weight: 800;
   letter-spacing: -0.02em; margin-bottom: 0.5rem; color: var(--text-primary);
 }
-.portal-courses-info p { color: var(--text-muted); font-size: 0.95rem; line-height: 1.6; }
+.portal-courses-info p { color: var(--text-muted); font-size: calc(0.95rem * var(--font-scale)); line-height: 1.6; }
 .portal-courses-btn {
-  flex-shrink: 0; font-size: calc(0.9rem * var(--font-scale));
+  flex-shrink: 0; font-size: 0.9rem;
   padding: 0.8rem 1.5rem; border-radius: var(--radius);
 }
 
