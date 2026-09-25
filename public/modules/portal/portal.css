@@ -168,6 +168,32 @@ html { scroll-behavior: smooth; }
   color: var(--bloc, var(--accent)); background: var(--bg-tertiary);
 }
 
+/* ── CURSOS GRATUITOS (tarjeta de acceso directo) ─────── */
+.portal-courses-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 2rem;
+  padding: 2.1rem 2.4rem;
+  background: linear-gradient(135deg, var(--bg-card), var(--bg-secondary));
+  border: 1px solid var(--gold); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  transition: transform var(--transition), border-color var(--transition);
+}
+.portal-courses-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--gold);
+  box-shadow: 0 16px 40px rgba(226, 160, 8, 0.14);
+}
+.portal-courses-info { max-width: 560px; }
+.portal-courses-info .portal-eyebrow { margin-bottom: 0.5rem; }
+.portal-courses-info h2 {
+  font-size: clamp(1.2rem, 2.6vw, 1.7rem); font-weight: 800;
+  letter-spacing: -0.02em; margin-bottom: 0.5rem; color: var(--text-primary);
+}
+.portal-courses-info p { color: var(--text-muted); font-size: 0.95rem; line-height: 1.6; }
+.portal-courses-btn {
+  flex-shrink: 0; font-size: calc(0.9rem * var(--font-scale));
+  padding: 0.8rem 1.5rem; border-radius: var(--radius);
+}
+
 /* ── CONTACTO ─────────────────────────────────────────── */
 .portal-contact { border-top: 1px solid var(--border); background: var(--bg-secondary); max-width: none; }
 .portal-contact-grid {
@@ -213,4 +239,6 @@ html { scroll-behavior: smooth; }
   .portal-section { padding: 2.5rem 1rem; }
   .portal-contact-grid { grid-template-columns: 1fr; gap: 1.5rem; }
   .portal-blocks { grid-template-columns: 1fr; }
+  .portal-courses-card { flex-direction: column; align-items: flex-start; gap: 1.1rem; padding: 1.6rem 1.4rem; }
+  .portal-courses-btn { width: 100%; }
 }

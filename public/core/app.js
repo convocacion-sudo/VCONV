@@ -170,6 +170,25 @@
     var portal = $('portalScreen');
     if (portal) portal.style.display = '';
   }
+  // Acceso directo de la landing page a los cursos: abre el catálogo público
+  // SIN pasar por el Escritorio de invitado. Los visitantes (modo local de
+  // solo lectura, sin sesión de Firebase) entran en modo estudiante sobre el
+  // catálogo; las cuentas registradas vuelven a su app en la vista de cursos.
+  function showGuestCatalog() {
+    // La sesión de Firebase aún se está resolviendo (arranque pendiente): se
+    // deja la landing en pantalla y se abre el catálogo apenas concluya.
+    if (isAnon && !appStarted) {
+      openCatalogPending = true;
+      return;
+    }
+    showApp();
+    if (isAnon) {
+      mode = 'estudiante';
+      V.mode = mode;
+      localStorage.setItem('vconv_mode', 'estudiante');
+    }
+    setMode(mode);
+  }
   function openAuth(tab) {
     if (tab) setAuthTab(tab);
     if (authInitFailure) showAuthError(authInitFailure);
@@ -981,6 +1000,10 @@
   // solo se refresca la UI sin volver a vincular eventos ni inicializar
   // módulos.
   var appStarted = false;
+  // Un visitante tocó "Cursos gratuitos" durante el arranque (aún sin sesión
+  // resuelta en Firebase): al montar la app se abre el catálogo en vez de
+  // quedarse en la landing.
+  var openCatalogPending = false;
   function startApp(rol) {
     userRole = rol;
     V.userRole = rol;
@@ -1000,7 +1023,6 @@
     else if (rol === 'superadmin') mode = 'gestor';
     localStorage.setItem('vconv_mode', mode);
 
-    showApp();
     applyTheme();
     applyFont();
     if (isAnon) setupGuestChip(currentUser); else setupUserChip(currentUser);
@@ -1009,14 +1031,46 @@
     if (localStorage.getItem('vconv_sidebar') === 'collapsed') updateSidebarCollapsed(true);
 
     if (appStarted) {
-      refreshAuthUi();
+      // Identidad ya montada: si sigue siendo visitante (modo local) se
+      // conserva la landing page visible; si ya es una cuenta registrada se
+      // refresca la UI y se muestra su escritorio.
+      if (isAnon) {
+        if (openCatalogPending) {
+          openCatalogPending = false;
+          showApp();
+        } else {
+          $('appRoot').style.display = 'none';
+          var pwPortal = $('portalScreen');
+          if (pwPortal) pwPortal.style.display = '';
+        }
+      } else {
+        refreshAuthUi();
+      }
       return;
     }
     appStarted = true;
     bindEvents();
     $('modeAdmin').style.display = userRole === 'superadmin' ? '' : 'none';
     setMode(mode);
-    goDashboard();
+
+    // Visitante sin sesión: se MANTIENE la landing page principal; NO hay
+    // redirección automática al Escritorio de invitado. El shell de la app
+    // queda montado en segundo plano (eventos + suscripciones del catálogo)
+    // para que el acceso "Cursos gratuitos" abra el catálogo al instante.
+    if (isAnon) {
+      if (openCatalogPending) {
+        openCatalogPending = false;
+        showApp();
+      } else {
+        $('appRoot').style.display = 'none';
+        $('authScreen').classList.remove('show');
+        var anonPortal = $('portalScreen');
+        if (anonPortal) anonPortal.style.display = '';
+      }
+    } else {
+      showApp();
+      goDashboard();
+    }
 
     // Initialize modules
     if (V._modules) {
@@ -1122,6 +1176,7 @@
   V.showRedGlobal = showRedGlobal;
   V.showPortal = showPortal;
   V.showPublicPortal = showPublicPortal;
+  V.showGuestCatalog = showGuestCatalog;
   V.showApp = showApp;
   V.openAuth = openAuth;
   V.closeAuth = closeAuth;

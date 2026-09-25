@@ -107,6 +107,7 @@
     var p = data.portal || {};
     var hero = p.hero || {};
     var sections = p.sections || {};
+    var coursesSec = sections.courses || {};
     var blocksSec = sections.blocks || {};
     var contactSec = sections.contact || {};
     var contact = data.contact || {};
@@ -119,6 +120,11 @@
     setText('portalHeroSubtitle', hero.subtitle);
     setText('portalCtaPrimary', hero.ctaPrimary);
     setText('portalCtaSecondary', hero.ctaSecondary);
+
+    setText('coursesEyebrow', coursesSec.eyebrow);
+    setText('coursesTitle', coursesSec.title);
+    setText('coursesSubtitle', coursesSec.subtitle);
+    setText('portalCtaCourses', hero.ctaCourses);
 
     setText('blocksEyebrow', blocksSec.eyebrow);
     setText('blocksTitle', blocksSec.title);
@@ -243,6 +249,17 @@
     return !!(V.auth && V.auth.currentUser);
   }
 
+  // Acceso destacado de la landing a los cursos gratuitos del catálogo:
+  // el botón de la tarjeta y los enlaces de navegación abren el catálogo
+  // público directamente (visitante: solo lectura; cuenta: su vista de
+  // cursos) sin redirigir al Escritorio de invitado.
+  function goCourses() {
+    closeSidebar();
+    if (typeof V.showGuestCatalog === 'function') { V.showGuestCatalog(); return; }
+    if (hasRealSession()) { V.showApp(); return; }
+    V.openAuth('login');
+  }
+
   function bindPortalEvents() {
     var themeBtn = $('portalThemeToggle');
     if (themeBtn) themeBtn.addEventListener('click', togglePortalTheme);
@@ -296,6 +313,18 @@
         if (blocks) blocks.scrollIntoView({ behavior: 'smooth' });
       });
     }
+
+    // Acceso directo a los cursos gratuitos: el botón de la tarjeta destacada
+    // y los enlaces de navegación (escritorio + móvil) abren el catálogo
+    // público sin disparar la sesión anónima ni errores de permisos.
+    var coursesCta = $('portalCtaCourses');
+    if (coursesCta) coursesCta.addEventListener('click', goCourses);
+    document.querySelectorAll('.portal-courses-go').forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        goCourses();
+      });
+    });
 
     var form = $('contactForm');
     if (form) form.addEventListener('submit', handleContactSubmit);

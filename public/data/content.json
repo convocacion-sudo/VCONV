@@ -9,9 +9,15 @@
       "ctaPrimary": "Comenzar ahora",
       "ctaPrimaryTarget": "register",
       "ctaSecondary": "Conocer los pilares",
-      "ctaSecondaryTarget": "blocks"
+      "ctaSecondaryTarget": "blocks",
+      "ctaCourses": "📚 Ver cursos gratuitos"
     },
     "sections": {
+      "courses": {
+        "eyebrow": "Cursos gratuitos",
+        "title": "Empieza a aprender sin registrarte",
+        "subtitle": "Explora los cursos abiertos y las lecciones de prueba disponibles para invitados. Sin cuenta, sin trámites: entra directo al catálogo."
+      },
       "blocks": {
         "eyebrow": "Pilares",
         "title": "Nuestros pilares institucionales",
