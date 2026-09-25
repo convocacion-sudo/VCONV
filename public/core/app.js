@@ -125,7 +125,6 @@
       db.settings({ ignoreUndefinedProperties: true });
       auth = firebase.auth();
       storage = firebase.storage();
-      if (firebase.functions) V.functions = firebase.functions();
     } catch (e) {
       showFbError('Error al inicializar Firebase: ' + e.message);
     }

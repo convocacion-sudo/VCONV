@@ -913,54 +913,14 @@ td.setAttribute('colspan', '13');
   }
 
   /* ─── BULK DELETE ─────────────────────────────────────────── */
-  // Ejecuta worker sobre items con un máximo de `limit` llamadas simultáneas.
-  function mapLimit(items, limit, worker) {
-    var index = 0;
-    var active = 0;
-    var ok = 0, errs = 0;
-    return new Promise(function (resolve) {
-      function next() {
-        while (active < limit && index < items.length) {
-          (function (uid) {
-            active++;
-            worker(uid)
-              .then(function (r) { if (r) ok++; else errs++; })
-              .catch(function () { errs++; })
-              .then(function () { active--; next(); });
-          })(items[index++]);
-        }
-        if (index >= items.length && active === 0) resolve([ok, errs]);
-      }
-      next();
-    });
-  }
+  // La eliminación de raíz de cuentas requiere una Cloud Function de Firebase
+  // (el SDK web no puede borrar la cuenta de Auth de otro usuario). El proyecto
+  // opera en el plan Spark, sin Cloud Functions, así que la función no está
+  // disponible: se informa al superadmin en lugar de dejar un fallo en red.
+  var MSG_SIN_FUNCION = 'La eliminación de usuarios no está disponible: requiere Cloud Functions (plan Blaze), no habilitado en este proyecto.';
 
   function bulkDeleteUsers() {
-    var ids = Array.from(selectedUids);
-    if (!ids.length) return;
-    if (ids.length > 500) {
-      V.toast('Selecciona un máximo de 500 usuarios por lote.', true);
-      return;
-    }
-    if (!confirm('¿Eliminar ' + ids.length + (ids.length === 1 ? ' usuario' : ' usuarios') + ' seleccionado' + (ids.length === 1 ? '' : 's') + '? Esta acción no se puede deshacer.')) return;
-    if (!V.functions) {
-      V.toast('La eliminación raíz no está disponible en este dispositivo.', true);
-      return;
-    }
-
-    var fn = V.functions.httpsCallable('eliminarUsuario');
-    clearSelection();
-    V.toast('Eliminando ' + ids.length + ' usuario(s)…');
-
-    mapLimit(ids, 5, function (uid) {
-      return fn({ uid: uid }).then(function (res) {
-        var data = res && res.data ? res.data : {};
-        return !!(data && data.ok);
-      });
-    }).then(function (res) {
-      var ok = res[0], errs = res[1];
-      V.toast((ok ? ok + ' eliminado(s) ✓' : 'Sin eliminaciones.') + (errs ? ' · ' + errs + ' con error' : ''));
-    });
+    V.toast(MSG_SIN_FUNCION, true);
   }
 
   /* ─── FIELD UPDATE ────────────────────────────────────────── */
@@ -975,38 +935,10 @@ td.setAttribute('colspan', '13');
   }
 
   /* ─── DELETE USER ─────────────────────────────────────────── */
-  // Traduce los códigos de error devueltos por la Cloud Function.
-  function errorDeFuncion(code) {
-    var map = {
-      'uid-invalido': 'El identificador del usuario no es válido.',
-      'no-autenticado': 'No hay sesión activa.',
-      'no-te-puedes-eliminar': 'No puedes eliminar tu propia cuenta.',
-      'permiso-denegado': 'Solo un Superadmin puede eliminar cuentas.',
-      'error-auth': 'No se pudo borrar la cuenta de autenticación en Firebase.'
-    };
-    return map[code] || 'Error desconocido en el servidor.';
-  }
-
   function deleteUser(uid, email) {
     if (!confirm('¿Eliminar al usuario "' + (email || uid) + '"? Esta acción no se puede deshacer.')) return;
     if (uid === V.userId) { V.toast('No puedes eliminar tu propia cuenta.', true); return; }
-    if (!V.functions) {
-      V.toast('La eliminación raíz no está disponible en este dispositivo.', true);
-      return;
-    }
-    var fn = V.functions.httpsCallable('eliminarUsuario');
-    fn({ uid: uid })
-      .then(function (res) {
-        var data = res && res.data ? res.data : {};
-        if (data.ok) {
-          V.toast('Usuario eliminado de raíz (registro y autenticación) ✓');
-        } else {
-          V.toast(errorDeFuncion(data.error), true);
-        }
-      })
-      .catch(function (err) {
-        V.toast('No se pudo eliminar: ' + (err.message || err), true);
-      });
+    V.toast(MSG_SIN_FUNCION, true);
   }
 
   /* ─── VIEW USER (ficha de solo lectura) ───────────────────── */
