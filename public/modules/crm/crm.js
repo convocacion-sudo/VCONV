@@ -537,6 +537,7 @@
     var total = usuariosCache.length;
     var activos = usuariosCache.filter(function (u) { return (u.estado || 'Activo') === 'Activo'; }).length;
     var estudiantes = usuariosCache.filter(function (u) { return u.rol === 'estudiante'; }).length;
+    var avanzados = usuariosCache.filter(function (u) { return u.rol === 'avanzado'; }).length;
     var gestores = usuariosCache.filter(function (u) { return u.rol === 'gestor'; }).length;
     var admins = usuariosCache.filter(function (u) { return u.rol === 'superadmin'; }).length;
 
@@ -545,6 +546,7 @@
       { value: total, label: 'Total', filterKey: null },
       { value: activos, label: 'Activos', filterKey: 'estado', filterVal: 'Activo' },
       { value: estudiantes, label: 'Estudiantes', filterKey: 'rol', filterVal: 'estudiante' },
+      { value: avanzados, label: 'Avanzados', filterKey: 'rol', filterVal: 'avanzado' },
       { value: gestores, label: 'Gestores', filterKey: 'rol', filterVal: 'gestor' },
       { value: admins, label: 'Admins', filterKey: 'rol', filterVal: 'superadmin' }
     ].forEach(function (c) {
@@ -944,6 +946,7 @@ td.setAttribute('colspan', '13');
   /* ─── VIEW USER (ficha de solo lectura) ───────────────────── */
   function rolLabel(r) {
     if (r === 'gestor') return 'Gestor';
+    if (r === 'avanzado') return 'Avanzado';
     if (r === 'superadmin') return 'Superadmin';
     return 'Estudiante';
   }

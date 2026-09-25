@@ -35,9 +35,57 @@ service cloud.firestore {
       return isRegistered() &&
         get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'gestor';
     }
+    // Rol "avanzado": perfil de solo lectura sobre la propia red. NO gestiona
+    // contenido (canManage() lo excluye a propósito) y NO tiene bypass: no
+    // aparece en las reglas de escritura de finanzas.
+    function esAvanzado() {
+      return isRegistered() &&
+        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'avanzado';
+    }
     // Gestores y superadmin gestionan el contenido del CMS.
     function canManage() {
       return isGestor() || isAdmin();
+    }
+    // ═══ ALCANCE DE LA RED DEL ROL AVANZADO ═════════════════════
+    // El avanzado NO lee la base completa: solo los documentos financieros
+    // cuyo titular (campo `userId`) es él mismo o un descendiente suyo de
+    // hasta 5 niveles. Para comprobarlo hay que SUBIR desde el titular del
+    // documento (las reglas no pueden ejecutar consultas ni recorrer la red
+    // hacia abajo), replicando el patrón a1-a4 de /usuarios: 4 get() sobre
+    // documentos DISTINTOS entre sí (el caché del motor solo evita repetir
+    // el acceso a un mismo documento).
+    //
+    // OJO: esAvanzado() es condición NECESARIA. Sin ella, esta función
+    // concedería a cualquier usuario registrado (incluso con rol estudiante)
+    // la lectura de las finanzas de su downline, y el rol 'avanzado' sería
+    // una etiqueta sin efecto real. El AND evalúa primero el rol, así que
+    // un usuario que no es avanzado no gasta ningún get() de la cadena.
+    //
+    // COSTE POR DOCUMENTO EVALUADO (límite duro: 10 accesos por evaluación):
+    //   esAvanzado() ...... 1 acceso  (usuarios/{uid}, documento propio)
+    //   f1-f4 ............ 4 accesos (cadena de patrocinio del titular)
+    //   isAdmin() ......... 1 acceso  (el MISMO usuarios/{uid} → cacheado)
+    //   ── TOTAL ..... 5 de 10, con margen para el resto de la expresión.
+    function f1() {
+      return get(/databases/$(database)/documents/usuarios/$(resource.data.userId)).data.sponsorId;
+    }
+    function f2() {
+      return get(/databases/$(database)/documents/usuarios/$(f1())).data.sponsorId;
+    }
+    function f3() {
+      return get(/databases/$(database)/documents/usuarios/$(f2())).data.sponsorId;
+    }
+    function f4() {
+      return get(/databases/$(database)/documents/usuarios/$(f3())).data.sponsorId;
+    }
+    function esMiArbolFin() {
+      return esAvanzado() && (
+        resource.data.userId == request.auth.uid
+        || f1() == request.auth.uid
+        || f2() == request.auth.uid
+        || f3() == request.auth.uid
+        || f4() == request.auth.uid
+      );
     }
     // ═══ BYPASS TOTAL DE SUPERADMIN ═════════════════════════════
     // isAdmin() (rol superadmin validado contra su documento
@@ -290,6 +338,15 @@ service cloud.firestore {
     }
 
     /* ── FINANZAS (Aportes y Ofrendas) ──────────────────────── */
+    // ROL AVANZADO (solo lectura): los tres bloques de abajo (transacciones,
+    // comisiones y pagos) añaden `|| esMiArbolFin()` a su regla de lectura, de
+    // modo que un usuario con rol 'avanzado' consulta los documentos de su
+    // PROPIA red (él mismo y hasta 5 niveles por debajo, vía f1–f4). No puede
+    // escribir nada: todas las reglas create/update/delete siguen cerradas en
+    // isAdmin(), sin bypass. Los porcentajes (config/finanzas) se conservan
+    // en config/{id}: solo lectura para cualquier sesión, escritura del
+    // superadmin. Reportes Financieros y Red MLM Global no viven en las reglas
+    // (se derivan de estas colecciones), por lo que su filtro es de interfaz.
     // La configuración (config/finanzas: finanzasEnabled, porcentajes
     // N1–N5, porcentajeCaja, categorias) queda cubierta por el bloque
     // config/{id}: lectura para cualquier sesión autenticada y escritura
@@ -317,7 +374,9 @@ service cloud.firestore {
     //     propia. La actualización/eliminación es exclusiva de isAdmin().
     match /finanzas_transacciones/{id} {
       allow read: if signedIn()
-        && (request.auth.uid == resource.data.userId || isAdmin());
+        && (request.auth.uid == resource.data.userId
+            || esMiArbolFin()   // rol avanzado: su propia red (≤5 niveles)
+            || isAdmin());
       allow create: if isRegistered()
         && (request.resource.data.userId == request.auth.uid || isAdmin());
       allow update, delete: if isAdmin();
@@ -351,7 +410,9 @@ service cloud.firestore {
               || request.resource.data.userId == p5());
       }
       allow read: if isRegistered()
-        && (request.auth.uid == resource.data.userId || isAdmin());
+        && (request.auth.uid == resource.data.userId
+            || esMiArbolFin()   // rol avanzado: comisiones de su propia red
+            || isAdmin());
       allow create: if isRegistered() && (
           isAdmin()
           || (request.resource.data.userId == request.auth.uid
@@ -373,7 +434,9 @@ service cloud.firestore {
     //     la bolsa global; la Caja Mayor no participa.
     match /finanzas_pagos/{id} {
       allow read: if signedIn()
-        && (request.auth.uid == resource.data.userId || isAdmin());
+        && (request.auth.uid == resource.data.userId
+            || esMiArbolFin()   // rol avanzado: pagos de su propia red
+            || isAdmin());
       allow create, update, delete: if isAdmin();
     }
   }

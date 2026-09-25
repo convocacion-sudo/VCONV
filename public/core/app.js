@@ -57,6 +57,12 @@
   // cadenas de patrocinio, límites de asignación y restricciones de edición.
   function esAdmin() { return userRole === 'superadmin'; }
   function canManage() { return userRole === 'superadmin' || userRole === 'gestor'; }
+  // Rol "avanzado": hereda el modo estudiante y suma acceso de SOLO LECTURA a
+  // Finanzas/MLM sobre su PROPIA red (él mismo y hasta 5 niveles por debajo,
+  // según esMiArbolFin() en firestore.rules). No gestiona contenido del CMS
+  // (canManage() lo excluye) ni escribe datos financieros: los paneles de
+  // configuración (porcentajes, Red MLM Global) siguen siendo de superadmin.
+  function esAvanzado() { return userRole === 'avanzado'; }
 
   /* ─── UID DE SESIÓN (FUENTE ÚNICA) ── Centralizado aquí.
      DEBE usarse en absolutamente TODAS las operaciones de lectura y
@@ -827,16 +833,22 @@
     var grpAdmin = $('sidebarGroupAdmin');
     if (linkAdmin) linkAdmin.style.display = isAdmin ? '' : 'none';
     if (grpAdmin) grpAdmin.style.display = isAdmin ? '' : 'none';
-    // Finanzas y Reportes Financieros: módulo centralizado de superadmin
-    // (control absoluto, bypass total). Acceso exclusivo desde el menú
-    // lateral y el escritorio de superadmin.
+    // Finanzas: lectura completa (CRUD) para superadmin; lectura restringida a
+    // su propia red para el rol avanzado. Reportes Financieros y Red MLM
+    // Global siguen siendo exclusivos de superadmin (consolidan la base
+    // completa y los porcentajes, que el avanzado no debe ver).
+    var veFinanzas = isAdmin || esAvanzado();
     var linkFinanzas = $('sidebarLinkFinanzas');
-    if (linkFinanzas) linkFinanzas.style.display = isAdmin ? '' : 'none';
+    if (linkFinanzas) linkFinanzas.style.display = veFinanzas ? '' : 'none';
     var linkReportes = $('sidebarLinkReportes');
     if (linkReportes) linkReportes.style.display = isAdmin ? '' : 'none';
     // Red MLM Global: página independiente del multinivel, solo superadmin.
     var linkRedGlobal = $('sidebarLinkRedGlobal');
     if (linkRedGlobal) linkRedGlobal.style.display = isAdmin ? '' : 'none';
+    // El avanzado no administra cursos: se oculta el botón de modo Gestor y
+    // solo queda el modo Estudiante (los controles de texto se conservan).
+    var btnGestor = $('modeGestor');
+    if (btnGestor) btnGestor.style.display = esAvanzado() ? 'none' : '';
     var settings = $('sidebarSettings');
     if (settings) settings.style.display = userRole === 'estudiante' ? 'none' : '';
     // Configuración: pendiente; visible como "Próximamente" para gestores
@@ -962,7 +974,7 @@
   /* ─── MODE SWITCH ─────────────────────────────────────────── */
   function setMode(m) {
     if (m !== 'gestor' && m !== 'estudiante' && m !== 'admin') return;
-    if (m === 'gestor' && userRole === 'estudiante') {
+    if (m === 'gestor' && userRole !== 'gestor' && userRole !== 'superadmin') {
       toast('Tu rol no permite el modo Gestor.');
       return;
     }
@@ -1019,6 +1031,7 @@
       mode = 'estudiante';
     } else if (rol === 'gestor') mode = 'gestor';
     else if (rol === 'estudiante') mode = 'estudiante';
+    else if (rol === 'avanzado') mode = 'estudiante';
     else if (rol === 'superadmin') mode = 'gestor';
     localStorage.setItem('vconv_mode', mode);
 
@@ -1187,6 +1200,7 @@
   V.clearFbError = clearFbError;
   V.esAdmin = esAdmin;
   V.canManage = canManage;
+  V.esAvanzado = esAvanzado;
   V.userRole = userRole;
   V.userId = userId;
   V.uidSesion = uidSesion;

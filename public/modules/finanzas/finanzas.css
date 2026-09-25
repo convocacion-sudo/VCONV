@@ -29,6 +29,15 @@
 .fin-loading {
   padding: 0.9rem; margin: 0; font-size: 0.82rem; color: var(--text-muted);
 }
+/* Aviso informativo en línea: encabezado del modo solo lectura del rol
+   avanzado y pie de la tabla de saldos de la red. */
+.fin-nota {
+  margin: 0 0 0.9rem; padding: 0.7rem 0.9rem; font-size: 0.8rem;
+  color: var(--text-secondary); line-height: 1.55;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent); border-radius: var(--radius);
+}
+.fin-seccion-body .fin-nota { margin: 0.8rem 0 0; }
 
 /* ── FORMULARIO DE REGISTRO (usuario) ─────────────────────── */
 .fin-form { display: flex; flex-direction: column; gap: 0.75rem; }

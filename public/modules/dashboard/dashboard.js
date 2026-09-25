@@ -19,6 +19,9 @@
 
   var ROLES = {
     estudiante: { label: 'Estudiante', icon: '🎓' },
+    // "avanzado" hereda el modo estudiante y suma lectura de Finanzas/MLM
+    // sobre su propia red (sin escrituras ni configuración).
+    avanzado: { label: 'Avanzado', icon: '🔎' },
     gestor: { label: 'Gestor', icon: '🛠' },
     superadmin: { label: 'Superadmin', icon: '🔐' }
   };
@@ -133,6 +136,11 @@
       cards.push({ icon: '➕', title: 'Nuevo Curso', tag: 'Crear', desc: 'Crea un curso y añade lecciones.', action: function () { if (V.onNewCourse) V.onNewCourse(); } });
     } else if (rol === 'estudiante') {
       cards.push({ icon: '📖', title: 'Catálogo de Cursos', tag: 'Explorar', desc: 'Explora y comienza tus cursos.', action: function () { V.setMode('estudiante'); } });
+    } else if (rol === 'avanzado') {
+      cards.push({ icon: '📖', title: 'Catálogo de Cursos', tag: 'Explorar', desc: 'Explora y comienza tus cursos.', action: function () { V.setMode('estudiante'); } });
+      // El módulo se abre en solo lectura y limitado a la red del usuario
+      // (regla esMiArbolFin en firestore.rules).
+      cards.push({ icon: '💰', title: 'Finanzas de mi red', tag: 'Solo lectura', desc: 'Consulta aportes, comisiones y pagos de tu red. Sin edición.', action: function () { if (V.showFinanzas) V.showFinanzas(); } });
     }
 
     if (rol === 'superadmin') {

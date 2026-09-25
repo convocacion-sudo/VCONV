@@ -79,6 +79,11 @@
     return '$' + v.toLocaleString('es-CO');
   }
   function isAdminUser() { return V.userRole === 'superadmin'; }
+  // Rol "avanzado": entra al módulo en modo SOLO LECTURA y limitado a su
+  // propia red. Sus lecturas se resuelven contra esMiArbolFin() en
+  // firestore.rules, así que el backend descarta cualquier documento ajeno
+  // aunque el cliente lo solicite: el filtro del cliente es solo comodidad.
+  function esAvanzadoUser() { return V.userRole === 'avanzado'; }
   function nombreUsuario(u) {
     var n = ((u && (u.nombre || '')) + ' ' + (u && (u.apellido || ''))).trim();
     return n || (u && u.email ? u.email : '');
@@ -619,6 +624,50 @@
   function misPagos() {
     return todosPagos();
   }
+
+  /* ─── CONSULTAS DEL ROL AVANZADO (su propia red) ──────────────
+     Las reglas (esMiArbolFin) ya restringen cada documento a la red del
+     lector, así que aquí solo hay que pedir los uids de esa red. Se obtienen
+     con loadUsuarios(), cuya consulta completa devuelve, para un usuario sin
+     rol de gestión, únicamente los perfiles que las reglas permiten: él mismo,
+     sus descendientes y su upline. Se resuelve UNA vez y se reutiliza para las
+     tres colecciones: forzar la caché por colección multiplicaría las lecturas
+     de usuarios sin aportar nada.
+
+     El operador `in` admite como máximo 30 valores, por lo que una red de
+     más de 30 personas se consulta en varios lotes y se fusiona el resultado
+     (duplicados descartados por id). */
+  var TROZO_IN = 30;
+
+  function uidsDeMiRed() {
+    if (!V.db || !V.userId) return Promise.resolve([]);
+    return loadUsuarios(true).then(function (lista) {
+      return lista.map(function (u) { return u.uid; }).filter(function (uid) { return !!uid; });
+    });
+  }
+
+  function consultarPorUids(coleccion, uids) {
+    if (!V.db) return Promise.resolve([]);
+    if (!uids.length) return Promise.resolve([]);
+    var lotes = [];
+    for (var i = 0; i < uids.length; i += TROZO_IN) {
+      lotes.push(V.db.collection(coleccion).where('userId', 'in', uids.slice(i, i + TROZO_IN)).get());
+    }
+    return Promise.all(lotes).then(function (snaps) {
+      var porId = {};
+      snaps.forEach(function (snap) {
+        snap.forEach(function (doc) {
+          if (porId[doc.id]) return;
+          var d = doc.data() || {};
+          d.id = doc.id;
+          porId[doc.id] = d;
+        });
+      });
+      var rows = Object.keys(porId).map(function (k) { return porId[k]; });
+      rows.sort(function (a, b) { return (b.fecha || '').localeCompare(a.fecha || ''); });
+      return rows;
+    }).catch(function () { return []; });
+  }
   function sumarMontos(lista) {
     var total = 0;
     (lista || []).forEach(function (d) { total += Number(d.monto) || 0; });
@@ -778,6 +827,7 @@
     if (!cont) return;
     var btnNuevo = V.$('btnNuevaTransaccion');
     var btnPago = V.$('btnNuevoDesembolso');
+    if (esAvanzadoUser()) { hideBotonesEscritorio(btnNuevo, btnPago); renderVistaFinanzasAvanzado(cont); return; }
     if (!isAdminUser()) {
       cont.innerHTML = '';
       cont.appendChild(V.emptyState('🔒', 'Solo superadmin', 'El módulo centralizado de Finanzas está disponible exclusivamente para el rol superadmin.'));
@@ -804,6 +854,137 @@
         cont.innerHTML = '';
         cont.appendChild(el('p', 'fin-empty', 'No se pudieron cargar las transacciones en este momento.'));
       });
+  }
+
+  function hideBotonesEscritorio(btnNuevo, btnPago) {
+    if (btnNuevo) btnNuevo.style.display = 'none';
+    if (btnPago) btnPago.style.display = 'none';
+  }
+
+  /* ─── VISTA FINANZAS · ROL AVANZADO (solo lectura) ───────────
+     Misma pantalla que el superadmin pero sin acciones: nada de
+     "Nueva transacción" ni "Nuevo desembolso", y sin la última columna
+     de editar/eliminar. Los datos salen de transacciones/comisiones/pagos
+     de la red del usuario; las reglas descartan en el servidor cualquier
+     documento fuera de ese árbol. Los porcentajes y el panel de Reportes
+     Financieros NO se muestran aquí: siguen reservados al superadmin. */
+  function renderVistaFinanzasAvanzado(cont) {
+    cont.innerHTML = '';
+    cont.appendChild(el('p', 'fin-loading', 'Cargando los movimientos de tu red…'));
+
+    // Los uids de la red se resuelven una sola vez y se reutilizan en las tres
+    // colecciones; loadUsuarios(true) queda así en la caché de usuariosCache y
+    // los nombres del resolvedor (usuarioById) también están disponibles.
+    uidsDeMiRed()
+      .then(function (uids) {
+        return Promise.all([
+          consultarPorUids(COL_TRANS, uids),
+          consultarPorUids(COL_COMIS, uids),
+          consultarPorUids(COL_PAGOS, uids),
+          loadComunidades(true),
+          loadConfig()
+        ]);
+      })
+      .then(function (res) {
+        if (!document.body.contains(cont)) return;
+        var txs = res[0];
+        var comision = res[1];
+        var pagos = res[2];
+        cont.innerHTML = '';
+
+        cont.appendChild(el('p', 'fin-nota',
+          '👁 Vista de solo lectura: consultas tus movimientos y los de tu red (hasta 5 niveles). '
+          + 'Registrar, editar o eliminar transacciones y desembolsos sigue siendo exclusivo del superadmin.'));
+
+        renderKpisFinanzas(cont, txs, _finState);
+        renderFiltrosFinanzas(cont);
+        renderTablaTransacciones(cont, filtrarTxs(txs, _finState), true);
+        renderResumenRed(cont, comision, pagos);
+      })
+      .catch(function () {
+        cont.innerHTML = '';
+        cont.appendChild(el('p', 'fin-empty', 'No se pudieron cargar los movimientos de tu red en este momento.'));
+      });
+  }
+
+  // Comisiones y pagos de la red del usuario avanzado, en dos tablas
+  // simplificadas de solo lectura (sin los importes consolidados de la bolsa
+  // y de la caja, que son inherentes al superadmin).
+  function renderResumenRed(container, comision, pagos) {
+    var sec = document.createElement('details');
+    sec.className = 'fin-seccion';
+    var s = document.createElement('summary');
+    s.appendChild(el('span', '', '🤝 Comisiones y pagos de mi red (solo lectura)'));
+    sec.appendChild(s);
+    var wrap = el('div', 'fin-seccion-body');
+    sec.appendChild(wrap);
+    container.appendChild(sec);
+
+    if (!comision.length && !pagos.length) {
+      wrap.appendChild(el('p', 'fin-empty', 'Tu red todavía no tiene comisiones ni pagos registrados.'));
+      return;
+    }
+
+    if (comision.length) {
+      wrap.appendChild(el('h4', '', 'Comisiones liquidadas (' + comision.length + ')'));
+      var t1 = tablaSimple(
+        ['Beneficiario', 'Nivel', 'Origen', 'Monto', 'Fecha'],
+        comision.map(function (c) {
+          return [
+            c.userId === V.userId ? 'Yo' : (usuarioById(c.userId) ? nombreUsuario(usuarioById(c.userId)) : (c.userId || '—')),
+            'N' + (c.nivel || '—'),
+            c.etiqueta || c.tipo || '—',
+            fmtMoneda(c.monto),
+            (c.fecha || '').slice(0, 10)
+          ];
+        })
+      );
+      wrap.appendChild(t1);
+    }
+
+    if (pagos.length) {
+      wrap.appendChild(el('h4', '', 'Pagos realizados (' + pagos.length + ')'));
+      var t2 = tablaSimple(
+        ['Beneficiario', 'Monto', 'Fecha'],
+        pagos.map(function (p) {
+          return [
+            p.userId === V.userId ? 'Yo' : (usuarioById(p.userId) ? nombreUsuario(usuarioById(p.userId)) : (p.userId || '—')),
+            fmtMoneda(p.monto),
+            (p.fecha || '').slice(0, 10)
+          ];
+        })
+      );
+      wrap.appendChild(t2);
+    }
+
+    var saldo = saldoComisionesDe(V.userId, comision, pagos);
+    if (saldo) wrap.appendChild(el('p', 'fin-nota', 'Tu saldo disponible de comisiones: ' + fmtMoneda(saldo) + '.'));
+  }
+
+  function tablaSimple(encabezados, filas) {
+    var wrap = el('div', 'fin-table-wrap');
+    var table = document.createElement('table');
+    table.className = 'fin-table';
+    var thead = document.createElement('thead');
+    var hr = document.createElement('tr');
+    encabezados.forEach(function (h) {
+      var th = document.createElement('th');
+      th.textContent = h;
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+    table.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    filas.forEach(function (fila) {
+      var tr = document.createElement('tr');
+      fila.forEach(function (valor, i) {
+        tr.appendChild(celda(valor, encabezados[i] === 'Monto' ? 'fin-monto' : ''));
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    return wrap;
   }
 
   function renderKpisFinanzas(container, txs, filtros) {
@@ -1108,19 +1289,26 @@
     };
   }
 
-  function renderTablaTransacciones(container, txs) {
+  // `soloLectura` elimina la última columna (editar/eliminar). La usa el rol
+  // avanzado, que consulta los movimientos de su red pero no puede escribir:
+  // las reglas de Firestore rechazan el create/update/delete de igual modo.
+  function renderTablaTransacciones(container, txs, soloLectura) {
     var wrap = el('div', 'fin-table-wrap');
     container.appendChild(wrap);
     if (!txs.length) {
-      wrap.appendChild(el('p', 'fin-empty', 'No hay transacciones con los filtros actuales. Usa "➕ Nueva transacción" para registrar la primera.'));
+      wrap.appendChild(el('p', 'fin-empty', soloLectura
+        ? 'No hay transacciones de tu red con los filtros actuales.'
+        : 'No hay transacciones con los filtros actuales. Usa "➕ Nueva transacción" para registrar la primera.'));
       return;
     }
 
+    var encabezados = ['Fecha', 'Origen', 'Titular', 'Categoría', 'Monto', 'Bolsa', 'Caja', 'Estado'];
+    if (!soloLectura) encabezados.push('');
     var table = document.createElement('table');
     table.className = 'fin-table';
     var thead = document.createElement('thead');
     var hr = document.createElement('tr');
-    ['Fecha', 'Origen', 'Titular', 'Categoría', 'Monto', 'Bolsa', 'Caja', 'Estado', ''].forEach(function (h) {
+    encabezados.forEach(function (h) {
       var th = document.createElement('th');
       th.textContent = h;
       hr.appendChild(th);
@@ -1146,6 +1334,11 @@
       tr.appendChild(celda((String(tx.estado) || '').charAt(0).toUpperCase() + String(tx.estado || '').slice(1), estadoPillCls(tx.estado) ? 'fin-monto ' + estadoPillCls(tx.estado) : ''));
 
       var tdAcc = celda('');
+      if (soloLectura) {
+        tr.appendChild(tdAcc);
+        tbody.appendChild(tr);
+        return;
+      }
       var acc = el('div', 'fin-acciones');
       var btnEdit = el('button', 'btn btn-outline btn-sm', '✏️');
       btnEdit.type = 'button';
