@@ -819,6 +819,15 @@
     embedYouTubeLinks(holder);
     stripLegacyTextColors(holder);
     c.appendChild(holder);
+    // Los encabezados sin cerrar se tragan el cuerpo de la lección: se reparan
+    // ANTES de medir tamaños, porque el conversor necesita que el padre de
+    // cada texto sea el elemento que le corresponde y no un <h1>.
+    repairHeadingNesting(holder);
+    // Convierte a em las longitudes absolutas que puso el autor (px, pt, in…)
+    // para que el texto del contenido también siga la escala de A- / A+. Va
+    // tras insertar el nodo porque necesita estilos calculados
+    // (getComputedStyle).
+    normalizeInlineFontSizes(holder);
     // Blindar elementos de media incrustados en el HTML del contenido y resolver
     // rutas gs:// de Firebase Storage.
     c.querySelectorAll('video,audio').forEach(function (m) {
@@ -1694,6 +1703,76 @@
         while (el.firstChild) el.parentNode.insertBefore(el.firstChild, el);
         if (el.parentNode) el.parentNode.removeChild(el);
       }
+    });
+  }
+
+  /* Los tamaños de letra que fija el autor en el contenido llegan como
+     longitudes ABSOLUTAS en el style inline. No solo px: el contenido real
+     viene pegado desde Word y trae "font-size:13.0pt", y otras fuentes usan
+     in/cm/mm/pc. Un valor absoluto ignora la escala que aplican los botones
+     A- / A+, de modo que ese texto se queda congelado mientras el resto de la
+     lección cambia: los botones parecen no hacer nada.
+
+     Se convierten a em RELATIVOS al tamaño del padre: se conserva la
+     jerarquía que eligió el autor y el texto pasa a seguir la escala. La
+     conversión mide al padre SIN la escala aplicada (dividiendo por
+     --font-scale), así que el resultado no depende del ajuste que el
+     usuario tenga activo en ese momento.
+
+     Solo actúa en el lector: lo guardado en Firestore conserva las unidades
+     del autor y el editor sigue mostrando los tamaños tal como se escriben. */
+  var ABS_PX = { px: 1, pt: 4 / 3, pc: 16, in: 96, cm: 96 / 2.54, mm: 96 / 25.4 };
+
+  function normalizeInlineFontSizes(root) {
+    if (!root) return;
+    var scale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--font-scale'));
+    if (!scale || !isFinite(scale) || scale <= 0) scale = 1;
+    var els = root.querySelectorAll('[style*="font-size"]');
+    Array.prototype.forEach.call(els, function (el) {
+      var style = el.getAttribute('style');
+      if (!style) return;
+      // px, pt, pc, in, cm o mm. Los em/rem/% ya son relativos: se dejan.
+      var m = style.match(/font-size\s*:\s*([0-9]*\.?[0-9]+)\s*(px|pt|pc|in|cm|mm)\b/i);
+      if (!m) return;
+      var px = parseFloat(m[1]) * ABS_PX[m[2].toLowerCase()];
+      if (!px || !isFinite(px) || px <= 0) return;
+      var parentPx = el.parentNode ? parseFloat(getComputedStyle(el.parentNode).fontSize) : 0;
+      var basePx = parentPx / scale;
+      if (!basePx || !isFinite(basePx) || basePx <= 0) return;
+      el.setAttribute('style', style.replace(m[0], 'font-size: ' + (px / basePx).toFixed(3) + 'em'));
+    });
+  }
+
+  /* El contenido real trae HTML mal cerrado: hay <h1> sin cerrar, y el
+     parser del navegador mete dentro del encabezado TODO lo que venga
+     después (párrafos, listas, tablas). Como .lesson-content h1 fija su
+     tamaño, el cuerpo entero de la lección quedaba encerrado en un
+     encabezado de tamaño fijo: los botones A- / A+ cambiaban la escala pero
+     el texto que se leía no se movía.
+
+     Aquí se sacan los bloques de nivel de bloque que hayan quedado dentro de
+     un encabezado y se colocan justo después de él, conservando el texto
+     propio del título. Solo actúa si de verdad hay bloques dentro: un
+     encabezado bien formado con un <span> (lo normal) no se toca. */
+  var BLOQUES = {
+    P: 1, DIV: 1, UL: 1, OL: 1, LI: 1, TABLE: 1, THEAD: 1, TBODY: 1, TR: 1,
+    TD: 1, TH: 1, BLOCKQUOTE: 1, PRE: 1, SECTION: 1, ARTICLE: 1, FIGURE: 1,
+    FIGCAPTION: 1, HR: 1, DL: 1, DT: 1, DD: 1
+  };
+
+  function repairHeadingNesting(root) {
+    if (!root) return;
+    var hs = root.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    Array.prototype.forEach.call(hs, function (h) {
+      var padre = h.parentNode;
+      if (!padre) return;
+      var movibles = [];
+      Array.prototype.forEach.call(h.children, function (c) {
+        if (BLOQUES[(c.nodeName || '').toUpperCase()]) movibles.push(c);
+      });
+      if (!movibles.length) return;
+      // h.nextSibling no cambia: cada inserción cae justo detrás del título.
+      movibles.forEach(function (c) { padre.insertBefore(c, h.nextSibling); });
     });
   }
 

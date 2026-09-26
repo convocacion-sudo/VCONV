@@ -140,6 +140,10 @@ html[data-theme="light"] .topbar-brand,
   transition: all var(--transition);
 }
 .icon-btn:hover { border-color: var(--border-hover); color: var(--text-primary); background: var(--bg-tertiary); }
+/* A- / A+ del lector al alcanzar el tope de la escala: se apagan para que el
+   límite sea visible, ya que esta barra no muestra el porcentaje. */
+.icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.icon-btn:disabled:hover { border-color: var(--border); color: var(--text-secondary); background: var(--bg-secondary); }
 
 /* ── APP SHELL / SIDEBAR ────────────────────────────── */
 .hamburger {
@@ -261,6 +265,10 @@ body.sidebar-open { overflow: hidden; }
   border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 700; transition: all var(--transition);
 }
 .font-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+/* Tope de la escala alcanzado: el botón se ve apagado en lugar de que el
+   clic parezca no hacer nada (applyFont() en core/app.js). */
+.font-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.font-btn:disabled:hover { background: transparent; color: var(--text-secondary); }
 .font-label { font-size: 0.7rem; color: var(--text-muted); min-width: 28px; text-align: center; font-weight: 600; }
 
 /* ── PROGRESS BAR ────────────────────────────────────── */
@@ -280,7 +288,7 @@ body.sidebar-open { overflow: hidden; }
 
 .section-header { margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
 .section-header h2 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.25rem; }
-.section-header p { color: var(--text-muted); font-size: calc(0.88rem * var(--font-scale)); }
+.section-header p { color: var(--text-muted); font-size: 0.88rem; }
 
 /* ── BUTTONS ─────────────────────────────────────────── */
 .btn {

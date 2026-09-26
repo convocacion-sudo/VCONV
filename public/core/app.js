@@ -85,7 +85,12 @@
 
   var mode = localStorage.getItem('vconv_mode') || 'gestor';
   var theme = localStorage.getItem('vconv_theme') || 'dark';
-  var fontScale = parseFloat(localStorage.getItem('vconv_font') || '1');
+  /* Límites de la escala de texto. Viven aquí, en el bloque de estado, porque
+     los necesita también la saneadora de la preferencia guardada (readFontPref),
+     que corre en la línea siguiente. */
+  var FONT_MIN = 0.8;
+  var FONT_MAX = 1.5;
+  var fontScale = readFontPref();
   var authInitFailure = null;
   // Bandera de redirección forzosa al login: el documento de registro del
   // usuario fue eliminado de Firestore. Mientras está activa no se entra en
@@ -970,13 +975,105 @@
   function toggleTheme() { theme = theme === 'dark' ? 'light' : 'dark'; applyTheme(); }
 
   /* ─── FONT ────────────────────────────────────────────────── */
-  function applyFont() {
-    fontScale = Math.min(1.6, Math.max(0.75, fontScale));
-    document.documentElement.style.setProperty('--font-scale', fontScale.toFixed(2));
-    $('fontLabel').textContent = Math.round(fontScale * 100) + '%';
-    localStorage.setItem('vconv_font', fontScale.toString());
+  /* Techo de la escala según el ancho: en móvil y tablet la medida
+     disponible es mucho menor, y con 1.5 la letra ampliada deja líneas
+     demasiado cortas. El límite se aplica AQUÍ y en un solo lugar, no
+     también en CSS: si el tope viviera en ambos sitios, el JS dejaría
+     subir el valor interno por encima del tope mientras el texto se
+     quedaba clavado, y los botones parecerían muertos sin motivo. */
+  function fontCap() { return window.innerWidth <= 600 ? 1.25 : FONT_MAX; }
+
+  /* Lee y SANEA la preferencia de tamaño guardada.
+     Un valor no numérico (escrito a mano, de una versión anterior del sitio o
+     corrupto) hace que parseFloat devuelva NaN, y un NaN que llega a
+     --font-scale es CSS inválido: el texto de la lección cae a 0px
+     (invisible) y los botones A- / A+ siguen pareciendo activos sin cambiar
+     nada, porque NaN + delta sigue siendo NaN. Peor: applyFont() volvía a
+     guardar ese "NaN", así que el estado se perpetuaba en cada recarga sin
+     salida. Aquí cualquier valor no finito o fuera de rango vuelve a 1. */
+  function readFontPref() {
+    var raw;
+    try { raw = parseFloat(localStorage.getItem('vconv_font')); } catch (e) { return 1; }
+    if (!isFinite(raw)) return 1;
+    return Math.min(FONT_MAX, Math.max(FONT_MIN, raw));
   }
-  function changeFont(delta) { fontScale = parseFloat((fontScale + delta).toFixed(2)); applyFont(); }
+
+  function applyFont() {
+    // Se acota y se sanea en un solo punto: nada que no sea un número finito
+    // dentro de [FONT_MIN, FONT_MAX] puede llegar a la variable CSS.
+    fontScale = isFinite(fontScale) ? Math.min(FONT_MAX, Math.max(FONT_MIN, fontScale)) : 1;
+    // Se aplica el valor efectivo (ya limitado por el techo) pero se guarda
+    // la preferencia del usuario, para que al pasar a pantalla grande se
+    // recupere el tamaño que realmente eligió.
+    var eff = Math.min(fontScale, fontCap());
+    document.documentElement.style.setProperty('--font-scale', eff.toFixed(2));
+    var fl = $('fontLabel');
+    if (fl) fl.textContent = Math.round(eff * 100) + '%';
+    // La escritura va protegida: si localStorage falla (modo privado, cookies
+    // bloqueadas) no debe abortar la función y dejar los botones con el estado
+    // de hace varias interacciones.
+    try { localStorage.setItem('vconv_font', fontScale.toString()); } catch (e) { /* solo memoria */ }
+    // Alcanzado el techo o el suelo, el botón se desactiva: el límite se ve
+    // en lugar de que un clic parezca no hacer nada. La barra del lector no
+    // tiene indicador de porcentaje, así que sin esto el tope es invisible.
+    var atMax = eff >= fontCap() - 0.005;
+    var atMin = eff <= FONT_MIN + 0.005;
+    var up = $('fontIncrease'), down = $('fontDecrease');
+    var rUp = $('readerFontUp'), rDown = $('readerFontDown');
+    if (up) up.disabled = atMax;
+    if (down) down.disabled = atMin;
+    if (rUp) rUp.disabled = atMax;
+    if (rDown) rDown.disabled = atMin;
+  }
+
+  function changeFont(delta) {
+    // Se parte del valor EFECTIVO (el que se ve), no de la preferencia
+    // guardada: si no, en móvil los clics se irían comiendo descendiendo
+    // desde un valor guardado por encima del techo sin que se notara nada.
+    var eff = Math.min(fontScale, fontCap());
+    fontScale = parseFloat((eff + delta).toFixed(2));
+    applyFont();
+  }
+
+  /* ─── CONTROLES DEL LECTOR (A- / A+ y tema) ───────────────────
+     Se enlazan AQUÍ, al cargar el script, y no dentro de bindEvents().
+
+     El motivo es que antes solo respondían si bindEvents() llegaba a
+     ejecutarse, y bindEvents() se llama desde startApp(), que a su vez cuelga
+     de la cadena de autenticación: ensureUserDoc().then(...). Si ese then
+     rechaza (Firestore sin permisos, sin red, perfil ilegible) el .catch
+     muestra el aviso y llama a showPortal(), y bindEvents() no se llega a
+     ejecutar NUNCA. El resultado era el peor posible: la app cargaba, la
+     lección se leía y los A- / A+ no tenían ni un listener, muertos al 100 %
+     y sin ninguna pista visual de por qué.
+
+     Aquí no hay nada que esperar: son botones estáticos de index.html y
+     changeFont() / applyTheme() solo dependen del estado de este módulo, sin
+     sesión ni Firebase. Se enlazan en DOMContentLoaded junto a applyFont(),
+     que es quien garantiza que el texto tiene su escala aplicada. */
+  var readerControlsBound = false;
+  function bindReaderControls() {
+    if (readerControlsBound) return;
+    readerControlsBound = true;
+    var rUp = $('readerFontUp'), rDown = $('readerFontDown');
+    var up = $('fontIncrease'), down = $('fontDecrease');
+    if (rUp) rUp.addEventListener('click', function () { changeFont(0.05); });
+    if (rDown) rDown.addEventListener('click', function () { changeFont(-0.05); });
+    if (up) up.addEventListener('click', function () { changeFont(0.05); });
+    if (down) down.addEventListener('click', function () { changeFont(-0.05); });
+    var rt = $('readerTheme');
+    if (rt) rt.addEventListener('click', toggleTheme);
+    // El techo de la escala depende del ancho: al girar el móvil o redimensionar
+    // la ventana hay que reaplicarlo. Solo cuando el techo cambia en verdad,
+    // para no escribir en localStorage en cada pixel de arrastre.
+    var capVisto = fontCap();
+    window.addEventListener('resize', function () {
+      var c = fontCap();
+      if (c === capVisto) return;
+      capVisto = c;
+      applyFont();
+    });
+  }
 
   /* ─── MODE SWITCH ─────────────────────────────────────────── */
   function setMode(m) {
@@ -1137,21 +1234,18 @@
   }
 
   /* ─── EVENTS ──────────────────────────────────────────────── */
+  /* A- / A+ y el conmutador de tema del lector NO se enlazan aquí: lo hace
+     bindReaderControls() en DOMContentLoaded, para que no dependan de que el
+     arranque con la sesión llegue hasta esta función (ver el comentario de
+     bindReaderControls). Enlazarlos en los dos sitios haría que cada clic
+     sumase dos pasos y los botones pareciesen saltarse el tope. */
   function bindEvents() {
     $('themeToggle').addEventListener('click', toggleTheme);
-    var rt = $('readerTheme');
-    if (rt) rt.addEventListener('click', toggleTheme);
     var brandHome = $('brandHome');
     if (brandHome) brandHome.addEventListener('click', function (e) {
       e.preventDefault();
       V.showPublicPortal();
     });
-    $('fontIncrease').addEventListener('click', function () { changeFont(0.05); });
-    $('fontDecrease').addEventListener('click', function () { changeFont(-0.05); });
-    var rfu = $('readerFontUp');
-    if (rfu) rfu.addEventListener('click', function () { changeFont(0.05); });
-    var rfd = $('readerFontDown');
-    if (rfd) rfd.addEventListener('click', function () { changeFont(-0.05); });
     $('btnNewCourse').addEventListener('click', function () { if (V.onNewCourse) V.onNewCourse(); });
     $('modeGestor').addEventListener('click', function () { setMode('gestor'); });
     $('modeEstudiante').addEventListener('click', function () { setMode('estudiante'); });
@@ -1225,9 +1319,14 @@
 
   /* ─── INIT ────────────────────────────────────────────────── */
   function init() {
-    initFirebase();
     applyTheme();
     applyFont();
+    // Los controles de texto y tema del lector se enlazan aquí, antes y con
+    // independencia de initFirebase()/initAuth(): son controles estáticos que
+    // no necesitan sesión, y así funcionan aunque el arranque con la cuenta
+    // falle antes de llegar a bindEvents().
+    bindReaderControls();
+    initFirebase();
     bindAuthEvents();
     if (auth) { initAuth(); }
     else {
