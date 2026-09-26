@@ -237,8 +237,6 @@
     // Los visitantes obtienen toda lección sin restricción estricta; el resto
     // de usuarios (gestores, administradores, registrados) consulta la totalidad.
     return tolerantGet(col).then(function (lecciones) {
-      // [TEMP-DEBUG] bloques/lecciones recibidos de Firestore con su `acceso`.
-      console.log('[TEMP-DEBUG] loadBloqueLecciones (' + (curso.titulo || curso.id) + '/' + (bloque.titulo || bloque.id) + ')', lecciones.map(function (l) { return { id: l.id, titulo: l.titulo, acceso: l.acceso }; }));
       bloque.lecciones = anonMode() ? sortByOrden(lecciones) : lecciones;
     });
   }
@@ -259,8 +257,6 @@
     // de acceso se aplica SOLO a las lecciones individuales (loadBloqueLecciones).
     return col.orderBy('orden', 'asc').get()
       .then(function (bs) {
-        // [TEMP-DEBUG] bloques recibidos de Firestore con su `acceso`.
-        console.log('[TEMP-DEBUG] loadCursoTree bloques (' + (curso.titulo || curso.id) + ')', bs.docs.map(function (bDoc) { return { id: bDoc.id, titulo: bDoc.data().titulo, acceso: bDoc.data().acceso }; }));
         var bloques = [];
         var tasks = [];
         bs.forEach(function (bDoc) {
@@ -588,15 +584,6 @@
       // Visitante: el muro de registro solo aparece cuando realmente NO hay
       // ningún bloque/lección con acceso libre o de prueba. Si el curso tiene
       // contenido abierto se renderiza y se avisa del resto con una nota.
-      // [TEMP-DEBUG] estado que decide el muro de «Curso completo».
-      if (anonMode() && curso.bloquesLoaded) {
-        console.log('[TEMP-DEBUG] openCourse estado para muro (' + (curso.titulo || curso.id) + ')', {
-          anonMode: anonMode(),
-          bloquesLoaded: curso.bloquesLoaded,
-          lessonCount: lessonCount(curso),
-          bloques: (curso.bloques || []).map(function (b) { return { id: b.id, titulo: b.titulo, acceso: b.acceso, lecciones: (b.lecciones || []).map(function (l) { return { id: l.id, titulo: l.titulo, acceso: l.acceso }; }) }; })
-        });
-      }
       if (anonMode() && curso.bloquesLoaded && lessonCount(curso) === 0) {
         renderLockedCourse(curso);
         V.showView('viewCourse');
@@ -956,8 +943,6 @@
     var ytId = tipo === 'video' ? youtubeIdFromUrl(leccion.media_url || '') : null;
     var spot = spotifyEmbedUrl(leccion.media_url || '');
 
-    console.log('URL cruda desde Firestore (media_url):', leccion.media_url, '| media_tipo:', leccion.media_tipo);
-
     wrap.appendChild(el('span', 'media-badge',
       ytId ? '🎬 YouTube' : (spot ? '🎵 Spotify' : (tipo === 'audio' ? '🔊 Audio' : (tipo === 'image' ? '🖼 Imagen' : '🎬 Video')))));
 
@@ -1012,7 +997,6 @@
     secureMedia(m);
     wrap.appendChild(m);
     resolveMediaUrl(leccion.media_url).then(function (url) {
-      console.log('resolveMediaUrl corrió con entrada:', JSON.stringify(leccion.media_url), '| URL resuelta que asigna a <' + m.tagName + '>.src:', url);
       if (spinner.parentNode) spinner.parentNode.removeChild(spinner);
       m.src = url;
     }, function (err) {
@@ -1027,16 +1011,12 @@
   // Convierte rutas gs:// de Firebase Storage en URLs HTTPS de descarga con
   // token. Los enlaces https:// se devuelven tal cual.
   function resolveMediaUrl(url) {
-    console.log('resolveMediaUrl → entrada exacta:', JSON.stringify(url), '| tipo literal:', typeof url);
     if (!url) return Promise.reject(new Error('URL de media vacía'));
     if (/^https?:\/\//.test(url)) {
-      console.log('resolveMediaUrl → es HTTPS, se pasa igual:', url);
       return Promise.resolve(url);
     }
     if (/^gs:\/\//.test(url) && V.storage) {
-      console.log('resolveMediaUrl → es gs://, V.storage disponible:', !!V.storage);
       return V.storage.refFromURL(url).getDownloadURL().then(function (dlUrl) {
-        console.log('resolveMediaUrl → getDownloadURL() devolvió:', dlUrl);
         return dlUrl;
       }, function (e) {
         console.warn('resolveMediaUrl → getDownloadURL() FALLÓ:', e && e.message);
