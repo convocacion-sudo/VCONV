@@ -150,6 +150,10 @@
       // Ficha MLM exclusiva del administrador: abre la página independiente
       // con el multinivel global (red + dinero) y la estructura de 5 niveles.
       cards.push({ icon: '🌐', title: 'Red MLM Global', tag: 'MLM', desc: 'Multinivel y comisiones de toda la red, estructura de 5 niveles.', action: function () { if (V.showRedGlobal) V.showRedGlobal(); } });
+      // Panel de ajustes reservados al superadmin. La tarjeta solo aparece
+      // para este rol y showSuperadmin() vuelve a comprobarlo, pero el
+      // candazo real está en firestore.rules.
+      cards.push({ icon: '🛡️', title: 'Panel Super Admin', tag: 'Exclusivo', desc: 'Video corporativo de la portada y ajustes protegidos.', action: function () { if (V.showSuperadmin) V.showSuperadmin(); } });
     }
 
     // Las comunidades requieren cuenta registrada.

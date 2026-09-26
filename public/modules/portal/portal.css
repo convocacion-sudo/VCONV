@@ -194,6 +194,49 @@ html { scroll-behavior: smooth; }
   padding: 0.8rem 1.5rem; border-radius: var(--radius);
 }
 
+/* ── VIDEO CORPORATIVO ─────────────────────────────────────
+   Sección pública de la portada, debajo del hero. La URL llega desde
+   Firestore (config/portal) y el reproductor se construye en portal.js. */
+.portal-video .portal-section-head { margin-bottom: 1.75rem; }
+.portal-video-card {
+  max-width: 880px; margin: 0 auto;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow);
+  padding: 0.85rem;
+}
+/* Caja 16:9 que hace de contenedor del reproductor. El hijo (iframe o
+   <video>) se estira al 100% sin importar la fuente, así que YouTube,
+   Drive, Vimeo y los archivos directos comparten la misma geometría y
+   ninguno puede desbordar la tarjeta en móvil. */
+.portal-video-box {
+  position: relative; width: 100%; aspect-ratio: 16 / 9;
+  border-radius: calc(var(--radius-lg) - 4px); overflow: hidden;
+  background: #000; box-sizing: border-box;
+}
+.portal-video-box iframe,
+.portal-video-box video {
+  position: absolute; inset: 0;
+  display: block; width: 100%; height: 100%; max-width: 100%;
+  border: 0; background: #000; object-fit: contain;
+}
+.portal-video-badge {
+  position: absolute; top: 0.7rem; right: 0.7rem; z-index: 2;
+  background: rgba(0, 0, 0, 0.65); color: #fff;
+  font-size: 0.65rem; font-weight: 600; letter-spacing: 0.05em;
+  text-transform: uppercase; padding: 0.2rem 0.55rem; border-radius: 99px;
+  pointer-events: none;
+}
+.portal-video-error {
+  margin: 0.85rem 0 0; padding: 0.7rem 0.9rem;
+  background: var(--danger-bg); border: 1px solid var(--danger);
+  border-radius: var(--radius); color: var(--danger); font-size: 0.85rem;
+}
+.portal-video-open {
+  display: inline-block; margin-top: 0.85rem;
+  color: var(--accent); font-size: 0.85rem; font-weight: 600; text-decoration: none;
+}
+.portal-video-open:hover { text-decoration: underline; }
+
 /* ── CONTACTO ─────────────────────────────────────────── */
 .portal-contact { border-top: 1px solid var(--border); background: var(--bg-secondary); max-width: none; }
 .portal-contact-grid {
@@ -241,4 +284,6 @@ html { scroll-behavior: smooth; }
   .portal-blocks { grid-template-columns: 1fr; }
   .portal-courses-card { flex-direction: column; align-items: flex-start; gap: 1.1rem; padding: 1.6rem 1.4rem; }
   .portal-courses-btn { width: 100%; }
+  .portal-video-card { padding: 0.55rem; }
+  .portal-video-box { border-radius: calc(var(--radius-lg) - 6px); }
 }

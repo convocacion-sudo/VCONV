@@ -1,0 +1,173 @@
+/* ════════════════════════════════════════════════════════════════
+   VCONV · Panel del Super Admin
+   Estilos del panel exclusivo. Solo hay un tema de bloque reutilizado
+   (.sa-card) para que las secciones nuevas hereden la misma forma sin
+   tener que declarar su propio margen, borde y fondo otra vez.
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── PÍLDORAS DE ESTADO ─────────────────────────────────────
+   Tres estados y solo tres: existe y se publica, existe pero no se
+   publica, y no existe. Se distinguen por color, no solo por texto,
+   para que el estado se lea de un vistazo en una tabla de cinco
+   columnas. */
+.sa-pill {
+  display: inline-block; padding: 0.15rem 0.5rem;
+  border-radius: 99px; font-size: 0.72rem; font-weight: 600;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.sa-pill-on { background: var(--success-bg); color: var(--success); border-color: var(--success); }
+.sa-pill-off { background: var(--gold-glow); color: var(--gold); border-color: var(--gold-soft); }
+.sa-pill-none { background: var(--bg-tertiary); color: var(--text-muted); border-color: var(--border); }
+
+/* ── FORMULARIO ─────────────────────────────────────────────
+   El formulario lo inyecta portal.js, así que aquí solo se le da forma
+   y se corrigen los avisos de validación que escribe. */
+.sa-form { display: block; }
+.field-hint.is-ok { color: var(--success); }
+.field-hint.is-warn { color: var(--danger); }
+.sa-card-body .cms-check-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); cursor: pointer; }
+.sa-card-body .cms-check-label input { accent-color: var(--gold); width: 16px; height: 16px; }
+
+/* ── AVISO DE ACCESO ────────────────────────────────────────
+   Va arriba de todo. Es lo primero que lee quien entra, y su trabajo es
+   que nadie se lleve la idea de que este panel protege el resto de la
+   aplicación: el candado real está en firestore.rules, no aquí. */
+.sa-banner {
+  display: flex; gap: 0.9rem; align-items: flex-start;
+  background: var(--gold-glow);
+  border: 1px solid var(--gold-soft);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.15rem;
+  margin-bottom: 1.5rem;
+}
+.sa-banner-ico { font-size: 1.25rem; line-height: 1.3; }
+.sa-banner strong { display: block; font-size: 0.9rem; color: var(--text-primary); margin-bottom: 0.2rem; }
+.sa-banner p { margin: 0; font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5; }
+.sa-banner code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em; background: var(--bg-tertiary);
+  padding: 0.05rem 0.3rem; border-radius: 4px;
+}
+
+/* ── TARJETA DE SECCIÓN ─────────────────────────────────────
+   Una sola forma para todas las secciones del panel. El cuerpo usa
+   .sa-card-body como contenedor de padding para que el contenido
+   (formularios, tablas, listas) no tenga que reinventarlo. */
+.sa-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+}
+.sa-card-head {
+  display: flex; gap: 0.85rem; align-items: flex-start;
+  padding: 1.1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+.sa-card-head h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.2rem; color: var(--text-primary); }
+.sa-card-head p { margin: 0; font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; }
+.sa-card-body { padding: 1.25rem; }
+
+/* El formulario de video se inyecta desde portal.js: se estira para
+   ocupar el ancho del cuerpo en lugar de encogerse al ancho de su
+   contenido, que es lo que hace un grid de una sola columna. */
+.sa-card-body .form-row { margin-bottom: 1rem; }
+.sa-card-body .form-row:last-of-type { margin-bottom: 0; }
+.sa-card-body .field label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem; }
+.sa-card-body .field .input,
+.sa-card-body .field .select { width: 100%; }
+.sa-card-body .field-full { grid-column: 1 / -1; }
+
+/* ── VISTA PREVIA ───────────────────────────────────────────
+   Reutiliza el reproductor de la portada, pero aquí la caja va anclada
+   a un ancho máximo para que no se estire de lado a lado en pantallas
+   anchas: la vista previa es para juzgar el encuadre, no para ver el
+   video a 3000 px. */
+.sa-preview { min-height: 2rem; }
+.sa-preview .portal-video-box { box-shadow: none; border-radius: var(--radius); }
+.sa-preview-note { margin: 0.85rem 0 0; font-size: 0.8rem; color: var(--text-muted); }
+.sa-preview-note.is-ok { color: var(--success); }
+.sa-preview-note.is-warn { color: var(--warning); }
+
+/* ── TABLA DE ESTADO ────────────────────────────────────────
+   Rejilla fija con anchos declarados: la columna de escritura se
+   define en la regla y no se deja que el contenido la empuje, que es
+   justo lo que desalinea estas tablas cuando los textos de permisos
+   tienen longitudes distintas. */
+.sa-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.sa-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.sa-table th {
+  text-align: left; padding: 0.6rem 0.8rem;
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted); background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.sa-table td { padding: 0.7rem 0.8rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.sa-table tr:last-child td { border-bottom: none; }
+.sa-table td:first-child { font-weight: 600; color: var(--text-primary); }
+.sa-table code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em; color: var(--text-secondary);
+}
+.sa-table .sa-cell-tight { white-space: nowrap; }
+
+.sa-legend {
+  margin-top: 1rem; padding: 0.85rem 1rem;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  font-size: 0.78rem; color: var(--text-secondary); line-height: 1.55;
+}
+.sa-legend p { margin: 0; }
+.sa-legend code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+/* ── BITÁCORA ───────────────────────────────────────────────
+   Filas con marca de tiempo a la izquierda. El separador es un borde
+   y no un fondo alterno: en tema oscuro el gris sobre gris de una
+   lista rayada se lee peor que una simple línea divisoria. */
+.sa-log { display: flex; flex-direction: column; }
+.sa-log-item {
+  display: flex; gap: 0.9rem; align-items: flex-start;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.sa-log-item:last-child { border-bottom: none; padding-bottom: 0; }
+.sa-log-item:first-child { padding-top: 0; }
+.sa-log-ico { font-size: 1rem; line-height: 1.4; flex-shrink: 0; }
+.sa-log-body { flex: 1; min-width: 0; }
+.sa-log-title { font-size: 0.85rem; font-weight: 600; color: var(--text-primary); }
+.sa-log-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem; }
+.sa-log-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem; color: var(--text-secondary);
+  margin-top: 0.3rem; word-break: break-all;
+}
+
+/* El estado vacío dentro de una tarjeta no puede usar .empty-state tal
+   cual: ese trae 4rem de padding pensados para una vista entera y
+   descuadraría la tarjeta. Se aquí una versión compacta. */
+.sa-log-empty {
+  text-align: center; padding: 1.75rem 1rem;
+  color: var(--text-muted); font-size: 0.82rem;
+}
+.sa-log-empty .sa-log-empty-ico { font-size: 1.75rem; display: block; margin-bottom: 0.5rem; }
+
+/* ── MÓVIL ───────────────────────────────────────────────────
+   En pantallas estrechas la tabla de estado no cabe: se deja
+   deslocarse en horizontal con su propio contenedor en vez de
+   comprimir cinco columnas hasta hacerlas ilegibles. */
+@media (max-width: 640px) {
+  .sa-banner { flex-direction: column; gap: 0.5rem; }
+  .sa-card-head { padding: 0.95rem 1rem; }
+  .sa-card-body { padding: 1rem; }
+}

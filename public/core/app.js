@@ -688,11 +688,28 @@
   /* ─── ROUTING ─────────────────────────────────────────────── */
   var _navHistory = [];
 
+  /* Vistas que NUNCA se muestran a un rol que no sea superadmin. El bloqueo
+     vive AQUÍ, en el único punto por el que pasan todas las vistas, y no solo
+     en la función que abre el panel: showView es alcanzable también desde las
+     migas de pan y desde cualquier módulo, así que un guard repartido en
+     varios sitios dejaría la puerta abierta en cuanto se añadiera una ruta
+     nueva. viewRedGlobal y viewSuperadmin (el panel del super admin) quedan
+     cubiertos por la MISMA comprobación.
+
+     Cuando se deniega se cae al Escritorio. No hace falta tocar la pila: la
+     vista solicitada se sustituye por viewDashboard ANTES de apilarla, así que
+     "← Volver" nunca reencuentra una vista prohibida. */
+  var VISTAS_SOLO_SUPERADMIN = ['viewRedGlobal', 'viewSuperadmin'];
+
   function showView(id) {
+    if (VISTAS_SOLO_SUPERADMIN.indexOf(id) !== -1 && !esAdmin()) {
+      toast('Acceso restringido al super administrador.', true);
+      id = 'viewDashboard';
+    }
     var top = _navHistory[_navHistory.length - 1];
     if (top !== id) _navHistory.push(id);
     if (_navHistory.length > 20) _navHistory.shift();
-    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewFinanzas', 'viewReportes', 'viewRedGlobal'];
+    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewFinanzas', 'viewReportes', 'viewRedGlobal', 'viewSuperadmin'];
     allViews.forEach(function (v) {
       var node = $(v);
       if (node) node.classList.toggle('active', v === id);
@@ -740,6 +757,8 @@
         return [dash, { label: 'Reportes Financieros' }];
       case 'viewRedGlobal':
         return [dash, { label: 'Red MLM Global' }];
+      case 'viewSuperadmin':
+        return [dash, { label: 'Panel Super Admin' }];
       default:
         return [dash, { label: id }];
     }
@@ -831,6 +850,25 @@
     }
   }
 
+  /* Panel exclusivo del super administrador. El guard se repite aquí a
+     propósito, aunque showView ya lo aplica: showRedGlobal y showSuperadmin son
+     la frontera de UX (avisan y devuelven al Escritorio) y showView la de
+     navegación. Si alguien añadiera una entrada nueva y solo pasara por una de
+     las dos, la otra sigue cerrada. */
+  function showSuperadmin() {
+    if (!esAdmin()) {
+      toast('Acceso restringido al super administrador.', true);
+      goDashboard();
+      return;
+    }
+    showView('viewSuperadmin');
+    try {
+      if (typeof V.onSuperadminShow === 'function') V.onSuperadminShow();
+    } catch (e) {
+      toast('No se pudo cargar el panel del super admin: ' + (e && e.message ? e.message : e), true);
+    }
+  }
+
   /* ─── APP SHELL / SIDEBAR ─────────────────────────────────── */
   function updateSidebarAccess() {
     var isAdmin = esAdmin();
@@ -850,6 +888,11 @@
     // Red MLM Global: página independiente del multinivel, solo superadmin.
     var linkRedGlobal = $('sidebarLinkRedGlobal');
     if (linkRedGlobal) linkRedGlobal.style.display = isAdmin ? '' : 'none';
+    // Panel del Super Admin: reúne los ajustes que solo el superadmin puede
+    // tocar (hoy, el video corporativo de la portada). Se oculta por rol, y
+    // además showView lo vuelve a denegar a quien llegue por otra ruta.
+    var linkSuperadmin = $('sidebarLinkSuperadmin');
+    if (linkSuperadmin) linkSuperadmin.style.display = isAdmin ? '' : 'none';
     // El avanzado no administra cursos: se oculta el botón de modo Gestor y
     // solo queda el modo Estudiante (los controles de texto se conservan).
     var btnGestor = $('modeGestor');
@@ -882,7 +925,8 @@
       viewAdmin: 'admin',
       viewFinanzas: 'finanzas',
       viewReportes: 'reportes',
-      viewRedGlobal: 'redglobal'
+      viewRedGlobal: 'redglobal',
+      viewSuperadmin: 'superadmin'
     };
     var key = navMap[current] || '';
     var links = document.querySelectorAll('.sidebar-link[data-nav]');
@@ -904,6 +948,7 @@
       case 'viewFinanzas': label = 'Finanzas'; break;
       case 'viewReportes': label = 'Reportes Financieros'; break;
       case 'viewRedGlobal': label = 'Red MLM Global'; break;
+      case 'viewSuperadmin': label = 'Panel Super Admin'; break;
       case 'viewCatalog': label = ($('catalogTitle') && $('catalogTitle').textContent) || 'Cursos'; break;
       case 'viewCourse': label = ($('courseTitle') && $('courseTitle').textContent) || 'Curso'; break;
       case 'viewLesson': label = ($('readerTitle') && $('readerTitle').textContent) || 'Lección'; break;
@@ -960,6 +1005,7 @@
       case 'finanzas': showFinanzas(); break;
       case 'reportes': showReportes(); break;
       case 'redglobal': showRedGlobal(); break;
+      case 'superadmin': showSuperadmin(); break;
       default: break;
     }
   }
@@ -1292,6 +1338,7 @@
   V.showFinanzas = showFinanzas;
   V.showReportes = showReportes;
   V.showRedGlobal = showRedGlobal;
+  V.showSuperadmin = showSuperadmin;
   V.showPortal = showPortal;
   V.showPublicPortal = showPublicPortal;
   V.showGuestCatalog = showGuestCatalog;

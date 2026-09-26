@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="modules/finanzas/finanzas.css">
   <link rel="stylesheet" href="modules/mlm/mlm.css">
   <link rel="stylesheet" href="modules/portal/portal.css">
+  <link rel="stylesheet" href="modules/superadmin/superadmin.css">
 </head>
 <body>
 
@@ -44,6 +45,7 @@
       <a href="#" class="sidebar-link" data-nav="finanzas" id="sidebarLinkFinanzas" style="display:none;"><span class="sidebar-ico">💰</span> Finanzas</a>
       <a href="#" class="sidebar-link" data-nav="reportes" id="sidebarLinkReportes" style="display:none;"><span class="sidebar-ico">📊</span> Reportes Financieros</a>
       <a href="#" class="sidebar-link" data-nav="redglobal" id="sidebarLinkRedGlobal" style="display:none;"><span class="sidebar-ico">🌐</span> Red MLM Global</a>
+      <a href="#" class="sidebar-link" data-nav="superadmin" id="sidebarLinkSuperadmin" style="display:none;"><span class="sidebar-ico">🛡️</span> Panel Super Admin</a>
 
       <p class="sidebar-group" id="sidebarGroupProximamente" style="display:none;">Próximamente</p>
       <a href="#" class="sidebar-link is-disabled" tabindex="-1" id="sidebarLinkConfig"><span class="sidebar-ico">⚙️</span> Configuración <span class="sidebar-tag">Pronto</span></a>
@@ -629,6 +631,111 @@
       <div id="redGlobalContent"></div>
     </div>
 
+    <!-- ═══ PANEL SUPER ADMIN (exclusivo · superadmin) ═══
+         Tres capas de protección, y las tres son necesarias porque ninguna
+         basta sola: (1) el enlace del menú y la tarjeta del Escritorio se
+         ocultan por rol, (2) showSuperadmin()/showView() rechazan a quien no
+         sea superadmin y lo devuelven al Escritorio, (3) firestore.rules solo
+         deja escribir config/portal y superadmin_auditoria a isAdmin(). La
+         tercera es la frontera real: las otras dos son solo interfaz, y un
+         cliente manipulado las sortea sin despeinarse. -->
+    <div class="view" id="viewSuperadmin">
+      <div class="section-header">
+        <div class="section-header-ttl">
+          <span class="icon-chip gold">🛡️</span>
+          <div>
+            <h2>Panel del Super Admin</h2>
+            <p>Ajustes que solo el super administrador puede cambiar. Todo lo que se guarda aquí se aplica al instante, sin desplegar nada.</p>
+          </div>
+        </div>
+        <div class="section-header-acciones">
+          <span class="status-pill gold" id="saRolPill">Super Admin</span>
+        </div>
+      </div>
+
+      <!-- Aviso permanente de alcance. Es la primera cosa que se ve al entrar
+           y evita el malentendido de pensar que este panel protege el resto de
+           la aplicación: el candado de verdad está en firestore.rules. -->
+      <div class="sa-banner">
+        <span class="sa-banner-ico">🔒</span>
+        <div>
+          <strong>Acceso exclusivo del super administrador.</strong>
+          <p>Este panel solo se abre con el rol <code>superadmin</code> en <code>usuarios/{uid}</code>. Los gestores, los roles avanzado y estudiante, y los visitantes sin cuenta quedan fuera tanto de la interfaz como de las reglas de Firestore.</p>
+        </div>
+      </div>
+
+      <!-- ── VIDEO CORPORATIVO ──
+           El formulario lo construye portal.js (que es quien sabe traducir una
+           URL a una fuente reproducible) dentro de #saVideoForm. -->
+      <div class="sa-card">
+        <div class="sa-card-head">
+          <span class="icon-chip sm gold">🎬</span>
+          <div>
+            <h3>Video Corporativo</h3>
+            <p>Se publica en la portada pública, justo debajo del bloque principal. Sin cuenta y sin registro previo: la URL se guarda en Firestore y la sección aparece en cuanto se guarda.</p>
+          </div>
+        </div>
+        <div class="sa-card-body" id="saVideoForm"></div>
+      </div>
+
+      <!-- Vista previa: lo que está viendo ahora mismo cualquier visitante.
+           Se reutiliza el mismo reproductor que la portada, así que lo que se
+           ve aquí es exactamente lo que se verá en producción. -->
+      <div class="sa-card">
+        <div class="sa-card-head">
+          <span class="icon-chip sm blue">👁️</span>
+          <div>
+            <h3>Vista previa en la portada</h3>
+            <p>Así se ve la sección en la landing pública con la configuración guardada.</p>
+          </div>
+        </div>
+        <div class="sa-card-body">
+          <div class="sa-preview" id="saVideoPreview"></div>
+          <p class="sa-preview-note" id="saVideoPreviewNote"></p>
+        </div>
+      </div>
+
+      <!-- Estado real de la conexión: deja claro de dónde salen los datos y
+           qué reglas los protegen, sin tener que abrir la consola de Firebase. -->
+      <div class="sa-card">
+        <div class="sa-card-head">
+          <span class="icon-chip sm green">🗄️</span>
+          <div>
+            <h3>Estado de los ajustes</h3>
+            <p>Origen de los datos y alcance de los permisos que los protegen.</p>
+          </div>
+        </div>
+        <div class="sa-card-body">
+          <div class="sa-table-wrap">
+            <table class="sa-table">
+              <thead>
+                <tr><th>Ajuste</th><th>Documento</th><th>Lectura</th><th>Escritura</th><th>Estado</th></tr>
+              </thead>
+              <tbody id="saStatusBody"></tbody>
+            </table>
+          </div>
+          <div class="sa-legend">
+            <p><strong>Por qué la columna de lectura es tan amplia:</strong> la portada muestra el video a quien aún no tiene cuenta, así que <code>config/portal</code> se lee con la regla <code>esPublico()</code>. Por eso ese documento solo puede contener campos visibles en pantalla; la trazabilidad de quién lo editó va aparte, en <code>superadmin_auditoria</code>, que es de solo super admin.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bitácora. Se rellena desde superadmin_auditoria (lectura exclusiva del
+           superadmin en firestore.rules) y queda vacía si aún no hay cambios. -->
+      <div class="sa-card">
+        <div class="sa-card-head">
+          <span class="icon-chip sm purple">🧾</span>
+          <div>
+            <h3>Bitácora de cambios</h3>
+            <p>Quién cambió qué en los ajustes del panel. Visible únicamente para el super administrador.</p>
+          </div>
+        </div>
+        <div class="sa-card-body">
+          <div class="sa-log" id="saLog"></div>
+        </div>
+      </div>
+    </div>
+
   </main>
   </div><!-- /.app-body -->
 
@@ -690,6 +797,22 @@
             <button type="button" class="btn btn-primary" id="portalCtaPrimary"></button>
             <button type="button" class="btn btn-outline" id="portalCtaSecondary"></button>
           </div>
+        </div>
+      </section>
+
+      <!-- ═══ VIDEO CORPORATIVO (público · URL desde Firestore) ═══ -->
+      <!-- Justo debajo del bloque principal. Oculta por defecto: solo se
+           muestra cuando el superadmin publica una URL en config/portal. -->
+      <section class="portal-section portal-video" id="portalVideo" style="display:none;">
+        <div class="portal-section-head">
+          <span class="portal-eyebrow" id="videoEyebrow"></span>
+          <h2 id="videoTitle"></h2>
+          <p id="videoSubtitle"></p>
+        </div>
+        <div class="portal-video-card">
+          <div class="portal-video-frame" id="portalVideoFrame"></div>
+          <p class="portal-video-error" id="portalVideoError" style="display:none;"></p>
+          <a class="portal-video-open" id="portalVideoOpen" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">Abrir el video en otra pestaña ↗</a>
         </div>
       </section>
 
@@ -1101,5 +1224,6 @@
   <script src="modules/finanzas/finanzas.js"></script>
   <!-- Portal público -->
   <script src="modules/portal/portal.js"></script>
+<script src="modules/superadmin/superadmin.js"></script>
 </body>
 </html>

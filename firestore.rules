@@ -311,6 +311,61 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    /* ── CONFIG PORTAL (ajustes de la landing pública) ───────
+       Ajustes que la portada muestra SIN sesión: hoy, el video corporativo.
+       Su lectura se abre a esPublico() (como el catálogo publicado y las
+       lecciones de prueba) porque, si no, la sección quedaría vacía para
+       todo visitante que no tenga cuenta.
+
+       La ESCRITURA NO se relaja en absoluto: sigue siendo exclusiva del
+       superadmin (isAdmin()), igual que el resto de config y que el
+       comodín /config/{id} de arriba. Cualquier intento de(student,
+       gestor, avanzado, visitante) se deniega en el servidor, aunque se
+       manipule el cliente; la comprobación del rol vive en el documento
+       usuarios/{uid}.rol, no en nada que envíe el navegador.
+
+       OJO: las reglas de Firestore se combinan con OR entre los bloques
+       que CASAN, así que este bloque y /config/{id} se evalúan ambos para
+       config/portal. Como los dos exigen isAdmin() para escribir, el
+       resultado sigue siendo superadmin-only.
+
+       CONTRATO DE ESTE DOCUMENTO: es PÚBLICO, luego aquí dentro solo puede
+       vivir lo que un visitante sin cuenta ya puede ver en pantalla (la URL,
+       el título, el tipo de fuente, el interruptor de publicación y la fecha
+       del último cambio). En concreto NO se guarda aquí el UID de quien lo
+       editó: sería legible por cualquiera, incluidos los visitantes anónimos,
+       y bastaría para identificar la cuenta del superadmin. Esa trazabilidad
+       va en superadmin_auditoria, de abajo. */
+    match /config/portal {
+      allow read: if esPublico() || signedIn();
+      allow write: if isAdmin();
+    }
+
+    /* ── AUDITORÍA DEL SUPER ADMIN ────────────────────────────
+       Bitácora de los cambios que solo el superadmin puede hacer (hoy, el
+       video corporativo de la portada). Vive FUERA de `config` a propósito:
+       cada bloque de config/{id} abre la lectura a cualquier sesión, y en
+       config/portal incluso a visitantes sin cuenta, así que un registro de
+       "quién cambió qué" dentro de esa colección sería público.
+
+       Aquí la lectura y la escritura son ambas exclusivas de isAdmin(): ni un
+       gestor, ni un avanzado, ni un usuario registrado, ni un visitante
+       pueden leer el historial ni borrarlo. Y como no hay ningún otro bloque
+       que case con esta ruta, no hay ningún otro permiso que se combine con
+       este por OR: el candado es único, no el más laxo de varios. */
+    match /superadmin_auditoria/{id} {
+      allow read, write: if isAdmin();
+    }
+
+    /* Deniega cualquier ruta no declarada arriba. Es la última línea: las
+       reglas son permisivas por omisión, así que sin este bloque TODO lo que
+       no se nombre explícitamente (escrituras inventadas por un cliente
+       manipulado) quedaría permitido. El panel del super admin no lo necesita
+       para funcionar, pero lo que protege es justo eso. */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
     /* ── COMUNIDADES (solo cuentas registradas) ────────────── */
     // Fuera del catálogo general y de las lecciones de prueba: los
     // visitantes anónimos no pueden entrar en comunidades.
