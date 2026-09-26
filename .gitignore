@@ -1,6 +1,12 @@
 # Firebase
 .firebase/
 .cache/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Temporales locales
+.commitmsg.txt
 
 # Dependencias
 node_modules/

@@ -93,11 +93,13 @@
 .sa-preview-note.is-warn { color: var(--warning); }
 
 /* Encabezado de la vista previa (etiqueta, título y subtítulo). No se
-   reutilizan las clases .portal-section-head porque estas solo viven en la
-   portada: lo que se replica son los MISMOS valores de portal.css, para que
+   reutilizan las clases .portal-section-head porque esas solo viven en la
+   portada: lo que se replica son sus MISMOS valores de portal.css, para que
    el bloque se juzgue con su tamaño y su color reales y no con una
-   aproximación más pequeña. */
-.sa-preview-head { text-align: center; max-width: 680px; margin: 0 auto 0.9rem; }
+   aproximación más pequeña. El margen inferior es el de la sección de video
+   (.portal-video .portal-section-head), no el genérico de .portal-section-head.
+   El h3 lleva color explícito porque el de la portada lo hereda de body. */
+.sa-preview-head { text-align: center; max-width: 680px; margin: 0 auto 1.75rem; }
 .sa-preview-eyebrow {
   display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
   letter-spacing: 0.08em; color: var(--accent); margin-bottom: 0.6rem;

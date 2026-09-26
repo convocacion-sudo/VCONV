@@ -655,22 +655,26 @@
   function textosVideoDe(cfg) {
     var src = cfg || {};
     var sec = ((((contentData || {}).portal || {}).sections) || {}).video || {};
-    // Solo se acepta texto. normalizeVideoConfig ya normaliza, pero esta
-    // función también se llama con lo que hay en el formulario y desde fuera
-    // (V.portal): un 42 escrito a mano en la consola no puede acabar pintado
-    // como encabezado, así que cae al texto de abajo.
+    // Solo se acepta texto, y por los DOS lados de la cadena. normalizeVideoConfig
+    // ya normaliza lo de Firestore, pero esta función también se llama con lo
+    // que hay en el formulario y desde fuera (V.portal), y content.json es un
+    // archivo que cualquiera puede editar a mano: un 42 o un objeto ahí tiene
+    // que caer al texto de abajo, no acabar pintado como encabezado.
     function texto(v) { return typeof v === 'string' ? v.trim() : ''; }
     return {
-      etiqueta: texto(src.videoEtiqueta) || sec.eyebrow || TEXTOS_VIDEO_FALLBACK.etiqueta,
-      titulo: texto(src.videoTituloSeccion) || sec.title || TEXTOS_VIDEO_FALLBACK.titulo,
-      subtitulo: texto(src.videoSubtituloSeccion) || sec.subtitle || TEXTOS_VIDEO_FALLBACK.subtitulo
+      etiqueta: texto(src.videoEtiqueta) || texto(sec.eyebrow) || TEXTOS_VIDEO_FALLBACK.etiqueta,
+      titulo: texto(src.videoTituloSeccion) || texto(sec.title) || TEXTOS_VIDEO_FALLBACK.titulo,
+      subtitulo: texto(src.videoSubtituloSeccion) || texto(sec.subtitle) || TEXTOS_VIDEO_FALLBACK.subtitulo
     };
   }
 
-  // Pinta los tres textos en la portada. Acepta un cfg para poder previsualizar
-  // lo que hay en el formulario sin guardarlo antes.
-  function renderVideoTextos(cfg) {
-    var t = textosVideoDe(cfg || videoCfg);
+  /* Pinta los tres textos de la portada. Sin argumentos a propósito: aquí solo
+     llega lo que hay en Firestore, y el texto plano se garantiza con setText
+     (textContent), nunca con innerHTML. La vista previa del panel pinta los
+     suyos con el() y el mismo criterio, sobre el valor que le da
+     textosVideoDe(): quien decide el texto es una sola función. */
+  function renderVideoTextos() {
+    var t = textosVideoDe(videoCfg);
     setText('videoEyebrow', t.etiqueta);
     setText('videoTitle', t.titulo);
     setText('videoSubtitle', t.subtitulo);
@@ -686,10 +690,14 @@
       videoUnsub = V.db.collection(CONFIG_COLLECTION).doc(PORTAL_DOC).onSnapshot(function (doc) {
         videoCfg = normalizeVideoConfig(doc && doc.exists ? doc.data() : {});
         renderVideoSection();
-        // Solo si el panel existe y hay quien lo pueda ver: los dos renders
-        // son internal no-ops cuando el superadmin no está dentro.
+        // Los dos renders del panel solo hacen algo si el superadmin está
+        // dentro: para el resto de visitantes no encuentran nada que dibujar.
         renderAdminPortalConfig();
-        renderAdminVideoPreview();
+        // La vista previa, en cambio, no se repinta mientras alguien escribe en
+        // el formulario: una instantánea (la de su propio guardado, o la de
+        // otra pestaña) volvería la vista previa a lo guardado mientras teclea
+        // el texto nuevo, que es justo lo que está comprobando.
+        if (!adminEscribiendo()) renderAdminVideoPreview();
       }, function (err) {
         // Sin permisos (reglas sin desplegar) o sin red: la portada sigue
         // funcionando, solo sin video. No se rompe la landing por ello.
@@ -734,10 +742,19 @@
 
     // No se redibuja si el superadmin está escribiendo en el formulario: se
     // perdería lo tecleado con cada instantánea de config/portal.
-    if (document.activeElement && body.contains(document.activeElement)) return;
+    if (adminEscribiendo()) return;
     body.innerHTML = '';
 
     var form = el('div', 'sa-form');
+
+    /* Rótulo con `for`. Sin él el campo se queda sin nombre accesible (el lector
+       de pantalla no lo anuncia) y pulsar el rótulo no lleva el foco al campo:
+       el <label> y el control son hermanos, no padre e hijo. */
+    function campoLabel(rotulo, forId) {
+      var l = el('label', '', rotulo);
+      l.htmlFor = forId;
+      return l;
+    }
 
     /* ── TEXTOS DE LA SECCIÓN ──
        Van primero porque son lo que el visitante lee antes de ver el
@@ -749,7 +766,6 @@
 
     var rowTxt = el('div', 'form-row');
     var fEtiqueta = el('div', 'field');
-    fEtiqueta.appendChild(el('label', '', 'Etiqueta superior'));
     var inEtiqueta = document.createElement('input');
     inEtiqueta.type = 'text';
     inEtiqueta.id = 'pvcEtiqueta';
@@ -758,11 +774,11 @@
     inEtiqueta.placeholder = porDefecto.etiqueta;
     inEtiqueta.value = videoCfg.videoEtiqueta;
     inEtiqueta.autocomplete = 'off';
+    fEtiqueta.appendChild(campoLabel('Etiqueta superior', inEtiqueta.id));
     fEtiqueta.appendChild(inEtiqueta);
     rowTxt.appendChild(fEtiqueta);
 
     var fSecTit = el('div', 'field');
-    fSecTit.appendChild(el('label', '', 'Título de la sección'));
     var inSecTit = document.createElement('input');
     inSecTit.type = 'text';
     inSecTit.id = 'pvcTituloSeccion';
@@ -771,13 +787,13 @@
     inSecTit.placeholder = porDefecto.titulo;
     inSecTit.value = videoCfg.videoTituloSeccion;
     inSecTit.autocomplete = 'off';
+    fSecTit.appendChild(campoLabel('Título de la sección', inSecTit.id));
     fSecTit.appendChild(inSecTit);
     rowTxt.appendChild(fSecTit);
     form.appendChild(rowTxt);
 
     var rowSub = el('div', 'form-row');
     var fSecSub = el('div', 'field field-full');
-    fSecSub.appendChild(el('label', '', 'Subtítulo de la sección'));
     var inSecSub = document.createElement('textarea');
     inSecSub.id = 'pvcSubtituloSeccion';
     inSecSub.className = 'textarea';
@@ -785,6 +801,7 @@
     inSecSub.maxLength = 300;
     inSecSub.placeholder = porDefecto.subtitulo;
     inSecSub.value = videoCfg.videoSubtituloSeccion;
+    fSecSub.appendChild(campoLabel('Subtítulo de la sección', inSecSub.id));
     fSecSub.appendChild(inSecSub);
     fSecSub.appendChild(el('p', 'field-hint', 'Estos tres textos salen en la portada pública, sin cuenta y sin registro. Si dejas alguno vacío se usa el de public/data/content.json.'));
     rowSub.appendChild(fSecSub);
@@ -792,7 +809,6 @@
 
     var rowUrl = el('div', 'form-row');
     var fUrl = el('div', 'field field-full');
-    fUrl.appendChild(el('label', '', 'URL del video corporativo'));
     var inUrl = document.createElement('input');
     inUrl.type = 'url';
     inUrl.id = 'pvcUrl';
@@ -800,6 +816,7 @@
     inUrl.placeholder = 'https://www.youtube.com/watch?v=… · https://drive.google.com/file/d/… · https://…/video.mp4';
     inUrl.value = videoCfg.videoUrl;
     inUrl.autocomplete = 'off';
+    fUrl.appendChild(campoLabel('URL del video corporativo', inUrl.id));
     fUrl.appendChild(inUrl);
     var detect = el('p', 'field-hint', '');
     detect.id = 'pvcDetect';
@@ -812,7 +829,6 @@
     // "Título" a secas sería ambiguo ahora que la sección tiene su propio
     // título: este es el nombre accesible del reproductor (atributo title del
     // iframe o del <video>), no el encabezado que se ve.
-    fTit.appendChild(el('label', '', 'Título del reproductor (opcional)'));
     var inTit = document.createElement('input');
     inTit.type = 'text';
     inTit.id = 'pvcTitulo';
@@ -820,11 +836,11 @@
     inTit.maxLength = 120;
     inTit.placeholder = 'Video Corporativo';
     inTit.value = videoCfg.videoTitulo;
+    fTit.appendChild(campoLabel('Título del reproductor (opcional)', inTit.id));
     fTit.appendChild(inTit);
     row2.appendChild(fTit);
 
     var fTipo = el('div', 'field');
-    fTipo.appendChild(el('label', '', 'Tipo de fuente'));
     var selTipo = document.createElement('select');
     selTipo.id = 'pvcTipo';
     selTipo.className = 'select';
@@ -835,6 +851,7 @@
       o.selected = videoCfg.videoTipo === t[0];
       selTipo.appendChild(o);
     });
+    fTipo.appendChild(campoLabel('Tipo de fuente', selTipo.id));
     fTipo.appendChild(selTipo);
     row2.appendChild(fTipo);
     form.appendChild(row2);
@@ -878,6 +895,24 @@
       };
     }
 
+    /* La vista previa no se repinta en cada tecla. El aviso de detección es un
+       texto y va inmediato, pero el reproductor es un iframe: montarlo por cada
+       tecla recarga el video desde el principio y, con una URL a medias, además
+       apunta el iframe a dominios que no existen. Se agrupa el repintado y se
+       espera a que el superadmin pare de escribir. */
+    var previewTimer = null;
+    function refrescarPreview(urgente) {
+      if (previewTimer) { clearTimeout(previewTimer); previewTimer = null; }
+      if (urgente) { renderAdminVideoPreview(estadoDelFormulario()); return; }
+      previewTimer = setTimeout(function () {
+        previewTimer = null;
+        // Si el formulario se redibujó mientras esperábamos, estos campos ya no
+        // son los que hay en pantalla: se previsualiza lo guardado.
+        if (!document.body.contains(inUrl)) return;
+        renderAdminVideoPreview(estadoDelFormulario());
+      }, 300);
+    }
+
     function refrescarDeteccion() {
       var url = inUrl.value;
       var sel = selTipo.value;
@@ -892,21 +927,25 @@
         detect.textContent = 'Fuente detectada: ' + src.label;
         detect.className = 'field-hint is-ok';
       }
-      // La vista previa se refresca con lo que hay en el formulario, no con
-      // lo guardado: así se juzga el cambio antes de confirmarlo.
-      renderAdminVideoPreview(estadoDelFormulario());
     }
-    inUrl.addEventListener('input', refrescarDeteccion);
-    selTipo.addEventListener('change', refrescarDeteccion);
-    // Los tres textos también entran en la vista previa: se ven a la vez que
-    // el reproductor, que es justo lo que el superadmin viene a comprobar.
+    function alCambiarFuente() {
+      // La vista previa se refresca con lo que hay en el formulario, no con lo
+      // guardado: así se juzga el cambio antes de confirmarlo.
+      refrescarDeteccion();
+      refrescarPreview(false);
+    }
+    inUrl.addEventListener('input', alCambiarFuente);
+    selTipo.addEventListener('change', alCambiarFuente);
+    // Los tres textos también entran en la vista previa: se ven a la vez que el
+    // reproductor, que es justo lo que el superadmin viene a comprobar. Aquí sí
+    // puede ser inmediato: el texto no recarga el video (ver renderAdminVideoPreview).
     [inEtiqueta, inSecTit, inSecSub, inTit].forEach(function (n) {
-      n.addEventListener('input', function () { renderAdminVideoPreview(estadoDelFormulario()); });
+      n.addEventListener('input', function () { refrescarPreview(true); });
     });
     // El interruptor también cambia lo que se ve (la sección desaparece), así
     // que la vista previa tiene que enterarse sin esperar al guardado.
-    chk.addEventListener('change', function () { renderAdminVideoPreview(estadoDelFormulario()); });
-    refrescarDeteccion();
+    chk.addEventListener('change', function () { refrescarPreview(true); });
+    alCambiarFuente();
 
     btn.addEventListener('click', function () { saveVideoConfig(btn); });
     // "Quitar" no borra nada del servidor todavía: vacía los campos y deja el
@@ -923,9 +962,17 @@
       inTit.value = '';
       selTipo.value = 'auto';
       chk.checked = false;
-      refrescarDeteccion();
+      alCambiarFuente();
       inUrl.focus();
     });
+  }
+
+  /* ¿Hay alguien escribiendo en el formulario del video? Mismo criterio para no
+     redibujar el formulario (renderAdminPortalConfig) y para no pisarle la
+     vista previa al superadmin desde una instantánea de config/portal. */
+  function adminEscribiendo() {
+    var body = $('saVideoForm');
+    return !!(body && document.activeElement && body.contains(document.activeElement));
   }
 
   /* Los marcadores de posición de los tres textos dependen de content.json, que
@@ -944,6 +991,20 @@
     });
   }
 
+  /* Reproductor ya montado en la vista previa y la clave de la fuente que tiene.
+     Se conservan entre llamadas a propósito: los textos de la sección se
+     teclean, y un iframe nuevo por cada tecla recarga el video desde el
+     principio y tira la reproducción en curso. El reproductor solo se rehace
+     cuando la FUENTE cambia, que es lo único que lo justifica. */
+  var previewBox = null;
+  var previewClave = '';
+
+  function limpiarPreview() {
+    if (previewBox && previewBox.parentNode) previewBox.parentNode.removeChild(previewBox);
+    previewBox = null;
+    previewClave = '';
+  }
+
   /* Vista previa del panel. Comparte buildVideoFrame() y textosVideoDe() con la
      portada, así que lo que se ve aquí es literalmente lo mismo que verá un
      visitante, no una aproximación: si el texto sale distinto en los dos sitios
@@ -960,11 +1021,16 @@
     // Con argumento se previsualiza el formulario.
     var fuente = cfg || videoCfg;
 
+    // La vista previa vive en el panel del super admin. Sin este filtro, cada
+    // visitante construye un SEGUNDO reproductor del mismo video, oculto, cada
+    // vez que cambia config/portal: la portada ya tiene el suyo.
+    if (!V.esAdmin()) { limpiarPreview(); return; }
+
     var url = fuente.videoUrl || '';
     var source = resolveVideoSource(url, fuente.videoTipo);
-    host.innerHTML = '';
 
     if (!url) {
+      limpiarPreview();
       if (note) {
         note.textContent = 'Todavía no hay ningún video configurado. La sección queda oculta en la portada, textos incluidos.';
         note.className = 'sa-preview-note';
@@ -972,6 +1038,7 @@
       return;
     }
     if (!source) {
+      limpiarPreview();
       if (note) {
         note.textContent = '⚠ La URL guardada no se puede reproducir. Revisa el enlace o el tipo de fuente.';
         note.className = 'sa-preview-note is-warn';
@@ -979,18 +1046,33 @@
       return;
     }
 
+    var titulo = fuente.videoTitulo || 'Video Corporativo · Vida en Convocación';
+    var clave = source.kind + '|' + source.src + '|' + titulo;
+    // host.contains() además de la clave: si el nodo se quedó fuera del
+    // documento (se redibujó la vista), se rehace en vez de reinsertar un
+    // reproductor huérfano.
+    if (!previewBox || previewClave !== clave || !host.contains(previewBox)) {
+      limpiarPreview();
+      previewBox = buildVideoFrame(source, titulo);
+      previewClave = clave;
+      host.appendChild(previewBox);
+    }
+
+    // El encabezado se rehace siempre (es texto y es lo que se está
+    // comprobando) y se inserta DELANTE del reproductor, que ya está montado.
+    var head0 = host.querySelector('.sa-preview-head');
+    if (head0 && head0.parentNode) head0.parentNode.removeChild(head0);
     // Los tres textos se resuelven con la misma función que la portada, así que
     // aquí se ve el texto que se verá en producción (incluido el de content.json
-    // cuando el campo se deja vacío).
+    // cuando el campo se deja vacío). Van como texto plano: el() pinta con
+    // textContent, así que un campo con marcado no puede inyectar nada aquí.
     var textos = textosVideoDe(fuente);
     var head = el('div', 'sa-preview-head');
     head.appendChild(el('span', 'sa-preview-eyebrow', textos.etiqueta));
     head.appendChild(el('h3', '', textos.titulo));
     head.appendChild(el('p', '', textos.subtitulo));
-    host.appendChild(head);
+    host.insertBefore(head, previewBox);
 
-    var titulo = fuente.videoTitulo || 'Video Corporativo · Vida en Convocación';
-    host.appendChild(buildVideoFrame(source, titulo));
     if (note) {
       if (fuente.videoActivo === false) {
         note.textContent = 'Reconocido como ' + source.label + ', pero la publicación está desactivada: en la portada no se verá ni el video ni sus textos.';
@@ -1106,7 +1188,7 @@
     if (antes.url !== despues.videoUrl) {
       cambios.push(antes.url ? 'Cambió la URL del video' : 'Se publicó un video por primera vez');
     }
-    if (antes.titulo !== despues.videoTitulo) cambios.push('Cambió el título');
+    if (antes.titulo !== despues.videoTitulo) cambios.push('Cambió el título del reproductor');
     if (antes.tipo !== despues.videoTipo) cambios.push('Cambió el tipo de fuente');
     if (antes.activo !== despues.videoActivo) {
       cambios.push(despues.videoActivo ? 'Se activó la publicación' : 'Se desactivó la publicación');
