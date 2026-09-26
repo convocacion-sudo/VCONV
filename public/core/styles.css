@@ -60,9 +60,10 @@
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 /* ─── ESCALA DE TEXTO (botones A- / A+) ──────────────────────────
-   A- / A+ cambian ÚNICAMENTE el tamaño de la letra del cuerpo de
-   texto: párrafos y texto corrido del contenido (lecciones, descripciones
-   de tarjetas, introductions, texto de la landing).
+   A- / A+ cambian ÚNICAMENTE el tamaño de la letra del cuerpo de texto
+   de la lección. .lesson-content (modules/cursos/cursos.css) es su único
+   consumidor: ni el resto de la interfaz, ni el portal, ni la landing se
+   enteran del factor.
 
    Lo que NO hacen, deliberadamente:
    · No escalan la raíz (html). Poner el factor en :root convierte los
@@ -73,14 +74,13 @@
      veces (raíz + cabeceras) y lo disparaba al cuadrado.
    · No tocan títulos, etiquetas, botones, inputs ni medidas de layout.
      La jerarquía visual y el diseño se quedan exactamente como están:
-     solo crece la letra del texto corrido. Si un texto ampliado no cabe
-     en su caja, el bloque crece a lo alto; el contenedor no se deforma.
+     solo crece la letra del cuerpo de la lección. Si un texto ampliado
+     no cabe en su caja, el bloque crece a lo alto; el contenedor no se
+     deforma.
 
    applyFont() (core/app.js) escribe --font-scale en el estilo inline del
-   <html> y la acota entre 0.75 (-25 %) y 1.6 (+60 %).             */
-p {
-  font-size: calc(1rem * var(--font-scale));
-}
+   <html> y la acota entre 0.8 (-20 %) y 1.5 (+50 %). El tope baja a 1.25
+   en móvil, donde el texto grande deja de caber.               */
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;

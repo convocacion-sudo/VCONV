@@ -1094,10 +1094,10 @@
     $('btnNewCourse').style.display = m === 'gestor' ? '' : 'none';
     $('progressBarWrap').style.display = m === 'estudiante' ? '' : 'none';
     // Los controles A- / A+ quedan disponibles en TODOS los modos: solo
-    // redimensionan la letra del cuerpo de texto (párrafos y contenido, ver
-    // la regla de --font-scale en core/styles.css), así que limitarlos a un
-    // modo dejaría sin efecto una función de accesibilidad justo a quien
-    // más la necesita (quien está leyendo).
+    // redimensionan la letra del cuerpo de la lección (único consumidor de
+    // --font-scale, .lesson-content en modules/cursos/cursos.css), así que
+    // limitarlos a un modo dejaría sin efecto una función de accesibilidad
+    // justo a quien más la necesita (quien está leyendo).
     $('fontControls').style.display = '';
     $('catalogTitle').textContent = m === 'gestor' ? 'Mis Cursos' : 'Catálogo de Cursos';
     $('catalogSub').textContent = m === 'gestor'
