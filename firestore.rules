@@ -312,10 +312,11 @@ service cloud.firestore {
     }
 
     /* ── CONFIG PORTAL (ajustes de la landing pública) ───────
-       Ajustes que la portada muestra SIN sesión: hoy, el video corporativo.
-       Su lectura se abre a esPublico() (como el catálogo publicado y las
-       lecciones de prueba) porque, si no, la sección quedaría vacía para
-       todo visitante que no tenga cuenta.
+       Ajustes que la portada muestra SIN sesión: el video corporativo y los
+       TRES TEXTOS de su sección (videoEtiqueta, videoTituloSeccion,
+       videoSubtituloSeccion). Su lectura se abre a esPublico() (como el
+       catálogo publicado y las lecciones de prueba) porque, si no, la sección
+       quedaría vacía para todo visitante que no tenga cuenta.
 
        La ESCRITURA NO se relaja en absoluto: sigue siendo exclusiva del
        superadmin (isAdmin()), igual que el resto de config y que el
@@ -331,11 +332,13 @@ service cloud.firestore {
 
        CONTRATO DE ESTE DOCUMENTO: es PÚBLICO, luego aquí dentro solo puede
        vivir lo que un visitante sin cuenta ya puede ver en pantalla (la URL,
-       el título, el tipo de fuente, el interruptor de publicación y la fecha
-       del último cambio). En concreto NO se guarda aquí el UID de quien lo
-       editó: sería legible por cualquiera, incluidos los visitantes anónimos,
-       y bastaría para identificar la cuenta del superadmin. Esa trazabilidad
-       va en superadmin_auditoria, de abajo. */
+       el tipo de fuente, el interruptor de publicación, la fecha del último
+       cambio y los tres textos de la sección). Los textos van como TEXTO
+       PLANO y el cliente los pinta con textContent, nunca como HTML: un
+       campo que admitiera marcado sería Injection en la landing. En concreto
+       NO se guarda aquí el UID de quien lo editó: sería legible por cualquiera,
+       incluidos los visitantes anónimos, y bastaría para identificar la cuenta
+       del superadmin. Esa trazabilidad va en superadmin_auditoria, de abajo. */
     match /config/portal {
       allow read: if esPublico() || signedIn();
       allow write: if isAdmin();

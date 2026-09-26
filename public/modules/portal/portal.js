@@ -25,9 +25,23 @@
      content.json: así el superadmin los cambia desde el panel sin
      desplegar nada y la portada los toma siempre frescos por onSnapshot.
      Coincide con el resto de ajustes de la app (config/mlm,
-     config/finanzas, config/perfiles…), que usan la misma colección. */
+     config/finanzas, config/perfiles…), que usan la misma colección.
+
+     Incluye los TRES TEXTOS de la sección (etiqueta superior, título y
+     subtítulo), no solo el video: son la primera cosa que lee el visitante
+     y cambian tan pocas veces como la URL, así que editarlos no debería
+     exigir un deploy. */
   var CONFIG_COLLECTION = 'config';
   var PORTAL_DOC = 'portal';
+
+  /* Último respaldo de los tres textos, para cuando content.json tampoco
+     está (fetch fallido). No es la fuente: la fuente es config/portal, y
+     content.json queda en medio como valor por defecto. */
+  var TEXTOS_VIDEO_FALLBACK = {
+    etiqueta: 'Video corporativo',
+    titulo: 'Conoce nuestra historia y propósito',
+    subtitulo: 'Un mensaje de bienvenida de Vida en Convocación: quiénes somos y a qué nos dedicamos.'
+  };
 
   /* Bitácora de los cambios del panel. Colección APARTE, y no un campo más
      de config/portal, porque ese documento se lee sin sesión: guardar ahí el
@@ -38,7 +52,15 @@
 
   // Estado vivo del documento config/portal (normalizado). Se rellena con el
   // primer onSnapshot y se mantiene al día con los siguientes.
-  var videoCfg = { videoUrl: '', videoTitulo: '', videoTipo: 'auto', videoActivo: true };
+  var videoCfg = {
+    videoEtiqueta: '',
+    videoTituloSeccion: '',
+    videoSubtituloSeccion: '',
+    videoUrl: '',
+    videoTitulo: '',
+    videoTipo: 'auto',
+    videoActivo: true
+  };
   var videoUnsub = null;
 
   function $(id) { return V.$(id); }
@@ -130,7 +152,6 @@
     var hero = p.hero || {};
     var sections = p.sections || {};
     var coursesSec = sections.courses || {};
-    var videoSec = sections.video || {};
     var blocksSec = sections.blocks || {};
     var contactSec = sections.contact || {};
     var contact = data.contact || {};
@@ -149,9 +170,10 @@
     setText('coursesSubtitle', coursesSec.subtitle);
     setText('portalCtaCourses', hero.ctaCourses);
 
-    setText('videoEyebrow', videoSec.eyebrow);
-    setText('videoTitle', videoSec.title);
-    setText('videoSubtitle', videoSec.subtitle);
+    // Los textos de la sección de video NO se pintan aquí: los lleva
+    // renderVideoSection(), que es quien sabe combinarlos con config/portal.
+    // Ponerlos solo desde content.json los dejaría atados a una de las dos
+    // fuentes según cuál llegara antes.
 
     setText('blocksEyebrow', blocksSec.eyebrow);
     setText('blocksTitle', blocksSec.title);
@@ -172,6 +194,9 @@
     // que no se quede visible con los títulos vacíos si Firestore ganó la
     // carrera.
     renderVideoSection();
+    // Los marcadores de posición del formulario del superadmin dependen de
+    // estos mismos textos, que se acaban de cargar.
+    refrescarPlaceholdersTextos();
   }
 
   function markInvalid(id, isInvalid) {
@@ -570,6 +595,13 @@
     var host = $('portalVideoFrame');
     if (!section || !host) return;
 
+    // Los textos se fijan aquí, y no solo cuando la sección se muestra: este
+    // es el punto por el que pasan los dos caminos que los cambian (el fetch de
+    // content.json y el onSnapshot de config/portal), así que ninguno de los
+    // dos puede ganar la carrera y dejar la sección con el encabezado del
+    // otro. Pintarlos con la sección oculta es inofensivo: no se ve.
+    renderVideoTextos();
+
     var source = resolveVideoSource(videoCfg.videoUrl, videoCfg.videoTipo);
     if (!source || videoCfg.videoActivo === false) {
       section.style.display = 'none';
@@ -599,12 +631,49 @@
   function normalizeVideoConfig(raw) {
     raw = raw || {};
     return {
+      // Los tres textos de la sección. Se guardan aunque estén vacíos: vacío
+      // significa "usa el de content.json" (ver textosVideoDe), no "sin texto".
+      videoEtiqueta: typeof raw.videoEtiqueta === 'string' ? raw.videoEtiqueta.trim() : '',
+      videoTituloSeccion: typeof raw.videoTituloSeccion === 'string' ? raw.videoTituloSeccion.trim() : '',
+      videoSubtituloSeccion: typeof raw.videoSubtituloSeccion === 'string' ? raw.videoSubtituloSeccion.trim() : '',
       videoUrl: typeof raw.videoUrl === 'string' ? raw.videoUrl.trim() : '',
       videoTitulo: typeof raw.videoTitulo === 'string' ? raw.videoTitulo.trim() : '',
       videoTipo: typeof raw.videoTipo === 'string' && raw.videoTipo ? raw.videoTipo : 'auto',
       // Activo por defecto: si el superadmin publica la URL, se muestra.
       videoActivo: raw.videoActivo === false ? false : true
     };
+  }
+
+  /* Resuelve los tres textos de la sección con UNA sola cadena de prioridad:
+     config/portal (lo que guardó el superadmin) → content.json → respaldo
+     fijo. La comparten la portada y la vista previa del panel, que no pueden
+     resolverlos por su cuenta o dejarían de parecerse.
+
+     Un campo vacío NO borra el texto: cae al siguiente de la cadena. Es lo que
+     evita que un campo sin rellenar, o un documento de Firestore que aún no
+     tiene los campos nuevos, dejen la portada con un encabezado en blanco. */
+  function textosVideoDe(cfg) {
+    var src = cfg || {};
+    var sec = ((((contentData || {}).portal || {}).sections) || {}).video || {};
+    // Solo se acepta texto. normalizeVideoConfig ya normaliza, pero esta
+    // función también se llama con lo que hay en el formulario y desde fuera
+    // (V.portal): un 42 escrito a mano en la consola no puede acabar pintado
+    // como encabezado, así que cae al texto de abajo.
+    function texto(v) { return typeof v === 'string' ? v.trim() : ''; }
+    return {
+      etiqueta: texto(src.videoEtiqueta) || sec.eyebrow || TEXTOS_VIDEO_FALLBACK.etiqueta,
+      titulo: texto(src.videoTituloSeccion) || sec.title || TEXTOS_VIDEO_FALLBACK.titulo,
+      subtitulo: texto(src.videoSubtituloSeccion) || sec.subtitle || TEXTOS_VIDEO_FALLBACK.subtitulo
+    };
+  }
+
+  // Pinta los tres textos en la portada. Acepta un cfg para poder previsualizar
+  // lo que hay en el formulario sin guardarlo antes.
+  function renderVideoTextos(cfg) {
+    var t = textosVideoDe(cfg || videoCfg);
+    setText('videoEyebrow', t.etiqueta);
+    setText('videoTitle', t.titulo);
+    setText('videoSubtitle', t.subtitulo);
   }
 
   /* Suscripción viva a config/portal. onSnapshot (y no get) porque la portada
@@ -670,6 +739,57 @@
 
     var form = el('div', 'sa-form');
 
+    /* ── TEXTOS DE LA SECCIÓN ──
+       Van primero porque son lo que el visitante lee antes de ver el
+       reproductor. Los tres se resuelven con la misma cadena de prioridad que
+       usa la portada (config/portal → content.json), y por eso el marcador de
+       posición de cada campo es el texto que se verá si se deja vacío: no hay
+       sorpresas al guardar. */
+    var porDefecto = textosVideoDe({});
+
+    var rowTxt = el('div', 'form-row');
+    var fEtiqueta = el('div', 'field');
+    fEtiqueta.appendChild(el('label', '', 'Etiqueta superior'));
+    var inEtiqueta = document.createElement('input');
+    inEtiqueta.type = 'text';
+    inEtiqueta.id = 'pvcEtiqueta';
+    inEtiqueta.className = 'input';
+    inEtiqueta.maxLength = 60;
+    inEtiqueta.placeholder = porDefecto.etiqueta;
+    inEtiqueta.value = videoCfg.videoEtiqueta;
+    inEtiqueta.autocomplete = 'off';
+    fEtiqueta.appendChild(inEtiqueta);
+    rowTxt.appendChild(fEtiqueta);
+
+    var fSecTit = el('div', 'field');
+    fSecTit.appendChild(el('label', '', 'Título de la sección'));
+    var inSecTit = document.createElement('input');
+    inSecTit.type = 'text';
+    inSecTit.id = 'pvcTituloSeccion';
+    inSecTit.className = 'input';
+    inSecTit.maxLength = 120;
+    inSecTit.placeholder = porDefecto.titulo;
+    inSecTit.value = videoCfg.videoTituloSeccion;
+    inSecTit.autocomplete = 'off';
+    fSecTit.appendChild(inSecTit);
+    rowTxt.appendChild(fSecTit);
+    form.appendChild(rowTxt);
+
+    var rowSub = el('div', 'form-row');
+    var fSecSub = el('div', 'field field-full');
+    fSecSub.appendChild(el('label', '', 'Subtítulo de la sección'));
+    var inSecSub = document.createElement('textarea');
+    inSecSub.id = 'pvcSubtituloSeccion';
+    inSecSub.className = 'textarea';
+    inSecSub.rows = 3;
+    inSecSub.maxLength = 300;
+    inSecSub.placeholder = porDefecto.subtitulo;
+    inSecSub.value = videoCfg.videoSubtituloSeccion;
+    fSecSub.appendChild(inSecSub);
+    fSecSub.appendChild(el('p', 'field-hint', 'Estos tres textos salen en la portada pública, sin cuenta y sin registro. Si dejas alguno vacío se usa el de public/data/content.json.'));
+    rowSub.appendChild(fSecSub);
+    form.appendChild(rowSub);
+
     var rowUrl = el('div', 'form-row');
     var fUrl = el('div', 'field field-full');
     fUrl.appendChild(el('label', '', 'URL del video corporativo'));
@@ -689,11 +809,15 @@
 
     var row2 = el('div', 'form-row');
     var fTit = el('div', 'field');
-    fTit.appendChild(el('label', '', 'Título (opcional)'));
+    // "Título" a secas sería ambiguo ahora que la sección tiene su propio
+    // título: este es el nombre accesible del reproductor (atributo title del
+    // iframe o del <video>), no el encabezado que se ve.
+    fTit.appendChild(el('label', '', 'Título del reproductor (opcional)'));
     var inTit = document.createElement('input');
     inTit.type = 'text';
     inTit.id = 'pvcTitulo';
     inTit.className = 'input';
+    inTit.maxLength = 120;
     inTit.placeholder = 'Video Corporativo';
     inTit.value = videoCfg.videoTitulo;
     fTit.appendChild(inTit);
@@ -739,6 +863,21 @@
 
     body.appendChild(form);
 
+    /* Lo que hay escrito ahora mismo, con la misma forma que videoCfg. Lo usan
+       la vista previa y el guardado: así los dos leen el formulario y no puede
+       pasar que uno esté previsualizando lo tecleado y el otro lo guardado. */
+    function estadoDelFormulario() {
+      return {
+        videoEtiqueta: inEtiqueta.value.trim(),
+        videoTituloSeccion: inSecTit.value.trim(),
+        videoSubtituloSeccion: inSecSub.value.trim(),
+        videoUrl: inUrl.value.trim(),
+        videoTitulo: inTit.value.trim(),
+        videoTipo: selTipo.value,
+        videoActivo: !!chk.checked
+      };
+    }
+
     function refrescarDeteccion() {
       var url = inUrl.value;
       var sel = selTipo.value;
@@ -755,11 +894,18 @@
       }
       // La vista previa se refresca con lo que hay en el formulario, no con
       // lo guardado: así se juzga el cambio antes de confirmarlo.
-      renderAdminVideoPreview();
+      renderAdminVideoPreview(estadoDelFormulario());
     }
     inUrl.addEventListener('input', refrescarDeteccion);
     selTipo.addEventListener('change', refrescarDeteccion);
-    inTit.addEventListener('input', renderAdminVideoPreview);
+    // Los tres textos también entran en la vista previa: se ven a la vez que
+    // el reproductor, que es justo lo que el superadmin viene a comprobar.
+    [inEtiqueta, inSecTit, inSecSub, inTit].forEach(function (n) {
+      n.addEventListener('input', function () { renderAdminVideoPreview(estadoDelFormulario()); });
+    });
+    // El interruptor también cambia lo que se ve (la sección desaparece), así
+    // que la vista previa tiene que enterarse sin esperar al guardado.
+    chk.addEventListener('change', function () { renderAdminVideoPreview(estadoDelFormulario()); });
     refrescarDeteccion();
 
     btn.addEventListener('click', function () { saveVideoConfig(btn); });
@@ -767,7 +913,12 @@
     // guardado al botón de arriba, que es quien escribe. Un botón destructivo
     // que publica en el instante es la clase de control que nadie quiere
     // pulsar creyendo que va a otra cosa.
+    // Los tres textos se vacían también: quitar el video es quitar la sección
+    // entera, y dejarlos puestos haría creer que siguen vivos.
     clear.addEventListener('click', function () {
+      inEtiqueta.value = '';
+      inSecTit.value = '';
+      inSecSub.value = '';
       inUrl.value = '';
       inTit.value = '';
       selTipo.value = 'auto';
@@ -777,11 +928,29 @@
     });
   }
 
-  /* Vista previa del panel. Comparte buildVideoFrame() con la portada, así
-     que lo que se ve aquí es literalmente el mismo reproductor que verá un
-     visitante, no una aproximación. El aviso distingue los tres estados
-     posibles (sin URL, con URL inválida, con video publicado) porque los dos
-     últimos se ven igual de vacíos si no se dice nada. */
+  /* Los marcadores de posición de los tres textos dependen de content.json, que
+     llega por fetch y puede llegar después de que el panel se abra. Se refrescan
+     sin redibujar el formulario, para no borrar lo que ya haya tecleado. */
+  function refrescarPlaceholdersTextos() {
+    var porDefecto = textosVideoDe({});
+    var pares = {
+      pvcEtiqueta: porDefecto.etiqueta,
+      pvcTituloSeccion: porDefecto.titulo,
+      pvcSubtituloSeccion: porDefecto.subtitulo
+    };
+    Object.keys(pares).forEach(function (id) {
+      var n = $(id);
+      if (n && !n.value) n.placeholder = pares[id];
+    });
+  }
+
+  /* Vista previa del panel. Comparte buildVideoFrame() y textosVideoDe() con la
+     portada, así que lo que se ve aquí es literalmente lo mismo que verá un
+     visitante, no una aproximación: si el texto sale distinto en los dos sitios
+     es porque el código cambió, no porque cada pantalla resuelva por su cuenta.
+     El aviso distingue los tres estados posibles (sin URL, con URL inválida, con
+     video publicado) porque los dos últimos se ven igual de vacíos si no se
+     dice nada. */
   function renderAdminVideoPreview(cfg) {
     var host = $('saVideoPreview');
     var note = $('saVideoPreviewNote');
@@ -789,12 +958,7 @@
 
     // Sin argumento (llamada desde onSnapshot) se previsualiza lo GUARDADO.
     // Con argumento se previsualiza el formulario.
-    var fuente = cfg || {
-      videoUrl: videoCfg.videoUrl,
-      videoTitulo: videoCfg.videoTitulo,
-      videoTipo: videoCfg.videoTipo,
-      videoActivo: videoCfg.videoActivo
-    };
+    var fuente = cfg || videoCfg;
 
     var url = fuente.videoUrl || '';
     var source = resolveVideoSource(url, fuente.videoTipo);
@@ -802,7 +966,7 @@
 
     if (!url) {
       if (note) {
-        note.textContent = 'Todavía no hay ningún video configurado. La sección queda oculta en la portada.';
+        note.textContent = 'Todavía no hay ningún video configurado. La sección queda oculta en la portada, textos incluidos.';
         note.className = 'sa-preview-note';
       }
       return;
@@ -815,11 +979,21 @@
       return;
     }
 
+    // Los tres textos se resuelven con la misma función que la portada, así que
+    // aquí se ve el texto que se verá en producción (incluido el de content.json
+    // cuando el campo se deja vacío).
+    var textos = textosVideoDe(fuente);
+    var head = el('div', 'sa-preview-head');
+    head.appendChild(el('span', 'sa-preview-eyebrow', textos.etiqueta));
+    head.appendChild(el('h3', '', textos.titulo));
+    head.appendChild(el('p', '', textos.subtitulo));
+    host.appendChild(head);
+
     var titulo = fuente.videoTitulo || 'Video Corporativo · Vida en Convocación';
     host.appendChild(buildVideoFrame(source, titulo));
     if (note) {
       if (fuente.videoActivo === false) {
-        note.textContent = 'Reconocido como ' + source.label + ', pero la publicación está desactivada: no se verá en la portada.';
+        note.textContent = 'Reconocido como ' + source.label + ', pero la publicación está desactivada: en la portada no se verá ni el video ni sus textos.';
         note.className = 'sa-preview-note is-warn';
       } else {
         note.textContent = 'Publicado en la portada como ' + source.label + '.';
@@ -837,10 +1011,16 @@
     }
     if (!V.db) { V.toast('Firestore no disponible.', true); return; }
 
+    var inEtiqueta = $('pvcEtiqueta');
+    var inSecTit = $('pvcTituloSeccion');
+    var inSecSub = $('pvcSubtituloSeccion');
     var inUrl = $('pvcUrl');
     var inTit = $('pvcTitulo');
     var selTipo = $('pvcTipo');
     var chk = $('pvcActivo');
+    var etiqueta = inEtiqueta ? String(inEtiqueta.value || '').trim() : '';
+    var tituloSeccion = inSecTit ? String(inSecTit.value || '').trim() : '';
+    var subtituloSeccion = inSecSub ? String(inSecSub.value || '').trim() : '';
     var url = inUrl ? String(inUrl.value || '').trim() : '';
     var tipo = selTipo ? selTipo.value : 'auto';
     var titulo = inTit ? String(inTit.value || '').trim() : '';
@@ -857,7 +1037,12 @@
     // solo guarda lo que un visitante ya ve en pantalla. El UID de quien
     // edita NO va aquí: se escribiría en un documento que cualquiera puede
     // leer. Va a la bitácora, que es de solo super admin.
+    // Los tres textos de la sección también van aquí, y por el mismo motivo
+    // son texto plano que se pinta en la landing: nada de HTML.
     var data = {
+      videoEtiqueta: etiqueta,
+      videoTituloSeccion: tituloSeccion,
+      videoSubtituloSeccion: subtituloSeccion,
       videoUrl: url,
       videoTitulo: titulo,
       videoTipo: tipo,
@@ -870,6 +1055,9 @@
     // formulario puede traer valores a medio escribir y la bitácora debe
     // reflejar lo que había PUBLICADO, no lo que había en el formulario.
     var antes = {
+      etiqueta: videoCfg.videoEtiqueta,
+      tituloSeccion: videoCfg.videoTituloSeccion,
+      subtituloSeccion: videoCfg.videoSubtituloSeccion,
       url: videoCfg.videoUrl,
       titulo: videoCfg.videoTitulo,
       tipo: videoCfg.videoTipo,
@@ -912,6 +1100,9 @@
   function registrarAuditoria(antes, despues) {
     if (!V.db || !V.esAdmin()) return Promise.resolve();
     var cambios = [];
+    if (antes.etiqueta !== despues.videoEtiqueta) cambios.push('Cambió la etiqueta de la sección');
+    if (antes.tituloSeccion !== despues.videoTituloSeccion) cambios.push('Cambió el título de la sección');
+    if (antes.subtituloSeccion !== despues.videoSubtituloSeccion) cambios.push('Cambió el subtítulo de la sección');
     if (antes.url !== despues.videoUrl) {
       cambios.push(antes.url ? 'Cambió la URL del video' : 'Se publicó un video por primera vez');
     }
@@ -991,6 +1182,7 @@
     AUDIT_COLLECTION: AUDIT_COLLECTION,
     getVideoConfig: function () { return videoCfg; },
     resolveVideoSource: resolveVideoSource,
+    textosVideoDe: textosVideoDe,
     subscribeVideoConfig: subscribeVideoConfig,
     renderVideoSection: renderVideoSection,
     renderAdminPortalConfig: renderAdminPortalConfig,

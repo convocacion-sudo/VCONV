@@ -1,7 +1,8 @@
 /* ════════════════════════════════════════════════════════════════
    VCONV · Panel del Super Admin
    Contenedor de los ajustes que solo el super administrador puede
-   cambiar. Hoy, el video corporativo de la portada.
+   cambiar. Hoy, el video corporativo de la portada y los tres textos
+   de su sección.
 
    Este archivo NO protege nada por sí mismo: la frontera real está en
    firestore.rules (config/portal y superadmin_auditoria solo admiten
@@ -32,7 +33,7 @@
   // eso los textos dicen "regla" y no "permiso": lo que se afirma aquí es lo
   // que el archivo de reglas concede.
   var CONFIG_DOCS = {
-    portal: { label: 'Video corporativo', lectura: 'Público (esPublico())' },
+    portal: { label: 'Video corporativo y sus textos', lectura: 'Público (esPublico())' },
     mlm: { label: 'Porcentajes MLM', lectura: 'Sesión iniciada' },
     finanzas: { label: 'Ajustes financieros', lectura: 'Sesión iniciada' },
     ubicacion: { label: 'Ubicaciones (departamentos, ciudades, barrios)', lectura: 'Sesión iniciada' },
@@ -248,7 +249,7 @@
       var vacio = el('div', 'sa-log-empty');
       vacio.appendChild(el('span', 'sa-log-empty-ico', '🧾'));
       vacio.appendChild(el('p', '', 'Todavía no hay cambios registrados.'));
-      vacio.appendChild(el('p', '', 'En cuanto guardes el video corporativo, aparecerá aquí.'));
+      vacio.appendChild(el('p', '', 'En cuanto guardes el video o sus textos, aparecerá aquí.'));
       host.appendChild(vacio);
       return;
     }
@@ -288,8 +289,8 @@
     openSubscriptions();
     // El formulario y la vista previa los dibuja portal.js: es quien sabe
     // traducir una URL a una fuente reproducible y quien comparte
-    // buildVideoFrame() con la portada, de modo que la vista previa y lo que
-    // ve un visitante no pueden divergir.
+    // buildVideoFrame() y textosVideoDe() con la portada, de modo que la vista
+    // previa y lo que ve un visitante no pueden divergir.
     if (V.portal) {
       V.portal.renderAdminPortalConfig();
       V.portal.renderAdminVideoPreview();

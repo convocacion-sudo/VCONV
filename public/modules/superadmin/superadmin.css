@@ -92,6 +92,22 @@
 .sa-preview-note.is-ok { color: var(--success); }
 .sa-preview-note.is-warn { color: var(--warning); }
 
+/* Encabezado de la vista previa (etiqueta, título y subtítulo). No se
+   reutilizan las clases .portal-section-head porque estas solo viven en la
+   portada: lo que se replica son los MISMOS valores de portal.css, para que
+   el bloque se juzgue con su tamaño y su color reales y no con una
+   aproximación más pequeña. */
+.sa-preview-head { text-align: center; max-width: 680px; margin: 0 auto 0.9rem; }
+.sa-preview-eyebrow {
+  display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--accent); margin-bottom: 0.6rem;
+}
+.sa-preview-head h3 {
+  font-size: clamp(1.4rem, 3vw, 2rem); font-weight: 800; letter-spacing: -0.02em;
+  color: var(--text-primary); margin-bottom: 0.6rem;
+}
+.sa-preview-head p { color: var(--text-muted); font-size: 0.95rem; }
+
 /* ── TABLA DE ESTADO ────────────────────────────────────────
    Rejilla fija con anchos declarados: la columna de escritura se
    define en la regla y no se deja que el contenido la empuje, que es

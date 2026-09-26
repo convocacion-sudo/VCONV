@@ -666,27 +666,30 @@
 
       <!-- ── VIDEO CORPORATIVO ──
            El formulario lo construye portal.js (que es quien sabe traducir una
-           URL a una fuente reproducible) dentro de #saVideoForm. -->
+           URL a una fuente reproducible) dentro de #saVideoForm. Toca los tres
+           textos de la sección (etiqueta, título y subtítulo) además de la URL:
+           todo eso vive en config/portal y se aplica sin desplegar. -->
       <div class="sa-card">
         <div class="sa-card-head">
           <span class="icon-chip sm gold">🎬</span>
           <div>
             <h3>Video Corporativo</h3>
-            <p>Se publica en la portada pública, justo debajo del bloque principal. Sin cuenta y sin registro previo: la URL se guarda en Firestore y la sección aparece en cuanto se guarda.</p>
+            <p>Se publica en la portada pública, justo debajo del bloque principal. Sin cuenta y sin registro previo: los textos y la URL se guardan en Firestore y la sección aparece en cuanto se guarda. Un campo de texto vacío vuelve al valor de <code>public/data/content.json</code>.</p>
           </div>
         </div>
         <div class="sa-card-body" id="saVideoForm"></div>
       </div>
 
       <!-- Vista previa: lo que está viendo ahora mismo cualquier visitante.
-           Se reutiliza el mismo reproductor que la portada, así que lo que se
-           ve aquí es exactamente lo que se verá en producción. -->
+           Se reutiliza el mismo reproductor y la misma resolución de textos que
+           la portada, así que lo que se ve aquí es exactamente lo que se verá en
+           producción. -->
       <div class="sa-card">
         <div class="sa-card-head">
           <span class="icon-chip sm blue">👁️</span>
           <div>
             <h3>Vista previa en la portada</h3>
-            <p>Así se ve la sección en la landing pública con la configuración guardada.</p>
+            <p>Así se ve la sección en la landing: encabezado y reproductor, con lo que tengas escrito en el formulario o con lo último guardado.</p>
           </div>
         </div>
         <div class="sa-card-body">
@@ -800,9 +803,11 @@
         </div>
       </section>
 
-      <!-- ═══ VIDEO CORPORATIVO (público · URL desde Firestore) ═══ -->
+      <!-- ═══ VIDEO CORPORATIVO (público · URL y textos desde Firestore) ═══ -->
       <!-- Justo debajo del bloque principal. Oculta por defecto: solo se
-           muestra cuando el superadmin publica una URL en config/portal. -->
+           muestra cuando el superadmin publica una URL en config/portal.
+           Los tres textos de arriba (etiqueta, título, subtítulo) también
+           salen de config/portal; si no están, se usa data/content.json. -->
       <section class="portal-section portal-video" id="portalVideo" style="display:none;">
         <div class="portal-section-head">
           <span class="portal-eyebrow" id="videoEyebrow"></span>
