@@ -497,5 +497,21 @@ service cloud.firestore {
             || isAdmin());
       allow create, update, delete: if isAdmin();
     }
+    //   finanzas_cuentas — catálogo de cuentas bancarias / billeteras del
+    //     proyecto. Cada documento tiene SOLO dos campos de negocio:
+    //       banco  → texto descriptivo con el tipo (ej. "Bancolombia
+    //                Ahorros", "Nequi")
+    //       numero → número de cuenta o de billetera
+    //     LECTURA: superadmin y gestor. El rol gestor la necesita para poder
+    //     seleccionar la "Cuenta de destino" al asociar movimientos; cualquier
+    //     otro rol (estudiante, avanzado, visitante) queda denegado por la
+    //     regla y por el comodín final.
+    //     ESCRITURA (crear, editar, eliminar): EXCLUSIVA del superadmin. Ni el
+    //     gestor ni ningún otro rol pueden modificarla; la comprobación del rol
+    //     vive en usuarios/{uid}.rol, no en nada que envíe el navegador.
+    match /finanzas_cuentas/{id} {
+      allow read: if isGestor() || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
   }
 }

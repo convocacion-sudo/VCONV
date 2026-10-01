@@ -42,6 +42,10 @@
   var COL_TRANS = 'finanzas_transacciones';
   var COL_COMIS = 'finanzas_comisiones';
   var COL_PAGOS = 'finanzas_pagos';
+  // Catálogo de cuentas bancarias / billeteras. Solo el superadmin las
+  // administra; superadmin y gestor pueden leerlas (firestore.rules). Cada
+  // documento expone SOLO { banco, numero } como campos de negocio.
+  var COL_CUENTAS = 'finanzas_cuentas';
   var TIPOS_VALIDOS = ['personal', 'grupo', 'ofrenda'];
 
   var ETIQUETA_USUARIO = 'Aporte de Usuario';
@@ -66,6 +70,7 @@
   var cfgPromise = null;
   var comunidadesCache = [];
   var usuariosCache = [];
+  var cuentasCache = [];
   var _wrapped = false;
 
   // Estado de las vistas (filtros persistentes entre repintados).
@@ -79,6 +84,9 @@
     return '$' + v.toLocaleString('es-CO');
   }
   function isAdminUser() { return V.userRole === 'superadmin'; }
+  // Lectura del catálogo de cuentas: superadmin (que además escribe) y
+  // gestor (solo lectura, para poder seleccionar la cuenta de destino).
+  function puedeLeerCuentas() { return isAdminUser() || V.userRole === 'gestor'; }
   // Rol "avanzado": entra al módulo en modo SOLO LECTURA y limitado a su
   // propia red. Sus lecturas se resuelven contra esMiArbolFin() en
   // firestore.rules, así que el backend descarta cualquier documento ajeno
@@ -380,6 +388,96 @@
     return null;
   }
 
+  /* ─── CUENTAS BANCARIAS / BILLETERAS ─────────────────────────
+     Catálogo de cuentas del proyecto. Cada cuenta tiene SOLO dos campos
+     de negocio:
+       banco  → texto descriptivo que incluye el tipo (ej. "Bancolombia
+                Ahorros", "Nequi").
+       numero → número de cuenta o de billetera.
+     Seguridad (firestore.rules): lectura para superadmin y gestor;
+     creación, edición y eliminación EXCLUSIVAS del superadmin. La UI de
+     gestión se monta solo si isAdminUser(); el backend rechaza cualquier
+     escritura de otro rol aunque se manipule el cliente.                 */
+  function loadCuentas(forzar) {
+    if (!V.db) return Promise.resolve([]);
+    // El control de rol va ANTES de servir la caché: si no, una sesión que
+    // heredara la caché de un superadmin (cambio de rol sin recargar) vería
+    // el catálogo sin pasar por la regla de acceso. Solo superadmin y gestor
+    // pueden leer la colección; para el resto se evita la consulta (daría
+    // PERMISSION_DENIED) y se devuelve una lista vacía, que es lo que debe
+    // ver su interfaz.
+    if (!puedeLeerCuentas()) return Promise.resolve([]);
+    if (cuentasCache.length && !forzar) return Promise.resolve(cuentasCache);
+    return V.db.collection(COL_CUENTAS).get()
+      .then(function (snap) {
+        cuentasCache = [];
+        snap.forEach(function (doc) {
+          var d = doc.data() || {};
+          cuentasCache.push({
+            id: doc.id,
+            banco: String(d.banco == null ? '' : d.banco),
+            numero: String(d.numero == null ? '' : d.numero)
+          });
+        });
+        cuentasCache.sort(function (a, b) {
+          var c = a.banco.localeCompare(b.banco);
+          return c !== 0 ? c : a.numero.localeCompare(b.numero);
+        });
+        return cuentasCache;
+      })
+      .catch(function () { return []; });
+  }
+  function cuentaById(id) {
+    if (!id) return null;
+    for (var i = 0; i < cuentasCache.length; i++) {
+      if (cuentasCache[i].id === String(id)) return cuentasCache[i];
+    }
+    return null;
+  }
+  // Normaliza y valida los dos campos mínimos. Lanza Error con un mensaje
+  // apto para mostrar en un toast cuando falta alguno.
+  function normalizarCuenta(datos) {
+    var banco = String(datos && datos.banco != null ? datos.banco : '').trim();
+    var numero = String(datos && datos.numero != null ? datos.numero : '').trim();
+    if (!banco) throw new Error('Escribe el banco o billetera (ej. Bancolombia Ahorros, Nequi).');
+    if (!numero) throw new Error('Escribe el número de cuenta o de billetera.');
+    return { banco: banco, numero: numero };
+  }
+  function crearCuentaBanco(datos) {
+    if (!isAdminUser()) return Promise.reject(new Error('Solo el superadmin puede crear cuentas.'));
+    if (!V.db) return Promise.reject(new Error('Firestore no disponible.'));
+    var cuenta;
+    try { cuenta = normalizarCuenta(datos); } catch (e) { return Promise.reject(e); }
+    cuenta.creadoPor = V.userId;
+    cuenta.creadoEn = new Date().toISOString();
+    return V.db.collection(COL_CUENTAS).add(cuenta).then(function (ref) {
+      cuentasCache = [];
+      return ref.id;
+    });
+  }
+  function editarCuentaBanco(id, datos) {
+    if (!isAdminUser()) return Promise.reject(new Error('Solo el superadmin puede editar cuentas.'));
+    if (!V.db || !id) return Promise.reject(new Error('Cuenta no válida.'));
+    var cuenta;
+    try { cuenta = normalizarCuenta(datos); } catch (e) { return Promise.reject(e); }
+    return V.db.collection(COL_CUENTAS).doc(id).set({
+      banco: cuenta.banco,
+      numero: cuenta.numero,
+      actualizadoPor: V.userId,
+      actualizadoEn: new Date().toISOString()
+    }, { merge: true }).then(function () {
+      cuentasCache = [];
+      return id;
+    });
+  }
+  function eliminarCuentaBanco(id) {
+    if (!isAdminUser()) return Promise.reject(new Error('Solo el superadmin puede eliminar cuentas.'));
+    if (!V.db || !id) return Promise.reject(new Error('Cuenta no válida.'));
+    return V.db.collection(COL_CUENTAS).doc(id).delete().then(function () {
+      cuentasCache = [];
+    });
+  }
+
   /* ─── MOTOR DE COMISIONES (lectura dinámica de porcentajes) ──
      Calcula la distribución exacta de la bolsa MLM para una
      transacción con LOS PORCENTAJES VIGENTES de config/finanzas:
@@ -514,6 +612,9 @@
       userId: userId,
       comunidadId: comunidadId,
       categoriaId: cat.id,
+      // Cuenta de destino (opcional): id de finanzas_cuentas. Cadena vacía
+      // cuando el movimiento no se asocia a una cuenta concreta.
+      cuentaId: (datos.cuentaId && String(datos.cuentaId)) || '',
       monto: monto,
       tipo: tipo,
       concepto: (datos.concepto || '').trim(),
@@ -602,6 +703,7 @@
         userId: userId,
         comunidadId: comunidadId,
         categoriaId: cat.id,
+        cuentaId: (datos.cuentaId && String(datos.cuentaId)) || '',
         monto: monto,
         tipo: tipo,
         concepto: (datos.concepto || '').trim(),
@@ -1535,6 +1637,17 @@
     fCat.appendChild(selCat);
     form.appendChild(fCat);
 
+    // Cuenta de destino (opcional): catálogo de finanzas_cuentas. El
+    // superadmin lo administra en el panel de Finanzas; aquí solo se elige
+    // para asociar el movimiento (aporte u ofrenda) a una cuenta concreta.
+    var fCuenta = el('div', 'field');
+    fCuenta.appendChild(el('label', '', 'Cuenta de destino'));
+    var selCuenta = document.createElement('select');
+    selCuenta.className = 'select';
+    selCuenta.id = 'finTxCuenta';
+    fCuenta.appendChild(selCuenta);
+    form.appendChild(fCuenta);
+
     // Monto / concepto / fecha / estado
     var fMonto = el('div', 'field');
     fMonto.appendChild(el('label', '', 'Monto'));
@@ -1654,6 +1767,20 @@
         }));
         if (comOld) acCom.setValue(comOld);
       });
+      loadCuentas(true).then(function () {
+        if (!document.body.contains(selCuenta)) return;
+        var cuentaOld = (editando && existing && existing.cuentaId) ? String(existing.cuentaId) : '';
+        var opts = [{ value: '', label: '— Sin cuenta —' }];
+        cuentasCache.forEach(function (c) {
+          opts.push({ value: c.id, label: c.banco + ' · N.º ' + c.numero });
+        });
+        // Si la cuenta guardada ya no existe en el catálogo, se conserva como
+        // opción para no borrar la referencia al guardar la transacción.
+        if (cuentaOld && !cuentaById(cuentaOld)) {
+          opts.push({ value: cuentaOld, label: 'Cuenta no disponible (' + cuentaOld + ')' });
+        }
+        fillSelectOpciones(selCuenta, opts, cuentaOld);
+      });
     }
 
     if (editando && existing) {
@@ -1682,6 +1809,7 @@
         userId: acUsuario.getValue(),
         comunidadId: acCom.getValue(),
         categoriaId: selCat.value,
+        cuentaId: selCuenta.value,
         monto: inpMonto.value,
         concepto: inpCon.value,
         fecha: inpFecha.value || new Date().toISOString(),
@@ -2572,6 +2700,18 @@
     conRow.appendChild(inputCon);
     form.appendChild(conRow);
 
+    // Cuenta de destino (opcional): solo para quien puede leer el catálogo
+    // (superadmin y gestor). El gestor puede seleccionarla, pero no editarla.
+    var selCuentaAporte = null;
+    if (puedeLeerCuentas()) {
+      var cuentaRow = el('div', 'field');
+      cuentaRow.appendChild(el('label', '', 'Cuenta de destino (opcional)'));
+      selCuentaAporte = document.createElement('select');
+      selCuentaAporte.className = 'select';
+      cuentaRow.appendChild(selCuentaAporte);
+      form.appendChild(cuentaRow);
+    }
+
     var selUsuario = null;
     var selCom = null;
     var selEstado = null;
@@ -2610,6 +2750,17 @@
     var cats = categoriasActivas().filter(function (c) { return isAdminUser() || c.tipo !== 'grupo'; });
     selectOpcoes(selCat, cats.map(function (c) { return { value: c.id, label: c.nombre + ' (' + tipoLabel(c.tipo) + ')' }; }));
 
+    if (selCuentaAporte) {
+      loadCuentas().then(function () {
+        if (!document.body.contains(selCuentaAporte)) return;
+        var cuentaOpts = [{ value: '', label: '— Sin cuenta —', selected: true }];
+        cuentasCache.forEach(function (c) {
+          cuentaOpts.push({ value: c.id, label: c.banco + ' · N.º ' + c.numero });
+        });
+        selectOpcoes(selCuentaAporte, cuentaOpts);
+      });
+    }
+
     if (isAdminUser() && selUsuario) {
       loadUsuarios().then(function () {
         if (!document.body.contains(selUsuario)) return;
@@ -2640,7 +2791,7 @@
     btn.addEventListener('click', function () {
       if (!selCat.value) { V.toast('Selecciona una categoría.', true); return; }
       if (!(Number(inputMonto.value) > 0)) { V.toast('Escribe un monto válido mayor a cero.', true); return; }
-      var datosAporte = { categoriaId: selCat.value, monto: inputMonto.value, concepto: inputCon.value };
+      var datosAporte = { categoriaId: selCat.value, monto: inputMonto.value, concepto: inputCon.value, cuentaId: selCuentaAporte ? selCuentaAporte.value : '' };
       if (isAdminUser()) {
         if (selUsuario && selUsuario.value) datosAporte.userId = selUsuario.value;
         if (selCom && selCom.value) datosAporte.comunidadId = selCom.value;
@@ -2805,6 +2956,10 @@
     renderParametrosPorcentajes(panel);
 
     renderCategoriasAdmin(panel);
+
+    // Catálogo de cuentas bancarias / billeteras (solo lectura para gestor):
+    // la sección de gestión se monta únicamente en el panel del superadmin.
+    renderCuentasAdmin(panel);
 
     panel.appendChild(renderLiquidacion(panel));
     panel.appendChild(renderAsignacionComision(panel));
@@ -3064,6 +3219,134 @@
     });
 
     renderList();
+  }
+
+  /* ─── GESTIÓN DE CUENTAS BANCARIAS (superadmin) ──────────────
+     Sección de administración del catálogo de cuentas del proyecto.
+     Cada cuenta tiene SOLO dos campos: banco (con su tipo) y número.
+     Solo se monta en el panel del superadmin; la lectura del gestor se
+     resuelve por la API y las reglas, sin formulario de escritura.   */
+  var _editingCuentaId = null;
+
+  function renderCuentasAdmin(container) {
+    container.appendChild(el('div', 'fin-subhead', 'Cuentas bancarias y billeteras'));
+    container.appendChild(el('p', 'fin-form-note', 'Dos datos por cuenta: banco/billetera (con su tipo) y número. El rol gestor puede consultarlas para seleccionarlas como cuenta de destino; solo el superadmin puede crearlas, editarlas o eliminarlas.'));
+
+    var form = el('div', 'fin-form');
+    var fBanco = el('div', 'field');
+    fBanco.appendChild(el('label', '', 'Banco / billetera'));
+    var inpBanco = document.createElement('input');
+    inpBanco.type = 'text';
+    inpBanco.className = 'input';
+    inpBanco.placeholder = 'Ej: Bancolombia Ahorros, Nequi';
+    inpBanco.id = 'finCuentaBanco';
+    inpBanco.autocomplete = 'off';
+    fBanco.appendChild(inpBanco);
+    form.appendChild(fBanco);
+
+    var fNumero = el('div', 'field');
+    fNumero.appendChild(el('label', '', 'Número de cuenta / billetera'));
+    var inpNumero = document.createElement('input');
+    inpNumero.type = 'text';
+    inpNumero.className = 'input';
+    inpNumero.placeholder = 'Ej: 01234567890 o 3001234567';
+    inpNumero.id = 'finCuentaNumero';
+    inpNumero.autocomplete = 'off';
+    fNumero.appendChild(inpNumero);
+    form.appendChild(fNumero);
+
+    var acciones = el('div', 'fin-form-acciones');
+    var btnAgregar = el('button', 'btn btn-primary btn-sm', '➕ Agregar cuenta');
+    btnAgregar.type = 'button';
+    var btnCancelar = el('button', 'btn btn-outline btn-sm', 'Cancelar edición');
+    btnCancelar.type = 'button';
+    btnCancelar.style.display = 'none';
+    acciones.appendChild(btnAgregar);
+    acciones.appendChild(btnCancelar);
+    form.appendChild(acciones);
+    container.appendChild(form);
+
+    var list = el('div', '');
+    container.appendChild(list);
+
+    function resetForm() {
+      _editingCuentaId = null;
+      inpBanco.value = '';
+      inpNumero.value = '';
+      btnAgregar.textContent = '➕ Agregar cuenta';
+      btnCancelar.style.display = 'none';
+    }
+
+    function renderList() {
+      list.innerHTML = '';
+      if (!cuentasCache.length) {
+        list.appendChild(el('p', 'fin-empty', 'No hay cuentas registradas. Agrega la primera con el formulario.'));
+        return;
+      }
+      cuentasCache.forEach(function (c) {
+        var row = el('div', 'fin-cat-row');
+        var info = el('div', '');
+        info.appendChild(el('div', 'fin-cat-nombre', c.banco));
+        info.appendChild(el('div', 'fin-cat-tipo', 'N.º ' + c.numero));
+        row.appendChild(info);
+
+        var acc = el('div', 'fin-cat-acciones');
+        var btnEdit = el('button', 'btn btn-outline btn-sm', '✏️');
+        btnEdit.type = 'button';
+        btnEdit.title = 'Editar cuenta';
+        btnEdit.addEventListener('click', function () {
+          _editingCuentaId = c.id;
+          inpBanco.value = c.banco;
+          inpNumero.value = c.numero;
+          btnAgregar.textContent = '💾 Guardar cuenta';
+          btnCancelar.style.display = '';
+        });
+        acc.appendChild(btnEdit);
+        var btnDel = el('button', 'btn btn-danger btn-sm', '🗑️');
+        btnDel.type = 'button';
+        btnDel.title = 'Eliminar cuenta';
+        btnDel.addEventListener('click', function () {
+          if (!confirm('¿Eliminar la cuenta "' + c.banco + '" (' + c.numero + ')? Las transacciones ya registradas conservarán su referencia.')) return;
+          eliminarCuentaBanco(c.id).then(function () {
+            V.toast('Cuenta eliminada ✓');
+            return loadCuentas(true).then(renderList);
+          }).catch(function (e) {
+            V.toast(e && e.message ? e.message : 'Error al eliminar la cuenta.', true);
+          });
+        });
+        acc.appendChild(btnDel);
+        row.appendChild(acc);
+        list.appendChild(row);
+      });
+    }
+
+    btnCancelar.addEventListener('click', resetForm);
+
+    btnAgregar.addEventListener('click', function () {
+      var editando = !!_editingCuentaId;
+      var datos = { banco: inpBanco.value, numero: inpNumero.value };
+      btnAgregar.disabled = true;
+      var op = _editingCuentaId
+        ? editarCuentaBanco(_editingCuentaId, datos)
+        : crearCuentaBanco(datos);
+      op.then(function () {
+        V.toast(editando ? 'Cuenta actualizada ✓' : 'Cuenta agregada ✓');
+        resetForm();
+        return loadCuentas(true).then(renderList);
+      }).catch(function (e) {
+        V.toast(e && e.message ? e.message : 'Error al guardar la cuenta.', true);
+      }).then(function () {
+        if (!document.body.contains(btnAgregar)) return;
+        btnAgregar.disabled = false;
+        btnAgregar.textContent = '➕ Agregar cuenta';
+      });
+    });
+
+    list.appendChild(el('p', 'fin-loading', 'Cargando cuentas…'));
+    loadCuentas(true).then(function () {
+      if (!document.body.contains(list)) return;
+      renderList();
+    });
   }
 
   function renderLiquidacion(container) {
@@ -3337,6 +3620,13 @@
     pctsMlm: pctsMlm,
     loadComunidades: loadComunidades,
     loadUsuarios: loadUsuarios,
+    // Cuentas bancarias / billeteras: lectura para superadmin y gestor;
+    // escritura exclusiva del superadmin (validada también en las reglas).
+    loadCuentas: loadCuentas,
+    cuentaById: cuentaById,
+    crearCuenta: crearCuentaBanco,
+    editarCuenta: editarCuentaBanco,
+    eliminarCuenta: eliminarCuentaBanco,
     renderPerfil: renderPerfil,
     renderVistaFinanzas: renderVistaFinanzas,
     renderVistaReportes: renderVistaReportes,
