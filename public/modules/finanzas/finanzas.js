@@ -289,6 +289,81 @@
   function misComunidades(uid) {
     return comunidadesCache.filter(function (c) { return c.coordinadorId === uid; });
   }
+
+  /* ─── COMUNIDADES SIN DUPLICADOS PARA LOS SELECTORES ─────────
+     Firestore no impide que existan dos documentos con el mismo
+     nombre (ids distintos) ni que una misma comunidad llegue dos
+     veces al desplegable. Cada entrada repetida se pintaría como
+     una fila idéntica e indistinguible en el menú, y el usuario no
+     podría saber cuál está escogiendo. Este filtro deja UNA sola
+     fila por comunidad: primero descarta las repeticiones por id y
+     después fusiona las que comparten nombre normalizado (minúsculas,
+     sin acentos y sin espacios redundantes).
+
+     Ante un choque por nombre sobrevive, en este orden:
+       1) el id recibido en `preferidoId` — la comunidad a la que ya
+          apunta la transacción que se está editando, que de otro modo
+          quedaría huérfana del desplegable. Este criterio es ABSOLUTO
+          y no depende del orden de Firestore: se localiza su clave de
+          nombre en una primera pasada y ninguna otra gemela de esa
+          misma clave puede desplazarla.
+       2) la que tiene coordinador asignado — la única con la que la
+          liquidación de ofrendas puede operar,
+       3) la primera encontrada. */
+  var _ACENTOS_COM = {
+    'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a', 'ã': 'a',
+    'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e',
+    'í': 'i', 'ì': 'i', 'ï': 'i', 'î': 'i',
+    'ó': 'o', 'ò': 'o', 'ö': 'o', 'ô': 'o', 'õ': 'o',
+    'ú': 'u', 'ù': 'u', 'ü': 'u', 'û': 'u',
+    'ñ': 'n', 'ç': 'c'
+  };
+  function claveNombreCom(nombre) {
+    // El aplanado a minúsculas va ANTES de quitar los acentos: el mapa solo
+    // tiene claves en minúscula, de modo que una vocal acentuada en
+    // mayúscula no encontraría su equivalencia y las dos grafías ("Ñandú"
+    // y "nandu") no se fundirían en la misma clave.
+    var s = String(nombre == null ? '' : nombre).toLowerCase()
+      .replace(/[\u00C0-\u017F]/g, function (ch) { return _ACENTOS_COM[ch] || ch; });
+    return s.replace(/\s+/g, ' ').trim();
+  }
+  function comunidadesUnicas(lista, preferidoId) {
+    var porId = {};   // evita repetir el mismo id aunque cambie la clave del objeto
+    var porNombre = {};
+    var out = [];
+    var pref = (preferidoId == null || preferidoId === '') ? null : String(preferidoId);
+    var clavePref = null;
+    // Primera pasada: la clave de nombre de la comunidad preferida. Sin esto
+    // la prioridad dependería del orden de Firestore y una gemela posterior
+    // con coordinador la dejaría fuera del desplegable.
+    (lista || []).forEach(function (c) {
+      if (pref !== null && c && c.id != null && String(c.id) === pref) {
+        var k = claveNombreCom(c.nombre);
+        if (k) clavePref = k;
+      }
+    });
+    (lista || []).forEach(function (c) {
+      if (!c || c.id == null) return;
+      var id = String(c.id);
+      if (porId['id:' + id]) return;
+      porId['id:' + id] = true;
+      var clave = claveNombreCom(c.nombre);
+      // Sin nombre no hay nada que comparar: la fila solo se deduplica por id.
+      if (!clave) { out.push(c); return; }
+      var previa = porNombre[clave];
+      if (!previa) { porNombre[clave] = c; out.push(c); return; }
+      if (clavePref !== null && clave === clavePref) {
+        if (id === pref) { out[out.indexOf(previa)] = c; porNombre[clave] = c; }
+        return;               // el resto de gemelas de esa clave se descartan
+      }
+      if (!previa.coordinadorId && c.coordinadorId) {
+        out[out.indexOf(previa)] = c;   // gana la que tiene coordinador
+        porNombre[clave] = c;
+      }
+    });
+    out.sort(function (a, b) { return claveNombreCom(a.nombre).localeCompare(claveNombreCom(b.nombre)); });
+    return out;
+  }
   function loadUsuarios(force) {
     if (!V.db) return Promise.resolve([]);
     if (usuariosCache.length && !force) return Promise.resolve(usuariosCache);
@@ -1270,9 +1345,18 @@
     });
 
     return {
+      // Última barrera contra filas repetidas: si la lista llega con el mismo
+      // id dos veces (records repetidos en Firestore o una comunidad inyectada
+      // a mano además de la que ya venía del servidor), se conserva la primera.
       setItems: function (arr) {
-        items = (arr || []).map(function (it) {
-          return { id: String(it.id), label: String(it.label || ''), sub: String(it.sub || '') };
+        var vistos = {};
+        items = [];
+        (arr || []).forEach(function (it) {
+          if (!it || it.id == null) return;
+          var id = String(it.id);
+          if (vistos[id]) return;
+          vistos[id] = true;
+          items.push({ id: id, label: String(it.label || ''), sub: String(it.sub || '') });
         });
         render();
       },
@@ -1438,7 +1522,12 @@
     var acCom = crearAutocompletar(inpCom);
     form.appendChild(fCom);
 
-    // Categoría (filtrada según origen)
+    // Categoría: se listan TODAS las categorías activas, sin importar el
+    // origen. Antes se restringía a las de tipo 'grupo' cuando el origen era
+    // comunidad, lo que (a) ocultaba el resto de opciones y (b) al EDITAR una
+    // ofrenda existente reescribía su categoría real por la primera de tipo
+    // 'grupo'. El tipo contable no depende de la categoría elegida:
+    // prepararTransaccion fuerza 'grupo' para toda transacción de comunidad.
     var fCat = el('div', 'field');
     fCat.appendChild(el('label', '', 'Categoría'));
     var selCat = document.createElement('select');
@@ -1511,19 +1600,18 @@
     btnCancel.addEventListener('click', cerrar);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) cerrar(); });
 
+    // Categoría con la que se creó la transacción en edición: se reaplica en
+    // cada repintado del desplegable para no perderla al cambiar de origen.
+    var catEnEdicion = (editando && existing && existing.categoriaId) ? String(existing.categoriaId) : '';
+
     function actualizarOrigen() {
       var origen = (inUsu.checked ? 'usuario' : (inCom.checked ? 'comunidad' : ''));
       inpUsuario.disabled = origen !== 'usuario';
       inpCom.disabled = origen !== 'comunidad';
       if (origen !== 'usuario' && acUsuario.getValue()) acUsuario.clear();
       if (origen !== 'comunidad' && acCom.getValue()) acCom.clear();
-      var soloTipo = origen === 'comunidad' ? 'grupo' : '';
-      var prevCat = selCat.value;
-      fillCategoriaSelect(selCat, '', soloTipo);
-      if (soloTipo && categoriasDeTipo('grupo', true).length) {
-        selCat.value = categoriasDeTipo('grupo', true)[0].id;
-      }
-      if (!soloTipo) { if (prevCat) selCat.value = prevCat; }
+      var sel0 = selCat.value || catEnEdicion;
+      fillCategoriaSelect(selCat, sel0);
       actualizarResumen();
     }
     inUsu.addEventListener('change', actualizarOrigen);
@@ -1556,13 +1644,15 @@
       });
       loadComunidades(true).then(function () {
         if (!document.body.contains(inpCom)) return;
-        acCom.setItems(comunidadesCache.map(function (c) {
+        // La comunidad de la transacción en edición se calcula antes de armar
+        // la lista: es la que debe sobrevivir si hay otra con el mismo nombre.
+        var comOld = (editando && existing)
+          ? (existing.comunidadId || (existing.origen === 'comunidad' ? existing.origenId : ''))
+          : '';
+        acCom.setItems(comunidadesUnicas(comunidadesCache, comOld).map(function (c) {
           return { id: c.id, label: c.nombre, sub: c.coordinadorId ? ('Coord: ' + nombreUsuario(usuarioById(c.coordinadorId))) : 'Sin coordinador' };
         }));
-        if (editando && existing) {
-          var comOld = existing.comunidadId || (existing.origen === 'comunidad' ? existing.origenId : '');
-          if (comOld) acCom.setValue(comOld);
-        }
+        if (comOld) acCom.setValue(comOld);
       });
     }
 
@@ -2536,7 +2626,7 @@
       loadComunidades().then(function () {
         if (!document.body.contains(selCom)) return;
         var opts = [{ value: '', label: '(Sin comunidad)' }];
-        comunidadesCache.forEach(function (c) { opts.push({ value: c.id, label: c.nombre + (c.coordinadorId ? ' · Coord: ' + nombreUsuario(usuarioById(c.coordinadorId)) : '') }); });
+        comunidadesUnicas(comunidadesCache, selCom.value).forEach(function (c) { opts.push({ value: c.id, label: c.nombre + (c.coordinadorId ? ' · Coord: ' + nombreUsuario(usuarioById(c.coordinadorId)) : '') }); });
         selectOpcoes(selCom, opts);
       });
     }
@@ -3030,7 +3120,7 @@
     }).then(function () {
       if (!document.body.contains(selCom)) return;
       var cats = categoriasDeTipo('grupo', true);
-      selectOpcoes(selCom, comunidadesCache.map(function (c) {
+      selectOpcoes(selCom, comunidadesUnicas(comunidadesCache, selCom.value).map(function (c) {
         return { value: c.id, label: c.nombre + (c.coordinadorId ? ' · Coord: ' + nombreUsuario(usuarioById(c.coordinadorId)) : ' · Sin coordinador') };
       }));
       selectOpcoes(selCat, cats.map(function (c) { return { value: c.id, label: c.nombre }; }));
