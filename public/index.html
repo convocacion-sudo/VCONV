@@ -366,10 +366,11 @@
               <div class="field field-full">
                 <label for="edAcceso">Acceso del curso</label>
                 <select id="edAcceso" class="select">
-                  <option value="completo">Completo · solo lecciones de prueba abiertas</option>
-                  <option value="gratis">Gratuito · todo el contenido público</option>
+                  <option value="gratis">Nivel 1 · Libre / público — todo el contenido visible sin registrarse</option>
+                  <option value="completo">Nivel 2 · Para registrados — el contenido exige una cuenta</option>
+                  <option value="pago">Nivel 3 · De pago — contenido reservado a cuentas con pago</option>
                 </select>
-                <p class="field-hint">El catálogo es visible para todos. El detalle de cada lección se restringe con su propio campo «acceso» (prueba/completo) y los bloques avanzados se marcan en su editor.</p>
+                <p class="field-hint">Los tres niveles son configurables e independientes. El catálogo siempre es visible para todos; este nivel decide qué contenido se abre sin cuenta, y el detalle de cada lección se afina con su propio selector de acceso (prueba / registrados / de pago) en su bloque.</p>
               </div>
             </div>
           </div>
@@ -406,9 +407,13 @@
           <div>
             <h2 id="courseTitle"></h2>
             <p id="courseDesc"></p>
+            <div class="course-nivel" id="courseNivel"></div>
           </div>
         </div>
-        <button type="button" class="btn btn-outline" id="btnEditCourseCms" style="display:none;">⚙ Editar contenido</button>
+        <div class="section-header-acciones">
+          <button type="button" class="btn btn-outline" id="btnShareCourse" title="Copiar el enlace directo de este curso">🔗 Copiar enlace</button>
+          <button type="button" class="btn btn-outline" id="btnEditCourseCms" style="display:none;">⚙ Editar contenido</button>
+        </div>
       </div>
       <div class="lesson-list" id="lessonList"></div>
     </div>
@@ -419,6 +424,7 @@
           <span class="reader-meta" id="readerLessonMeta"></span>
         </div>
         <div class="reader-toolbar-right">
+          <button type="button" class="icon-btn" id="btnShareLesson" title="Copiar el enlace directo de esta lección">🔗</button>
           <button type="button" class="icon-btn" id="readerFontDown" title="Reducir texto">A-</button>
           <button type="button" class="icon-btn" id="readerFontUp" title="Aumentar texto">A+</button>
           <button type="button" class="icon-btn" id="readerTheme" title="Modo claro/oscuro">🌓</button>

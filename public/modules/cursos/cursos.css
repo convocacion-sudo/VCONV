@@ -40,6 +40,11 @@
 .course-card-actions .btn { flex: 1; padding: 0.45rem 0.75rem; font-size: 0.78rem; }
 .card-link { cursor: pointer; }
 
+/* ── NIVEL DE ACCESO DEL CURSO (1 Libre · 2 Registrados · 3 De pago) ── */
+.course-card > .status-pill { align-self: flex-start; font-size: 0.7rem; }
+.course-nivel { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem; flex-wrap: wrap; }
+.course-nivel:empty { display: none; }
+
 @media (max-width: 600px) {
   .course-card { padding: 1.15rem; }
 }
@@ -102,6 +107,13 @@
 .lesson-date { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem; }
 .lesson-status-icon { font-size: 1rem; flex-shrink: 0; color: var(--text-muted); }
 .lesson-item.completed .lesson-status-icon { color: var(--success); }
+/* Copiar el enlace de la lección: al extremo derecho de la fila. La fila
+   bloqueada lleva pointer-events:none (no se puede abrir la lección), pero el
+   botón recupera los eventos con pointer-events:auto porque compartir el
+   enlace sigue siendo válido aunque el paso todavía esté cerrado — es
+   justamente el caso de quien quiere pasárselo a un compañero. */
+.lesson-share { flex-shrink: 0; }
+.lesson-item.locked .lesson-share { pointer-events: auto; }
 
 /* Nota de contenido parcial para visitantes anónimos (sin muro de registro) */
 .locked-course-hint {

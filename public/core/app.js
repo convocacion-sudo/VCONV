@@ -800,7 +800,184 @@
     });
   }
 
+  /* ─── DEEP LINKING (enlaces directos) ──────────────────────────
+     Una URL como  index.html?curso=abc123&leccion=l1  debe abrir
+     directamente ese curso y esa lección al cargar la app, en lugar de
+     aterrizar en el Escritorio o, para el visitante, en la landing.
+
+     Aquí vive solo la MECÁNICA, que es agnóstica del módulo: parseo de
+     la URL, registro de manejadores y sincronización de la barra de
+     direcciones. Cada módulo publica sus parámetros con
+     registerDeepLink() y decide qué abrir con su propio resolver, así
+     que dar deep linking a otro módulo no toca una línea de este código.
+
+     Se aceptan las dos fuentes porque el enlace se pega tal cual en
+     WhatsApp, correo o Slack: si quien lo recibe lo copia de la barra de
+     direcciones puede llegar con ?curso=… o con #curso=…, y las dos
+     tienen que abrir exactamente lo mismo. */
+  var _deepLinks = [];
+  // El enlace que trae la URL se aplica UNA sola vez, en el arranque. Sin este
+  // cierre, un cambio de identidad posterior (el visitante que crea su cuenta)
+  // volvería a dispararlo y le quitaría al usuario la vista que acaba de abrir
+  // para devolverlo al curso del enlace.
+  var _deepLinkAplicado = false;
+
+  // Parsea "a=1&b=2" en un objeto plano, tolerando el prefijo ? # / y un
+  // porcentaje mal formado (un enlace pegado a mano no debe romper el
+  // arranque). No se usa URLSearchParams: para cuatro claves no compensa
+  // depender de la API moderna, igual que en mlm.js → leerRefDeUrl.
+  function _parseQuery(str) {
+    var out = {};
+    if (!str) return out;
+    String(str).replace(/^[?#\/]+/, '').split('&').forEach(function (par) {
+      if (!par) return;
+      var i = par.indexOf('=');
+      var k = i === -1 ? par : par.slice(0, i);
+      var v = i === -1 ? '' : par.slice(i + 1);
+      try {
+        k = decodeURIComponent(k);
+        v = decodeURIComponent(v.replace(/\+/g, ' '));
+      } catch (e) { /* valor crudo: mejor un enlace raro que una URL muerta */ }
+      if (k) out[k] = v;
+    });
+    return out;
+  }
+
+  // Claves de enlace directo declaradas por los módulos.
+  function _deepLinkKeys() {
+    var keys = [];
+    _deepLinks.forEach(function (d) { keys = keys.concat(d.nombres); });
+    return keys;
+  }
+  function _esDeepLinkKey(k) { return _deepLinkKeys().indexOf(k) !== -1; }
+
+  // Parámetros presentes ahora mismo en la URL: query y hash unidos, con
+  // prioridad para el query. Un hash de ancla suelto (#seccion) no genera
+  // ninguna clave con valor, así que no llega a ser enlace directo.
+  function leerParamsUrl() {
+    var params = _parseQuery(window.location.search);
+    var hash = _parseQuery(window.location.hash);
+    Object.keys(hash).forEach(function (k) { if (params[k] === undefined) params[k] = hash[k]; });
+    return params;
+  }
+
+  // Parámetros del enlace directo CONGELADOS en el arranque. No se releen al
+  // aplicar porque, para una cuenta registrada, el arranque pasa por
+  // goDashboard() —que borra las claves de enlace directo del query— antes de
+  // llegar a aplicarDeepLink(): si se leyera la URL en ese instante el enlace
+  // ya no estaría y el deep link se perdería en silencio, sin error ni aviso.
+  var _deepLinkParams = null;
+  function congelarDeepLink() {
+    if (_deepLinkParams) return;
+    _deepLinkParams = leerParamsUrl();
+  }
+
+  // Un módulo declara qué parámetros son suyos y qué hacer con ellos:
+  //   V.registerDeepLink(['curso','leccion'], function (params) { … })
+  function registerDeepLink(paramNames, resolver) {
+    if (!paramNames || !paramNames.length || typeof resolver !== 'function') return;
+    _deepLinks.push({ nombres: paramNames, resolver: resolver });
+  }
+
+  // Enlace directo pendiente de aplicar: el de la URL que algún módulo sabe
+  // abrir. Null en cuanto se haya aplicado, para no volver a saltar.
+  function deepLinkPendiente() {
+    if (_deepLinkAplicado) return null;
+    congelarDeepLink();
+    var params = _deepLinkParams;
+    for (var i = 0; i < _deepLinks.length; i++) {
+      var nombres = _deepLinks[i].nombres;
+      for (var j = 0; j < nombres.length; j++) {
+        if (params[nombres[j]]) return { params: params, handler: _deepLinks[i] };
+      }
+    }
+    return null;
+  }
+
+  // Aplica el enlace directo de la URL, si lo hay. Se invoca UNA vez, al
+  // final de startApp(): antes ni la identidad de sesión ni los módulos están
+  // listos, y el resolver necesita de ambos (Firestore con el UID correcto)
+  // para abrir el curso. showApp() se antepone porque el visitante anónimo
+  // que llega por un enlace directo debe ver el contenido, no la landing: el
+  // enlace es una intención explícita de abrir cursos, y esa landing exige un
+  // clic que ya se ha dado con el propio enlace.
+  function aplicarDeepLink() {
+    var link = deepLinkPendiente();
+    if (!link) return false;
+    _deepLinkAplicado = true;
+    showApp();
+    try {
+      link.handler.resolver(link.params);
+    } catch (e) {
+      toast('No se pudo abrir el enlace: ' + (e && e.message ? e.message : e), true);
+    }
+    return true;
+  }
+
+  // Serializa el query que resulta de aplicar `params` (null = borrar las
+  // claves de enlace directo) sobre el query actual. Devuelve '' o '?a=1'.
+  function _serializarQueryDeepLink(params) {
+    var actuales = _parseQuery(window.location.search);
+    var propias = _deepLinkKeys();
+    propias.forEach(function (k) { delete actuales[k]; });
+    if (params) {
+      propias.forEach(function (k) { if (params[k]) actuales[k] = params[k]; });
+    }
+    var qs = '';
+    Object.keys(actuales).forEach(function (k) {
+      qs += (qs ? '&' : '?') + encodeURIComponent(k) + '=' + encodeURIComponent(actuales[k]);
+    });
+    return qs;
+  }
+
+  // Quita del hash las claves de enlace directo. Un hash sin '=' (un ancla) se
+  // devuelve tal cual: solo se reescribe el hash que realmente es una gramática
+  // de parámetros, así que un #seccion existente nunca se convierte en #seccion=.
+  function _hashSinDeepLink() {
+    var hash = window.location.hash;
+    if (!hash || hash.indexOf('=') === -1) return hash;
+    var keep = [];
+    hash.replace(/^[?#\/]+/, '').split('&').forEach(function (par) {
+      var i = par.indexOf('=');
+      var k = i === -1 ? par : par.slice(0, i);
+      var dec = k;
+      try { dec = decodeURIComponent(k); } catch (e) { /* crudo */ }
+      if (!_esDeepLinkKey(dec)) keep.push(par);
+    });
+    return keep.length ? '#' + keep.join('&') : '';
+  }
+
+  // Deja la barra de direcciones sincronizada con lo que el usuario está
+  // viendo, para que copiarla, recargar con F5 o compartir el enlace devuelvan
+  // siempre a la misma lección. Se usa replaceState y NO pushState a
+  // propósito: la app lleva su propia pila (_navHistory) y apilar en el
+  // historial del navegador haría que "atrás" saltara entre cursos en lugar de
+  // proseguir por la pila de la app.
+  //
+  // Solo se tocan las claves declaradas por los módulos: el resto del query
+  // sobrevive intacto, y eso es lo que mantiene vivo el ?ref= de las
+  // invitaciones MLM, que se sigue leyendo en cualquier momento al abrir el
+  // formulario de registro (mlm.js → aplicarEstadoRegistro).
+  function escribirDeepLinkUrl(params) {
+    try {
+      if (!window.history || !window.history.replaceState) return;
+      var url = window.location.pathname + _serializarQueryDeepLink(params) + _hashSinDeepLink();
+      window.history.replaceState(null, '', url);
+    } catch (e) { /* noop: la app navega igual sin la URL sincronizada */ }
+  }
+
+  // Enlace absoluto y compartible para esos mismos parámetros. No toca la URL
+  // del navegador: es solo para el portapapeles, así que el usuario puede
+  // copiar el enlace de un curso sin que la barra de direcciones se mueva.
+  function construirDeepLinkUrl(params) {
+    return window.location.origin + window.location.pathname + _serializarQueryDeepLink(params);
+  }
+
   function goDashboard() {
+    // El Escritorio es el home: aquí termina el enlace directo. Sin esto la URL
+    // seguiría anunciando el curso anterior y un F5 lo volvería a abrir,
+    // contradiciendo la vista en la que está el usuario.
+    escribirDeepLinkUrl(null);
     showView('viewDashboard');
     try {
       if (typeof V.onDashboardShow === 'function') V.onDashboardShow();
@@ -1202,7 +1379,7 @@
       // conserva la landing page visible; si ya es una cuenta registrada se
       // refresca la UI y se muestra su escritorio.
       if (isAnon) {
-        if (openCatalogPending) {
+        if (openCatalogPending || deepLinkPendiente()) {
           openCatalogPending = false;
           showApp();
         } else {
@@ -1213,6 +1390,7 @@
       } else {
         refreshAuthUi();
       }
+      aplicarDeepLink();
       return;
     }
     appStarted = true;
@@ -1227,6 +1405,11 @@
     if (isAnon) {
       if (openCatalogPending) {
         openCatalogPending = false;
+        showApp();
+      } else if (deepLinkPendiente()) {
+        // Un enlace directo (?curso=…) es una intención explícita de abrir
+        // cursos: se muestra el shell, pero la navegación real la hace
+        // aplicarDeepLink() más abajo, cuando los módulos ya estén listos.
         showApp();
       } else {
         $('appRoot').style.display = 'none';
@@ -1245,6 +1428,13 @@
         if (mod.onReady) mod.onReady();
       });
     }
+
+    // Enlaces directos: se resuelven AL FINAL del arranque, con los módulos ya
+    // inicializados (onReady es quien enlaza el botón de compartir y registra
+    // el manejador) y con la identidad de sesión ya fijada, que es lo que
+    // permite a Firestore leer el curso con el UID correcto y aplicar el
+    // filtrado de acceso de la sesión (el visitante no ve los bloques de pago).
+    aplicarDeepLink();
   }
 
   function refreshAuthUi() {
@@ -1343,6 +1533,16 @@
   V.showPublicPortal = showPublicPortal;
   V.showGuestCatalog = showGuestCatalog;
   V.showApp = showApp;
+  V.registerDeepLink = registerDeepLink;
+  // API de enlaces directos para los módulos: publicar sus parámetros, saber si
+  // hay uno pendiente, aplicarlo y construir/sincronizar la URL.
+  V.deepLink = {
+    registrar: registerDeepLink,
+    pendiente: deepLinkPendiente,
+    aplicar: aplicarDeepLink,
+    escribirUrl: escribirDeepLinkUrl,
+    construirUrl: construirDeepLinkUrl
+  };
   V.openAuth = openAuth;
   V.closeAuth = closeAuth;
   V.setMode = setMode;
@@ -1368,6 +1568,11 @@
   function init() {
     applyTheme();
     applyFont();
+    // Los parámetros de enlace directo se congelan lo primero de todo, con la
+    // URL todavía intacta: es el único momento en que ?curso=… está garantizado.
+    // Nada más abajo (la navegación al Escritorio, el arranque de módulos) puede
+    // llegar a rescribir el query antes de que el enlace llegue a aplicarse.
+    congelarDeepLink();
     // Los controles de texto y tema del lector se enlazan aquí, antes y con
     // independencia de initFirebase()/initAuth(): son controles estáticos que
     // no necesitan sesión, y así funcionan aunque el arranque con la cuenta

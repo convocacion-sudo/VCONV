@@ -204,10 +204,12 @@ service cloud.firestore {
     // jerarquía: categorias/{catId} → cursos/{id} → bloques/{bid} → lecciones/{lid}
     //
     // Política de contenido (campo `acceso` en cada nodo):
-    //   curso.acceso   = 'gratis' | 'completo' (default 'completo')
-    //   bloque.acceso  = 'gratis' | 'completo' (módulo avanzado)
-    //   leccion.acceso = 'prueba' | 'gratis' | 'completo' (lección
-    //   de prueba gratuita o de acceso libre para los visitantes)
+    //   curso.acceso   = 'gratis' (Nivel 1 · libre/público) |
+    //                    'completo' (Nivel 2 · para registrados) |
+    //                    'pago' (Nivel 3 · de pago); default 'completo'
+    //   bloque.acceso  = 'gratis' | 'completo' | 'pago' (módulo avanzado)
+    //   leccion.acceso = 'prueba' (Nivel 1 · el 'gratis' antiguo es el mismo
+    //   nivel) | 'completo' (Nivel 2) | 'pago' (Nivel 3)
     //
     // - Catálogo general: lectura PÚBLICA de los metadatos de cursos
     //   publicados y de TODOS sus bloques/módulos (incluye visitantes

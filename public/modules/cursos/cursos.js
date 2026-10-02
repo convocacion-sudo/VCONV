@@ -17,6 +17,9 @@
   var leccionActual = null;
   var editingId = null;
   var editingCatId = '';
+  var editingRef = null;       // ruta REAL del curso en edición (autoritativa)
+  var editingRefCatId = null;  // categoría de editingRef ('' = curso raíz, null = sin resolver)
+  var editingSelCatId = null;  // categoría elegida en el <select> y aún sin guardar
   var editingBloques = [];
   var editorExpandBloque = null;
   var editorExpandLeccion = null;
@@ -75,6 +78,57 @@
   }
   function progRefFromCurso(curso) {
     return cursoBaseRef(curso).collection(V.COL_PROGRESO).doc(uidSesion());
+  }
+
+  // Ruta de un curso a partir de su categoría ('' o null = curso raíz legacy).
+  function refCursoEn(catId, cursoId) {
+    if (catId) return cursoRef(catId, cursoId);
+    return V.db.collection(V.COL_CURSOS).doc(cursoId);
+  }
+  // Ruta de un curso de la caché: el caché manda porque es el origen de las
+  // escrituras de la sesión actual.
+  function refCursoCache(cursoId) {
+    var curso = getCourseById(cursoId);
+    if (curso) return refCursoEn(curso.catId || '', curso.id);
+    if (editingRef && editingId === cursoId) return editingRef;
+    return null;
+  }
+
+  /* ─── RUTA REAL DE UN CURSO (anti-duplicados) ───────────────
+     Busca el documento con ESE id en la raíz legacy y en TODAS las
+     categorías. Es la fuente de verdad al guardar: si el curso no está en
+     cursosCache (sesión recién reconstruida, caché filtrada, curso abierto
+     desde otra vista…) y se escribía en la categoría del <select>, el
+     documento original quedaba intacto y aparecía una COPIA con el mismo
+     id en otra categoría. Con esta búsqueda, guardar siempre hace
+     update/set sobre el documento que ya existe. */
+  function buscarRefCurso(cursoId) {
+    if (!V.db || !cursoId) return Promise.resolve(null);
+    var preferido = refCursoCache(cursoId);
+    return V.db.collection(V.COL_CURSOS).doc(cursoId).get()
+      .then(function (doc) { return doc.exists ? [{ ref: doc.ref, catId: '', data: doc.data() }] : []; })
+      .catch(function () { return []; })
+      .then(function (encontrados) {
+        return catCol().get().then(function (cats) {
+          var tareas = cats.docs.map(function (c) { return c.ref.collection(V.COL_CURSOS).doc(cursoId).get(); });
+          return Promise.all(tareas).then(function (docs) {
+            docs.forEach(function (d, i) { if (d.exists) encontrados.push({ ref: d.ref, catId: cats.docs[i].id, data: d.data() }); });
+            return encontrados;
+          });
+        }).catch(function () { return encontrados; });
+      })
+      .then(function (encontrados) {
+        if (!encontrados.length) return null;
+        // Con varias copias (duplicado heredado) se edita la que el editor
+        // tenía abierta y se avisa de las demás para que se limpien.
+        var principal = null;
+        for (var i = 0; i < encontrados.length; i++) {
+          if (preferido && encontrados[i].ref.path === preferido.path) { principal = encontrados[i]; break; }
+        }
+        if (!principal) principal = encontrados[0];
+        principal.copias = encontrados.filter(function (e) { return e.ref.path !== principal.ref.path; });
+        return principal;
+      });
   }
 
   function getCategoriaById(id) {
@@ -147,6 +201,8 @@
   // Restricción estricta de pago/registro: solo 'completo' (y 'pago' legacy)
   // bloquea al visitante. Cualquier otro valor, el valor ausente (undefined /
   // null) o variaciones de texto NO restringen: se muestra como prueba gratuita.
+  // La lista es EXACTAMENTE la de las reglas (accesoRestringido) para que
+  // cliente y servidor coincidan siempre en lo que se oculta.
   function esAccesoRestringido(val) {
     if (val === undefined || val === null) return false;
     return /^(completo|pago)$/i.test(String(val).trim());
@@ -154,6 +210,58 @@
 
   function accesoLibre(val) {
     return !esAccesoRestringido(val);
+  }
+
+  /* ─── LOS TRES NIVELES DE ACCESO ─────────────────────────────
+     Nivel 1 → 'gratis'    Libre / público (visible sin registrarse)
+     Nivel 2 → 'completo'  Solo para cuentas registradas
+     Nivel 3 → 'pago'      De pago
+     Esos son los ÚNICOS valores canónicos que se escriben en Firestore.
+     La LECTURA es deliberadamente tolerante (documentos antiguos con
+     'publico', 'registrado', 'pagado'… o sin campo) y siempre pasa por
+     canonicalAcceso() antes de decidir o de guardar, de modo que abrir y
+     volver a guardar un curso NUNCA degrada su nivel ni lo deja vacío. */
+  var ACCESO_POR_DEFECTO = 'completo';
+  var NIVELES_ACCESO = {
+    gratis: { nivel: 1, pill: 'green', etiqueta: 'Libre / público', corto: 'Libre' },
+    completo: { nivel: 2, pill: 'blue', etiqueta: 'Para registrados', corto: 'Registrados' },
+    pago: { nivel: 3, pill: 'gold', etiqueta: 'De pago', corto: 'De pago' }
+  };
+
+  // Normaliza cualquier valor heredado/variante al nivel canónico. Lo
+  // desconocido cae en el nivel más restrictivo ('completo'), que es el
+  // default histórico del módulo.
+  function canonicalAcceso(val) {
+    if (val === undefined || val === null) return ACCESO_POR_DEFECTO;
+    var v = String(val).trim().toLowerCase();
+    if (!v) return ACCESO_POR_DEFECTO;
+    if (/^(gratis|gratuito|libre|publico|publica|abierto|sin_registro)$/.test(v)) return 'gratis';
+    if (/^(pago|pagado|de_pago|pago_requerido|premium)$/.test(v)) return 'pago';
+    if (/^(completo|completa|registrado|registrados|registro|login)$/.test(v)) return 'completo';
+    return ACCESO_POR_DEFECTO;
+  }
+
+  // Nivel de una LECCIÓN: 'prueba' (acceso libre; el 'gratis' antiguo es el
+  // mismo nivel), 'completo' (registrados) o 'pago'. Misma política de
+  // tolerancia que canonicalAcceso, con 'prueba' como nivel libre.
+  function canonicalAccesoLeccion(val) {
+    if (val === undefined || val === null) return ACCESO_POR_DEFECTO;
+    var v = String(val).trim().toLowerCase();
+    if (!v) return ACCESO_POR_DEFECTO;
+    if (/^(prueba|gratis|gratuito|libre|publico|publica|abierto)$/.test(v)) return 'prueba';
+    if (/^(pago|pagado|de_pago|pago_requerido|premium)$/.test(v)) return 'pago';
+    return 'completo';
+  }
+
+  function datosNivel(val) { return NIVELES_ACCESO[canonicalAcceso(val)]; }
+  function etiquetaNivel(val) {
+    var n = datosNivel(val);
+    return 'Nivel ' + n.nivel + ' · ' + n.corto;
+  }
+  // El curso es de Nivel 1 solo si su valor canónico es 'gratis'. Levels 2 y
+  // 3 exigen cuenta: para el visitante sin sesión el contenido no se publica.
+  function cursoAccesoLibre(curso) {
+    return canonicalAcceso(curso && curso.acceso) === 'gratis';
   }
 
   // Consultas de un SOLO campo para visitantes que no rompen cuando `acceso`
@@ -284,37 +392,61 @@
       });
   }
 
+  /* Lectura tolerante del documento de curso en UNA ruta concreta.
+     Un visitante sin sesión recibe `permission-denied` —no 404— cuando el
+     documento no vive en esa ruta, porque Firestore no distingue "no existe"
+     de "no permitido" si las reglas niegan la lectura. Para un enlace directo
+     ese 403 no es un error: significa simplemente "no está aquí, sigue buscando".
+     Tratarlo como fallo global es lo que impedía abrir por deep link un curso
+     de Nivel 1, cuya única copia está en `categorias/{catId}/cursos/{id}`. */
+  function leerCursoTolerante(ref) {
+    return ref.get().then(function (doc) {
+      return doc.exists ? doc : null;
+    }).catch(function () {
+      return null;
+    });
+  }
+
+  function cursoDesdeDoc(doc, courseId, catId) {
+    var d = doc.data();
+    var c = { id: courseId, catId: catId, titulo: d.titulo || '', descripcion: d.descripcion || '', publicado: d.publicado === true, acceso: d.acceso || '', fecha: d.fecha || null, bloques: [], bloquesLoaded: false };
+    if (!getCourseById(courseId)) cursosCache.push(c);
+    return c;
+  }
+
   function ensureCourse(courseId) {
     var curso = getCourseById(courseId);
     if (curso) return loadCursoTree(curso);
     if (!V.db) return Promise.resolve(null);
     // Fallback: raíz legacy o búsqueda dentro de las categorías.
-    return V.db.collection(V.COL_CURSOS).doc(courseId).get().then(function (doc) {
-      if (doc.exists) {
-        var d = doc.data();
-        var c = { id: doc.id, catId: null, titulo: d.titulo || '', descripcion: d.descripcion || '', publicado: d.publicado === true, fecha: d.fecha || null, bloques: [], bloquesLoaded: false };
-        if (!getCourseById(courseId)) cursosCache.push(c);
-        return loadCursoTree(c);
-      }
-      return null;
-    }).then(function (legacy) {
-      if (legacy) return legacy;
-      return catCol().get().then(function (cats) {
-        var tasks = [];
-        cats.forEach(function (c) { tasks.push(c.ref.collection(V.COL_CURSOS).doc(courseId).get()); });
-        return Promise.all(tasks).then(function (docs) {
-          for (var i = 0; i < docs.length; i++) {
-            if (docs[i].exists) {
-              var d2 = docs[i].data();
-              var c2 = { id: courseId, catId: docs[i].ref.parent.parent.id, titulo: d2.titulo || '', descripcion: d2.descripcion || '', publicado: d2.publicado === true, fecha: d2.fecha || null, bloques: [], bloquesLoaded: false };
-              if (!getCourseById(courseId)) cursosCache.push(c2);
-              return loadCursoTree(c2);
-            }
-          }
+    return leerCursoTolerante(V.db.collection(V.COL_CURSOS).doc(courseId))
+      .then(function (doc) {
+        if (!doc) return null;
+        return loadCursoTree(cursoDesdeDoc(doc, courseId, null));
+      })
+      .then(function (legacy) {
+        if (legacy) return legacy;
+        // Barrido secuencial: cada categoría se consulta una detrás de otra y
+        // una denegación solo descarta ESA categoría. Con Promise.all una sola
+        // denegación (que ocurre en toda categoría donde el curso no está)
+        // rechazaba la cadena entera y el curso nunca se encontraba.
+        return catCol().get().then(function (cats) {
+          return cats.docs.reduce(function (p, c) {
+            return p.then(function (yaEncontrado) {
+              if (yaEncontrado) return yaEncontrado;
+              return leerCursoTolerante(c.ref.collection(V.COL_CURSOS).doc(courseId))
+                .then(function (doc) {
+                  if (!doc) return null;
+                  return loadCursoTree(cursoDesdeDoc(doc, courseId, c.id));
+                });
+            });
+          }, Promise.resolve(null));
+        }).catch(function () {
+          // Sin lista de categorías no hay dónde buscar: se resuelve en null
+          // para que openCourse avise en vez de mostrar un muro equivocado.
           return null;
         });
       });
-    });
   }
 
   /* ─── CATEGORÍAS ──────────────────────────────────────────── */
@@ -449,9 +581,15 @@
   function renderEditorCategoriaSelect() {
     var sel = $('edCategoria');
     if (!sel) return;
-    var current = editingCatId || sel.value || '';
+    // Curso EXISTENTE → manda su ruta real, salvo que el gestor ya haya
+    // elegido otra categoría sin guardar (esa gana hasta que se guarde);
+    // curso nuevo → la categoría en edición. Nunca se deduce de sel.value,
+    // que el navegador reescribe por su cuenta.
+    var current = editingId
+      ? (editingSelCatId !== null ? editingSelCatId : editingCatActual())
+      : (editingCatId || sel.value || '');
     sel.innerHTML = '';
-    if (!categoriasCache.length) {
+    if (!categoriasCache.length && !(editingId && !current)) {
       var o0 = document.createElement('option');
       o0.value = ''; o0.textContent = 'Sin categorías (crea una en el catálogo)';
       sel.appendChild(o0);
@@ -459,12 +597,22 @@
       return;
     }
     sel.disabled = false;
+    // Un curso que vive en la raíz legacy (sin categoría) necesita su opción
+    // explícita: sin ella el <select> muestra por defecto la PRIMERA categoría y
+    // un simple guardado lo movía (duplicando) sin que nadie lo pidiera.
+    if (editingId && !current) {
+      var oRaiz = document.createElement('option');
+      oRaiz.value = ''; oRaiz.textContent = 'Sin categoría (raíz del catálogo)';
+      oRaiz.selected = true;
+      sel.appendChild(oRaiz);
+    }
     categoriasCache.forEach(function (cat) {
       var o = document.createElement('option');
       o.value = cat.id; o.textContent = cat.titulo || 'Sin nombre';
       o.selected = (current === cat.id);
       sel.appendChild(o);
     });
+    sel.value = current || '';
   }
 
   /* ─── CATALOG ─────────────────────────────────────────────── */
@@ -518,6 +666,13 @@
     if (curso.categoria) head.appendChild(el('span', 'status-pill blue', curso.categoria));
     card.appendChild(head);
 
+    // Nivel de acceso del curso (1 Libre · 2 Registrados · 3 De pago): el
+    // gestor lo ve siempre y el estudiante solo en los niveles restringidos.
+    if (V.mode !== 'estudiante' || !cursoAccesoLibre(curso)) {
+      var n = datosNivel(curso.acceso);
+      card.appendChild(el('span', 'status-pill ' + n.pill, '🔑 ' + etiquetaNivel(curso.acceso)));
+    }
+
     var p = el('p', 'course-card-desc', curso.descripcion || '');
     if (!curso.descripcion) p.textContent = 'Sin descripción.';
     card.appendChild(p);
@@ -531,8 +686,18 @@
     meta.appendChild(el('span', 'course-card-pct' + (pct === 100 ? ' complete' : ''), pct + '%'));
     card.appendChild(meta);
 
+    // Compartir se ofrece en los dos modos: el enlace abre el curso (y la
+    // lección) a quien lo reciba, sin montar nada del CMS, así que al
+    // estudiante le sirve tanto como al gestor. El gestor simplemente
+    // encuentra el botón junto a Editar y Eliminar.
+    var actions = el('div', 'course-card-actions');
+    var shareBtn = el('button', 'btn btn-outline', '🔗 Copiar enlace');
+    shareBtn.type = 'button';
+    shareBtn.setAttribute('data-action', 'share');
+    shareBtn.setAttribute('data-course-id', curso.id);
+    shareBtn.title = 'Copiar el enlace directo de «' + (curso.titulo || 'este curso') + '»';
+    actions.appendChild(shareBtn);
     if (V.mode !== 'estudiante') {
-      var actions = el('div', 'course-card-actions');
       var editBtn = el('button', 'btn btn-outline', '✏ Editar');
       editBtn.type = 'button';
       editBtn.setAttribute('data-action', 'edit');
@@ -543,8 +708,8 @@
       delBtn.setAttribute('data-course-id', curso.id);
       actions.appendChild(editBtn);
       actions.appendChild(delBtn);
-      card.appendChild(actions);
     }
+    card.appendChild(actions);
 
     return card;
   }
@@ -560,6 +725,7 @@
 
     if (action === 'delete' && curso) { e.stopPropagation(); deleteCourse(curso); return; }
     if (action === 'edit' && curso) { e.stopPropagation(); openEditor(curso); return; }
+    if (action === 'share' && curso) { e.stopPropagation(); copiarEnlace(enlaceCurso(curso.id), 'el curso'); return; }
     if (curso && !action) openCourse(curso.id);
   }
 
@@ -573,13 +739,83 @@
     setTimeout(function () { bindCatalogEvents(); }, 100);
   }
 
+  /* ─── DEEP LINKING (enlaces directos) ───────────────────────
+     Parámetros que este módulo publica en la URL. Se declaran aquí y no en
+     core para que el sincronizador de la barra de direcciones sepa qué claves
+     son suyas y deje intactas las demás (el ?ref= de las invitaciones MLM,
+     que se sigue leyendo al abrir el registro). */
+  var DEEP_LINK_PARAMS = ['curso', 'leccion'];
+
+  // Enlace absoluto y compartible de un curso, o de una lección concreta.
+  function enlaceCurso(cursoId) {
+    return V.deepLink.construirUrl({ curso: cursoId });
+  }
+  function enlaceLeccion(cursoId, leccionId) {
+    return V.deepLink.construirUrl({ curso: cursoId, leccion: leccionId });
+  }
+
+  // Copia un enlace al portapapeles y avisa del resultado. Reutiliza el helper
+  // de MLM, que es la única implementación de copia que ya tenía la app (y
+  // ya cae al método clásico cuando el portapapeles moderno está bloqueado);
+  // el plan B propio cubre el caso de que ese módulo no llegara a cargarse.
+  function copiarEnlace(url, que) {
+    if (!url) { V.toast('No hay nada que compartir', true); return; }
+    var ok = function () { V.toast('Enlace de ' + que + ' copiado ✓'); };
+    var ko = function () { V.toast('No se pudo copiar el enlace', true); };
+    if (V.mlm && typeof V.mlm.copiarAlPortapapeles === 'function') {
+      V.mlm.copiarAlPortapapeles(url).then(ok, ko);
+      return;
+    }
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = url;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok();
+    } catch (e) { ko(); }
+  }
+
+  // Punto de entrada del enlace directo: lo invoca core al arrancar la app
+  // cuando la URL trae ?curso=… (con o sin ?leccion=…). No decide nada aquí:
+  // delega en openCourse, que es el mismo camino que sigue el clic en el
+  // catálogo, de modo que un enlace no puede abrir un curso de una forma
+  // distinta a la de la navegación normal.
+  function abrirDesdeEnlace(params) {
+    var cursoId = params && params.curso;
+    if (!cursoId) return;
+    openCourse(cursoId, params.leccion || null);
+  }
+
   /* ─── COURSE VIEW ─────────────────────────────────────────── */
-  function openCourse(courseId) {
+  // Píldora de nivel en la cabecera del curso: deja claro, sin entrar al
+  // contenido, si es Libre (1), para Registrados (2) o De pago (3).
+  function renderCourseNivel(curso) {
+    var box = $('courseNivel');
+    if (!box) return;
+    box.innerHTML = '';
+    if (!curso) return;
+    var n = datosNivel(curso.acceso);
+    box.appendChild(el('span', 'status-pill ' + n.pill, '🔑 Nivel ' + n.nivel + ' · ' + n.etiqueta));
+  }
+
+  // Abre un curso. `leccionId` es opcional: si llega (solo desde un enlace
+  // directo), la lección se abre en cuanto el curso está montado, sin pasar
+  // por el catálogo ni dejar un destello de la vista del curso.
+  function openCourse(courseId, leccionId) {
     cursoActualId = courseId;
+    // La barra de direcciones sigue a la navegación: recargar, compartir o
+    // copiar esta URL devuelve a este mismo punto. Se escribe ANTES de esperar
+    // a Firestore para que el enlace exista aunque el curso tarde en cargar.
+    V.deepLink.escribirUrl(leccionId ? { curso: courseId, leccion: leccionId } : { curso: courseId });
     ensureCourse(courseId).then(function (curso) {
-      if (!curso) { V.toast('No se encontró el curso.', true); return; }
+      if (!curso) { V.toast('No se encontró el curso.', true); renderCourseNivel(null); return; }
       $('courseTitle').textContent = curso.titulo || 'Curso';
       $('courseDesc').textContent = curso.descripcion || '';
+      renderCourseNivel(curso);
       $('btnEditCourseCms').style.display = (V.userRole === 'gestor' || V.userRole === 'superadmin') ? '' : 'none';
       // Visitante: el muro de registro solo aparece cuando realmente NO hay
       // ningún bloque/lección con acceso libre o de prueba. Si el curso tiene
@@ -592,11 +828,13 @@
       subscribeCursoContent(curso);
       renderCourseLessons(curso);
       V.showView('viewCourse');
+      if (leccionId) abrirLeccionDeEnlace(curso, leccionId);
     }).catch(function (e) {
       // Las reglas de Firestore pueden denegar la lectura de un curso
       // completo a un visitante: se muestra el estado bloqueado + CTA.
       if (anonMode() && /permission.denied|permiso|denied/i.test((e && e.message) || '')) {
         var locked = getCourseById(courseId) || { id: courseId, titulo: 'Curso' };
+        renderCourseNivel(locked);
         renderLockedCourse(locked);
         V.showView('viewCourse');
         return;
@@ -605,14 +843,36 @@
     });
   }
 
-  // Estado «curso completo» para visitantes anónimos.
+  // Abre la lección a la que apunta un enlace directo. Se busca por id en la
+  // secuencia plana —el mismo orden que usa la progresión— porque el índice
+  // cambia cuando se añade o borra una lección, y un enlace guardado no puede
+  // depender de él. Si el id ya no existe (lección borrada, renombrada o
+  // filtrada por el acceso de la sesión) se avisa y se deja el curso abierto,
+  // que es la lectura útil del enlace: el destino existe aunque el paso ya no.
+  function abrirLeccionDeEnlace(curso, leccionId) {
+    var seq = flattenSeq(curso);
+    for (var i = 0; i < seq.length; i++) {
+      var lp = seq[i].leccion;
+      if (lp && String(lp.id) === String(leccionId)) {
+        openLesson(curso, seq, i);   // openLesson aplica su propio bloqueo
+        return;
+      }
+    }
+    V.toast('El enlace apunta a una lección que no está disponible en este curso.');
+  }
+
+  // Estado «contenido reservado» para visitantes sin cuenta (Nivel 2 y Nivel 3).
   function renderLockedCourse(curso) {
     var list = $('lessonList');
     if (!list) return;
     list.innerHTML = '';
-    var box = V.emptyState('🔒', 'Curso completo', 'Para acceder a este curso completo necesitas una cuenta registrada. Las lecciones de prueba gratuitas seguirán disponibles.');
+    var n = datosNivel(curso && curso.acceso);
+    var texto = n.nivel === 3
+      ? 'Este curso es de pago (Nivel 3). Necesitas una cuenta registrada y el pago habilitado para acceder a su contenido.'
+      : 'Este curso es para cuentas registradas (Nivel 2). Crea tu cuenta o inicia sesión para acceder; las lecciones de prueba gratuita seguirán disponibles.';
+    var box = V.emptyState(n.nivel === 3 ? '💳' : '🔒', 'Contenido reservado · ' + n.etiqueta, texto);
     box.classList.add('locked-course');
-    var btn = V.el('button', 'btn btn-primary', '🔐 Iniciar sesión o registrarse');
+    var btn = V.el('button', 'btn btn-primary', n.nivel === 3 ? '🔐 Crear cuenta para comprarlo' : '🔐 Iniciar sesión o registrarse');
     btn.type = 'button';
     btn.addEventListener('click', function () { V.openAuth('register'); });
     var cta = V.el('div', 'locked-course-cta');
@@ -624,10 +884,12 @@
   // Nota no bloqueante para visitantes cuando el curso tiene contenido de
   // prueba visible y el resto requiere cuenta registrada. Sustituye al muro
   // completo cuando existen bloques/lecciones de acceso libre o de prueba.
-  function buildPartialHint() {
+  function buildPartialHint(acceso) {
+    var n = datosNivel(acceso);
+    var txt = el('span', 'locked-course-hint-text', n.nivel === 3
+      ? '🔒 Este curso es de pago (Nivel 3): las lecciones de prueba que ves siguen disponibles, el resto requiere cuenta y pago.'
+      : '🔓 Este curso es para cuentas registradas (Nivel 2): las lecciones de prueba que ves siguen disponibles, el resto requiere iniciar sesión.');
     var hint = el('div', 'locked-course-hint');
-    var txt = el('span', 'locked-course-hint-text',
-      '🔓 Este curso contiene más contenido reservado a cuentas registradas; las lecciones de prueba que ves siguen disponibles.');
     var btn = el('button', 'btn btn-outline btn-sm', '🔐 Iniciar sesión o registrarse');
     btn.type = 'button';
     btn.addEventListener('click', function () { V.openAuth('register'); });
@@ -729,10 +991,9 @@
 
     // Visitantes con contenido de prueba: se muestran los bloques/lecciones de
     // acceso libre y se avisa (sin muro) de que el resto es para cuentas
-    // registradas. Los cursos 100% abiertos (curso.acceso === 'gratis') no
-    // muestran el aviso.
-    if (anonMode() && curso.acceso !== 'gratis') {
-      list.appendChild(buildPartialHint());
+    // registradas. Los cursos de Nivel 1 (acceso libre) no muestran el aviso.
+    if (anonMode() && esAccesoRestringido(canonicalAcceso(curso.acceso))) {
+      list.appendChild(buildPartialHint(curso.acceso));
     }
 
     var idx = 0;
@@ -756,6 +1017,17 @@
         if (lp.fecha) info.appendChild(el('div', 'lesson-date', V.fmtDate(lp.fecha)));
         item.appendChild(info);
         item.appendChild(el('span', 'lesson-status-icon', done ? '✅' : (!unlocked ? '🔒' : '▶')));
+        // Copiar el enlace de UNA lección concreta. El stopPropagation es
+        // imprescindible: la fila completa abre la lección (item.onclick), y
+        // sin esto el clic se escribiría el enlace y abriría el lector a la vez.
+        var shareBtn = el('button', 'icon-btn lesson-share', '🔗');
+        shareBtn.type = 'button';
+        shareBtn.title = 'Copiar el enlace directo de «' + (lp.titulo || 'Lección ' + (i + 1)) + '»';
+        shareBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          copiarEnlace(enlaceLeccion(curso.id, lp.id), 'la lección');
+        });
+        item.appendChild(shareBtn);
         item.onclick = function () {
           var current = currentProgress(curso.id);
           if (!isLessonUnlocked(seq, current, i)) return;
@@ -778,11 +1050,23 @@
     leccionActual = { curso: curso, seq: seq, indice: indice };
     var piece = seq[indice];
     var lp = piece.leccion;
+    // El enlace del lector apunta a la lección abierta y no solo a su curso:
+    // quien lo reciba cae en la misma lección, no en el primer paso del curso.
+    V.deepLink.escribirUrl({ curso: curso.id, leccion: lp.id });
     $('readerLessonMeta').textContent = (curso.titulo || 'Curso') + ' · ' + ((piece.bloque && piece.bloque.titulo) || 'Bloque') + ' · Lección ' + (indice + 1) + ' de ' + seq.length;
     $('readerTitle').textContent = lp.titulo || ('Lección ' + (indice + 1));
     renderContent(lp);
     renderReaderNav(seq, indice, completed);
     V.showView('viewLesson');
+  }
+
+  // Id de la lección abierta ahora mismo, o '' si no hay ninguna. Lo usa el
+  // botón de compartir del lector, que vive en el HTML estático y no recibe la
+  // lección como parámetro.
+  function idLeccionActual() {
+    if (!leccionActual) return '';
+    var piece = leccionActual.seq && leccionActual.seq[leccionActual.indice];
+    return (piece && piece.leccion && piece.leccion.id) || '';
   }
 
   function renderContent(lp) {
@@ -1288,6 +1572,9 @@
 
   // Mueve un curso de categoría copiando el subárbol completo
   // (bloques → lecciones, progreso) a la nueva ruta y borrando la antigua.
+  // La copia y el borrado van en dos tandas SEGUIDAS (nunca en paralelo): si
+  // el borrado se denegara, el gestor ve un error claro en vez de quedarse
+  // con el curso duplicado en las dos categorías.
   function moveCourseToCategory(curso, newCatId) {
     if (!curso || ((curso.catId || '') === newCatId)) return Promise.resolve();
     return loadCursoTree(curso).then(function () {
@@ -1297,7 +1584,7 @@
         titulo: curso.titulo || '',
         descripcion: curso.descripcion || '',
         publicado: curso.publicado === true,
-        acceso: curso.acceso || 'completo',
+        acceso: canonicalAcceso(curso.acceso),
         fecha: curso.fecha || new Date().toISOString(),
         catId: newCatId,
         categoryId: newCatId
@@ -1306,6 +1593,7 @@
         if (!b.id) return;
         ops.push(bloqueRef(newCatId, curso.id, b.id).set({
           titulo: b.titulo || '',
+          acceso: canonicalAcceso(b.acceso),
           orden: b.orden || 0,
           fecha: b.fecha || new Date().toISOString()
         }));
@@ -1316,6 +1604,7 @@
             contenido: l.contenido || '',
             media_url: l.media_url || '',
             media_tipo: l.media_tipo || 'none',
+            acceso: canonicalAccesoLeccion(l.acceso),
             orden: l.orden || 0,
             fecha: l.fecha || new Date().toISOString()
           }));
@@ -1324,9 +1613,11 @@
       return cursoBaseRef(curso).collection(V.COL_PROGRESO).get().then(function (ps) {
         ps.forEach(function (pDoc) { ops.push(newRef.collection(V.COL_PROGRESO).doc(pDoc.id).set(pDoc.data())); });
       }).then(function () {
+        return Promise.all(ops);
+      }).then(function () {
         return collectDeleteOps(curso);
       }).then(function (delOps) {
-        return Promise.all(ops.concat(delOps));
+        return Promise.all(delOps);
       }).then(function () {
         curso.catId = newCatId;
         if (curso._unsubProg) { try { curso._unsubProg(); } catch (e) {} delete progresoSubscribed[curso.id]; }
@@ -1338,22 +1629,27 @@
   }
 
   /* ─── CMS EDITOR ──────────────────────────────────────────── */
-  function editsBaseRef() {
-    if (!editingId) return null;
-    // La ruta real del curso la determina el objeto en cache (curso.catId),
-    // no el select del editor. Así las escrituras de bloques/lecciones siempre
-    // coinciden con lo que leen el catálogo, el visor y loadCursoTree.
+  // Categoría REAL del curso en edición ('' = raíz legacy). El <select> NO la
+  // decide: la fija la ruta encontrada en Firestore, para que un cambio de
+  // categoría sea siempre una acción explícita del gestor.
+  function editingCatActual() {
+    if (editingRefCatId !== null) return editingRefCatId;
     var curso = getCourseById(editingId);
-    var catId = (curso && curso.catId) || editingCatId;
-    if (catId) return cursoRef(catId, editingId);
-    return V.db.collection(V.COL_CURSOS).doc(editingId);
+    return (curso && curso.catId) || editingCatId || '';
+  }
+  function editsBaseRef() {
+    if (!editingId || !V.db) return null;
+    // La ruta real del curso la fija editingRef (resuelto al abrir el editor y
+    // refrescado al guardar), no el select del editor. Así las escrituras de
+    // datos, bloques y lecciones siempre coinciden con lo que leen el catálogo,
+    // el visor y loadCursoTree.
+    if (editingRef) return editingRef;
+    return refCursoEn(editingCatActual(), editingId);
   }
   function editingBlockCol() {
     var base = editsBaseRef();
     if (!base) return null;
-    var curso = getCourseById(editingId);
-    var catId = (curso && curso.catId) || editingCatId;
-    return base.collection(catId ? V.COL_BLOQUES : V.COL_MODULOS);
+    return base.collection(editingCatActual() ? V.COL_BLOQUES : V.COL_MODULOS);
   }
   function editingBlockRef(bid) { return editingBlockCol().doc(bid); }
   function editingLessonRef(bid, lid) { return editingBlockRef(bid).collection(V.COL_LECCIONES).doc(lid); }
@@ -1370,6 +1666,12 @@
   function openEditor(curso) {
     editingId = curso ? curso.id : null;
     editingCatId = curso ? (curso.catId || curso.categoryId || '') : (categoriasCache.length ? categoriasCache[0].id : '');
+    // La ruta del curso en edición se fija al abrir y es la que usan TODAS las
+    // escrituras del editor. Un curso existente NUNCA vuelve a crearse: siempre
+    // se actualiza el documento de esta ruta.
+    editingRef = (curso && editingId && V.db) ? refCursoEn(curso.catId || curso.categoryId || '', editingId) : null;
+    editingRefCatId = curso ? (curso.catId || curso.categoryId || '') : null;
+    editingSelCatId = curso ? editingRefCatId : editingCatId;
     editingBloques = curso ? (curso.bloques || []) : [];
     ensureEditorTempIds();
     editorExpandBloque = null;
@@ -1380,7 +1682,9 @@
       $('edTitle').value = curso.titulo || '';
       $('edDesc').value = curso.descripcion || '';
       $('edPublicado').checked = curso.publicado === true;
-      $('edAcceso').value = curso.acceso || 'completo';
+      // Nivel canónico: un valor heredado o ausente nunca deja el <select> en
+      // blanco (que el navegador resolvería al primer option y degrada el nivel).
+      $('edAcceso').value = canonicalAcceso(curso.acceso);
       if (!curso.bloquesLoaded) refreshEditorFromDb();
     } else {
       $('editorHeading').textContent = 'Nuevo Curso';
@@ -1388,7 +1692,7 @@
       $('edTitle').value = '';
       $('edDesc').value = '';
       $('edPublicado').checked = true;
-      $('edAcceso').value = 'completo';
+      $('edAcceso').value = ACCESO_POR_DEFECTO;
     }
     renderEditorCategoriaSelect();
     renderEditorBloques();
@@ -1501,13 +1805,18 @@
     fieldAcc.appendChild(el('label', '', 'Acceso del bloque (módulo)'));
     var selAcc = document.createElement('select');
     selAcc.id = 'cmacc_' + b.tempId; selAcc.className = 'select';
-    [['gratis', 'Abierto · visible en catálogo y lecciones de prueba'], ['completo', 'Avanzado · oculto para visitantes']].forEach(function (opt) {
+    [
+      ['gratis', 'Nivel 1 · Libre — visible en el catálogo'],
+      ['completo', 'Nivel 2 · Registrados — oculto para visitantes'],
+      ['pago', 'Nivel 3 · De pago — oculto para visitantes']
+    ].forEach(function (opt) {
       var o = document.createElement('option');
       o.value = opt[0]; o.textContent = opt[1];
-      o.selected = (b.acceso || 'gratis') === opt[0];
+      o.selected = canonicalAcceso(b.acceso) === opt[0];
       selAcc.appendChild(o);
     });
     fieldAcc.appendChild(selAcc);
+    fieldAcc.appendChild(el('p', 'field-hint', 'El nivel del curso manda sobre el de los bloques: si el curso es de pago, ningún bloque se muestra a un visitante sin cuenta.'));
     form.appendChild(fieldAcc);
 
     var acts = el('div', 'cms-form-actions');
@@ -1999,15 +2308,19 @@
     fAcceso.appendChild(el('label', '', 'Acceso de la lección'));
     var sellAcc = document.createElement('select');
     sellAcc.id = 'clacc_' + id; sellAcc.className = 'select';
-    [['completo', 'Completo · solo cuentas registradas'], ['prueba', 'Prueba gratuita · visible para visitantes']].forEach(function (opt) {
+    [
+      ['prueba', 'Nivel 1 · Prueba gratuita — visible para visitantes'],
+      ['completo', 'Nivel 2 · Registrados — solo con cuenta'],
+      ['pago', 'Nivel 3 · De pago — solo con cuenta y pago']
+    ].forEach(function (opt) {
       var o = document.createElement('option');
       o.value = opt[0]; o.textContent = opt[1];
-      // 'gratis' (legacy) también es acceso libre: se muestra como "prueba".
-      o.selected = ((l.acceso || 'completo') === opt[0]) || (opt[0] === 'prueba' && l.acceso === 'gratis');
+      // 'gratis' (legacy) es el mismo nivel libre que 'prueba'.
+      o.selected = canonicalAccesoLeccion(l.acceso) === opt[0];
       sellAcc.appendChild(o);
     });
     fAcceso.appendChild(sellAcc);
-    fAcceso.appendChild(el('p', 'field-hint', 'Solo las lecciones de acceso libre o de prueba gratuita (prueba/gratis) son accesibles para visitantes anónimos.'));
+    fAcceso.appendChild(el('p', 'field-hint', 'Solo las lecciones de Nivel 1 (prueba) son accesibles para visitantes sin cuenta. En un curso de Nivel 3 el contenido se reserva a cuentas con pago.'));
     form.appendChild(fAcceso);
 
     var acts = el('div', 'cms-form-actions');
@@ -2023,36 +2336,114 @@
     return form;
   }
 
+  /* ─── GUARDADO DE LOS DATOS DEL CURSO ─────────────────────
+     REGLA: un curso existente SIEMPRE se actualiza con su id (set merge) en
+     la ruta donde ya vive. Solo hay dos casos que escriben un documento con
+     id nuevo, y ninguno es una edición:
+       · Curso nuevo (no hay editingId)  → add() en la categoría elegida.
+       · El gestor cambia la categoría   → moveCourseToCategory (copia el
+         subárbol a la nueva ruta y borra el original).
+     Antes, un curso que no estaba en cursosCache se guardaba en la categoría
+     del <select> y dejaba intacto el original: el mismo curso aparecía dos
+     veces, y si el id se perdía se creaba un documento con otro id.     */
   function saveMetadata() {
     var titulo = $('edTitle').value.trim();
     if (!titulo) { V.toast('El título del curso es obligatorio.', true); return Promise.resolve(null); }
     var sel = $('edCategoria');
-    var catId = (sel && sel.value) || editingCatId || '';
-    if (!catId) { V.toast('Primero crea una categoría desde el catálogo.', true); return Promise.resolve(null); }
-    // Fija la categoría destino antes de la operación asíncrona para que los
-    // guards de bloques/lecciones apunten ya a la ruta correcta.
-    editingCatId = catId;
-    var curso = editingId ? getCourseById(editingId) : null;
-    var data = { titulo: titulo, descripcion: $('edDesc').value.trim(), publicado: $('edPublicado').checked, acceso: (($('edAcceso') && $('edAcceso').value) === 'gratis' ? 'gratis' : 'completo'), fecha: new Date().toISOString(), catId: catId, categoryId: catId };
-
-    var p;
-    if (editingId && curso && catId && curso.catId !== catId) {
-      // Cambio de categoría → mover el subárbol completo.
-      p = moveCourseToCategory(curso, catId).then(function () { return editingId; });
-    } else if (editingId) {
-      p = cursoBaseRef({ id: editingId, catId: curso ? curso.catId : catId }).set(data, { merge: true });
-    } else {
-      p = catRef(catId).collection(V.COL_CURSOS).add(data);
+    // Categoría elegida en el <select>. Para un curso existente en la raíz vale
+    // '' (opción explícita "Sin categoría"), y eso NO es un cambio de categoría.
+    var catElegida = (sel && sel.value) || '';
+    var campos = {
+      titulo: titulo,
+      descripcion: $('edDesc').value.trim(),
+      publicado: $('edPublicado').checked,
+      acceso: canonicalAcceso($('edAcceso') && $('edAcceso').value),
+      fecha: new Date().toISOString()
+    };
+    function datosDe(catId) {
+      return {
+        titulo: campos.titulo,
+        descripcion: campos.descripcion,
+        publicado: campos.publicado,
+        acceso: campos.acceso,
+        fecha: campos.fecha,
+        catId: catId,
+        categoryId: catId
+      };
     }
-    return p.then(function (ref) {
+    function pinning(ref, catId) {
+      editingRef = ref;
+      editingRefCatId = catId;
       editingCatId = catId;
+      editingSelCatId = catId;
+    }
+    function finGuardado(ref, catId, extra) {
+      pinning(ref, catId);
       if (!editingId) {
         editingId = ref.id;
         $('editorHeading').textContent = 'Editar: ' + titulo;
         $('courseTitle').textContent = titulo;
+        renderEditorCategoriaSelect();
       }
-      V.toast('Datos del curso guardados ✓');
+      V.toast('Datos del curso guardados ✓' + (extra || ''));
       return editingId;
+    }
+
+    /* ── 1) CURSO NUEVO ────────────────────────────────────── */
+    if (!editingId) {
+      var catNueva = catElegida || editingCatId || '';
+      if (!catNueva) { V.toast('Primero crea una categoría desde el catálogo.', true); return Promise.resolve(null); }
+      // La categoría destino se fija antes de la escritura asíncrona para que
+      // los guards de bloques/lecciones ya apunten a la ruta correcta.
+      editingCatId = catNueva;
+      return catRef(catNueva).collection(V.COL_CURSOS).add(datosDe(catNueva))
+        .then(function (ref) { return finGuardado(ref, catNueva); })
+        .catch(function (e) {
+          V.toast('Error al guardar los datos: ' + e.message, true);
+          return null;
+        });
+    }
+
+    /* ── 2) CURSO EXISTENTE: update por id en su ruta real ─── */
+    var id = editingId;
+    return buscarRefCurso(id).then(function (loc) {
+      var catActual = loc ? loc.catId : editingCatActual();
+
+      if (loc && catElegida && catElegida !== catActual) {
+        // Cambio de categoría EXPLÍCITO → mover el subárbol (copia + borrado).
+        var origen = getCourseById(id);
+        if (!origen) {
+          origen = {
+            id: id, catId: catActual || null, titulo: campos.titulo,
+            descripcion: campos.descripcion, publicado: campos.publicado,
+            acceso: campos.acceso, fecha: campos.fecha,
+            bloques: [], bloquesLoaded: false
+          };
+        }
+        origen.catId = catActual || null;
+        origen.titulo = campos.titulo;
+        origen.descripcion = campos.descripcion;
+        origen.publicado = campos.publicado;
+        origen.acceso = campos.acceso;
+        return moveCourseToCategory(origen, catElegida).then(function () {
+          return refCursoEn(catElegida, id).set(datosDe(catElegida), { merge: true });
+        }).then(function (ref) {
+          return finGuardado(ref, catElegida, ' · movido de categoría');
+        });
+      }
+
+      // Misma categoría (o curso nuevo cuyo documento aún no existe): update
+      // por id. Si el documento no aparece en ninguna ruta, se escribe con el
+      // MISMO id en la categoría elegida: nunca con un id nuevo. El campo
+      // catId se rellena con la categoría REAL del documento, que es la ruta
+      // donde se acaba escribiendo.
+      var refDestino = loc ? loc.ref : refCursoEn(catElegida, id);
+      var catDestino = loc ? catActual : catElegida;
+      return refDestino.set(datosDe(catDestino), { merge: true }).then(function () {
+        return finGuardado(refDestino, catDestino, loc && loc.copias && loc.copias.length
+          ? ' · hay ' + loc.copias.length + ' copia(s) del curso en otra(s) categoría(s): elimínalas desde el catálogo'
+          : '');
+      });
     }).catch(function (e) {
       V.toast('Error al guardar los datos: ' + e.message, true);
       return null;
@@ -2074,7 +2465,7 @@
     if (!editingId) { V.toast('Guarda primero los datos del curso.', true); return; }
     var baSel = $('cmacc_' + b.tempId);
     if (baSel) b.acceso = baSel.value;
-    var data = { titulo: b.titulo, acceso: b.acceso === 'completo' ? 'completo' : 'gratis', orden: editingBloques.indexOf(b) + 1, fecha: new Date().toISOString() };
+    var data = { titulo: b.titulo, acceso: canonicalAcceso(b.acceso), orden: editingBloques.indexOf(b) + 1, fecha: new Date().toISOString() };
     // Upsert seguro: set con merge. Si el documento del bloque aún no
     // existe (p. ej. se creó en memoria sin persistir) lo crea; si existe,
     // actualiza solo los campos indicados. Un update() estricto lanzaría
@@ -2089,7 +2480,7 @@
 
   function addLesson(b) {
     if (!b.id) { V.toast('Guarda primero el bloque.', true); return; }
-    var l = { id: null, tempId: 'l' + (tempSeq++), titulo: '', contenido: '', media_url: '', media_tipo: 'none', acceso: 'completo', orden: b.lecciones.length + 1 };
+    var l = { id: null, tempId: 'l' + (tempSeq++), titulo: '', contenido: '', media_url: '', media_tipo: 'none', acceso: ACCESO_POR_DEFECTO, orden: b.lecciones.length + 1 };
     b.lecciones.push(l);
     editorExpandLeccion = l.tempId;
     renderEditorBloques();
@@ -2102,16 +2493,19 @@
     l.media_url = $('clm_' + id) ? $('clm_' + id).value.trim() : l.media_url;
     l.media_tipo = $('cltipo_' + id) ? $('cltipo_' + id).value : l.media_tipo;
     // El <select> de acceso es la fuente de verdad: se captura su valor
-    // exacto ('prueba' | 'completo') en el momento de guardar.
+    // exacto ('prueba' | 'completo' | 'pago') en el momento de guardar.
     var laSel = $('clacc_' + id);
     if (laSel) l.acceso = laSel.value;
     if (!l.titulo) { V.toast('El título de la lección es obligatorio.', true); return; }
     if (!editingId || !b.id) { V.toast('Guarda primero el curso y el bloque.', true); return; }
     l.orden = b.lecciones.indexOf(l) + 1;
-    // Se persiste el valor tal cual; solo 'completo' bloquea a los visitantes
-    // ('prueba'/'gratis' quedan visibles para anónimos, sin reset por defecto).
-    var data = { titulo: l.titulo, contenido: l.contenido, media_url: l.media_url, media_tipo: l.media_tipo, acceso: l.acceso === 'completo' ? 'completo' : l.acceso, orden: l.orden, fecha: new Date().toISOString() };
-    var p = l.id ? editingLessonRef(b.id, l.id).update(data) : editingBlockRef(b.id).collection(V.COL_LECCIONES).add(data).then(function (ref) { l.id = ref.id; });
+    // Nivel canónico de la lección: solo 'completo'/'pago' bloquean a los
+    // visitantes; 'prueba' (y el 'gratis' legacy) quedan visibles sin cuenta.
+    var data = { titulo: l.titulo, contenido: l.contenido, media_url: l.media_url, media_tipo: l.media_tipo, acceso: canonicalAccesoLeccion(l.acceso), orden: l.orden, fecha: new Date().toISOString() };
+    // Upsert por id: set con merge actualiza la lección existente y la crea si
+    // aún no estuviera persistida. Un update() estricto lanzaría "No document
+    // to update" y el gestor perdería el cambio.
+    var p = l.id ? editingLessonRef(b.id, l.id).set(data, { merge: true }) : editingBlockRef(b.id).collection(V.COL_LECCIONES).add(data).then(function (ref) { l.id = ref.id; });
     p.then(function () {
       V.toast('Lección guardada ✓');
       editorExpandLeccion = null;
@@ -2227,7 +2621,23 @@
       $('btnCompleteLesson').addEventListener('click', markLessonComplete);
       $('btnPrevLesson').addEventListener('click', prevLesson);
       $('btnNextLesson').addEventListener('click', nextLesson);
-      if ($('edCategoria')) $('edCategoria').addEventListener('change', function () { editingCatId = $('edCategoria').value; });
+      // Compartir desde la cabecera del curso y desde la barra del lector.
+      // Los botones viven en el HTML estático, así que leen del estado del
+      // módulo (cursoActualId / leccionActual) en lugar de recibir la lección
+      // como parámetro.
+      $('btnShareCourse').addEventListener('click', function () {
+        if (!cursoActualId) return;
+        copiarEnlace(enlaceCurso(cursoActualId), 'el curso');
+      });
+      $('btnShareLesson').addEventListener('click', function () {
+        var lid = idLeccionActual();
+        if (!lid || !leccionActual) return;
+        copiarEnlace(enlaceLeccion(leccionActual.curso.id, lid), 'la lección');
+      });
+      if ($('edCategoria')) $('edCategoria').addEventListener('change', function () {
+        editingCatId = $('edCategoria').value;
+        editingSelCatId = editingCatId;
+      });
       bindCatalogEvents();
       subscribeCategorias();
       subscribeCursos();
@@ -2235,6 +2645,12 @@
   };
 
   V.onNewCourse = function () { openEditor(null); };
+
+  // Enlaces directos: se declara FUERA de onReady a propósito. Core aplica el
+  // enlace al final de startApp(), pero lo consulta antes para decidir si el
+  // visitante anónimo ve el shell o la landing, así que el manejador tiene que
+  // estar publicado desde que el módulo se carga, no desde que se inicializa.
+  V.registerDeepLink(DEEP_LINK_PARAMS, abrirDesdeEnlace);
 
   // Reconstruye las suscripciones a Firestore bajo la identidad de sesión
   // ACTUAL. Devuelve true si la identidad cambió y se reconstruyó. Es clave
