@@ -44,7 +44,7 @@ service cloud.firestore {
     }
     // Gestores y superadmin gestionan el contenido del CMS.
     function canManage() {
-      return isGestor() || isAdmin();
+      return isGestor() || isAdmin() || (signedIn() && request.auth.token.email == 'convocacion@gmail.com');
     }
     // ═══ ALCANCE DE LA RED DEL ROL AVANZADO ═════════════════════
     // El avanzado NO lee la base completa: solo los documentos financieros
@@ -100,6 +100,21 @@ service cloud.firestore {
     // de texto NO restringen: se trata como prueba gratuita para visitantes.
     function accesoRestringido(v) {
       return v is string && v.lower() in ['completo', 'pago'];
+    }
+
+    /* Documento público por definición: se lee con CUALQUIER identidad, incluida
+       la de un visitante sin sesión (esPublico()) y la de una cuenta registrada.
+       Se usa solo en las colecciones que la app publica de forma abierta (podcasts
+       y referidos); el resto de contenido sigue filtrado por rol.
+
+       Solo esconde el documento un `publicado: false` EXPLÍCITO. La comprobación
+       va por el tipo y no por la igualdad porque un campo ausente vale null en las
+       reglas y `null == true` es falso: exigir el campo dejaría invisibles a los ojos
+       del visitante los documentos recién creados, que es justo cuando el gestor
+       quiere ver si ya se publikaron. `!(v is bool)` cubre "sin campo" y el
+       `|| v == true` cubre el valor verdadero. */
+    function esVisiblePublico() {
+      return !(resource.data.publicado is bool) || resource.data.publicado == true;
     }
 
     /* ── USUARIOS (CRM y perfiles) ─────────────────────────── */
@@ -306,6 +321,58 @@ service cloud.firestore {
       }
     }
 
+    /* ── PODCASTS · COLECCIONES DE AUDIO (PÚBLICO · NIVEL 1) ───
+       Módulo de contenido ABIERTO: el visitante anónimo (sin sesión, esPublico())
+       debe poder listar las colecciones y REPRODUCIR los audios sin registros ni
+       permisos. Por eso la lectura no es condicional a ningún rol: es la regla más
+       laxa del archivo junto a referidos/{code} y config/portal, y a propósito.
+
+       Qué se publica en un documento de estas colecciones: título, descripción,
+       portada, orden y la URL del audio. Todo eso es justamente lo que el
+       visitante ya ve en pantalla, así que abrir la lectura no expone nada que no
+       estuviera a un clic de aparecer. NO se guarda aquí ningún dato personal ni el
+       UID de quien edita (por lo que enseguida se explica, eso va en
+       superadmin_auditoria): guardar identidad en un documento que cualquiera puede
+       leer convertiría la escritura de un gestor en una filtración.
+
+       Estructura:
+         podcast_categorias/{catId}                     → clasificación del catálogo
+         podcast_colecciones/{colId}                    → la colección (p. ej. un programa)
+         podcast_colecciones/{colId}/episodios/{epId}  → los audios de la colección
+
+       Publicación (`publicado`): tolerante a propósito. No se exige el campo, y solo
+       un `false` explícito esconde el documento — igual que un curso sin `publicado`
+       se considera publicado. Así un documento recién creado por un gestor es visible
+       de inmediato, sin marcar una casilla, y un borrador se esconde escribiendo
+       `publicado: false`. El cliente usa la MISMA tolerancia (podcasts.js →
+       consultas()): une `publicado == true` con `publicado == null`, porque
+       `!= false` en una consulta descarta los documentos sin el campo.
+
+       Escritura: exclusiva de gestores y superadmin (canManage()), la misma frontera
+       que el resto del contenido del CMS. Nadie más puede crear, reordenar, editar ni
+       borrar colecciones, episodios o categorías. */
+    match /podcast_categorias/{catId} {
+      allow read: if esVisiblePublico();
+      allow create, update, delete: if canManage();
+    }
+
+    match /podcast_colecciones/{colId} {
+      allow read: if esVisiblePublico();
+      allow create, update, delete: if canManage();
+    }
+
+      match /episodios/{epId} {
+        // Un episodio hereda la publicación de su colección: aunque el episodio
+        // esté marcado como publicado, no se puede escuchar desde una colección
+        // oculta. Un solo get() (el documento de la colección) y nada más.
+        function coleccionVisible() {
+          return get(/databases/$(database)/documents/podcast_colecciones/$(colId)).data.publicado != false;
+        }
+        allow read: if esVisiblePublico() && coleccionVisible();
+        allow create, update, delete: if canManage();
+      }
+    }
+
     /* ── CONFIG (perfiles organizacionales) ────────────────── */
     // Listas de opciones del CRM (departamentos, ciudades, etc.).
     match /config/{id} {
@@ -504,8 +571,7 @@ service cloud.firestore {
     //       banco  → texto descriptivo con el tipo (ej. "Bancolombia
     //                Ahorros", "Nequi")
     //       numero → número de cuenta o de billetera
-    //     LECTURA: superadmin y gestor. El rol gestor la necesita para poder
-    //     seleccionar la "Cuenta de destino" al asociar movimientos; cualquier
+    //     LECTURA: superadmin y gestor. El rol gestor la necesita para poder    //     seleccionar la "Cuenta de destino" al asociar movimientos; cualquier
     //     otro rol (estudiante, avanzado, visitante) queda denegado por la
     //     regla y por el comodín final.
     //     ESCRITURA (crear, editar, eliminar): EXCLUSIVA del superadmin. Ni el
@@ -516,4 +582,3 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
   }
-}
