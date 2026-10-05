@@ -43,8 +43,16 @@ service cloud.firestore {
         get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'avanzado';
     }
     // Gestores y superadmin gestionan el contenido del CMS.
+    // OJO con el ORDEN: la comprobación del correo va PRIMERO a propósito.
+    // isGestor()/isAdmin() hacen get(usuarios/{uid}).data.rol, y si ese
+    // documento no existe `.data` vale null y `.rol` sobre null LANZA error; en
+    // las reglas un error propaga y deniega la expresión entera, así que un || al
+    // final nunca llegaría a evaluarse. Con el correo primero, el atajo se
+    // resuelve sin tocar Firestore y las cuentas de gestión por rol siguen igual.
     function canManage() {
-      return isGestor() || isAdmin() || (signedIn() && request.auth.token.email == 'convocacion@gmail.com');
+      return (signedIn() && request.auth.token.email == 'convocacion@gmail.com')
+        || isGestor()
+        || isAdmin();
     }
     // ═══ ALCANCE DE LA RED DEL ROL AVANZADO ═════════════════════
     // El avanzado NO lee la base completa: solo los documentos financieros
@@ -111,10 +119,19 @@ service cloud.firestore {
        va por el tipo y no por la igualdad porque un campo ausente vale null en las
        reglas y `null == true` es falso: exigir el campo dejaría invisibles a los ojos
        del visitante los documentos recién creados, que es justo cuando el gestor
-       quiere ver si ya se publikaron. `!(v is bool)` cubre "sin campo" y el
-       `|| v == true` cubre el valor verdadero. */
+       quiere ver si ya se publicaron. `!(v is bool)` cubre "sin campo" y el
+       `|| v == true` cubre el valor verdadero.
+
+       OJO con `resource == null` al principio: al LEER un documento que todavía
+       no existe, `resource` vale null, y `resource.data` sobre null LANZA error.
+       En las reglas un error no equivale a false: deniega la petición. Eso rompía
+       guardar colecciones nuevas, porque el cliente hace ref.get() para leer el
+       campo `creado` antes del ref.set(), y ese get() caía siempre. El atajo con
+       `||` evita tocar `.data` cuando no hay documento. */
     function esVisiblePublico() {
-      return !(resource.data.publicado is bool) || resource.data.publicado == true;
+      return resource == null
+        || !(resource.data.publicado is bool)
+        || resource.data.publicado == true;
     }
 
     /* ── USUARIOS (CRM y perfiles) ─────────────────────────── */
@@ -352,14 +369,18 @@ service cloud.firestore {
        que el resto del contenido del CMS. Nadie más puede crear, reordenar, editar ni
        borrar colecciones, episodios o categorías. */
     match /podcast_categorias/{catId} {
-      allow read: if esVisiblePublico();
+      // canManage() en la LECTURA, no solo en la escritura: sin esta segunda
+      // rama la consulta where('publicado','==',false) que monta el módulo al
+      // entrar en modo gestor vuelve 403 y el catálogo se queda vacío.
+      allow read: if esVisiblePublico() || canManage();
       allow create, update, delete: if canManage();
     }
 
     match /podcast_colecciones/{colId} {
-      allow read: if esVisiblePublico();
+      // Los borradores son visibles para quien puede gestionarlos y para nadie
+      // más: esVisiblePublico() sigue siendo la puerta del visitante anónimo.
+      allow read: if esVisiblePublico() || canManage();
       allow create, update, delete: if canManage();
-    }
 
       match /episodios/{epId} {
         // Un episodio hereda la publicación de su colección: aunque el episodio
@@ -368,7 +389,10 @@ service cloud.firestore {
         function coleccionVisible() {
           return get(/databases/$(database)/documents/podcast_colecciones/$(colId)).data.publicado != false;
         }
-        allow read: if esVisiblePublico() && coleccionVisible();
+        // canManage() va delante porque un gestor también tiene que leer los
+        // episodios de una colección en borrador, que coleccionVisible() negaría
+        // a propósito. Para el resto se exige que la colección esté visible.
+        allow read: if canManage() || (esVisiblePublico() && coleccionVisible());
         allow create, update, delete: if canManage();
       }
     }
@@ -582,3 +606,4 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
   }
+}

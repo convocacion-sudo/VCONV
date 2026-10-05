@@ -25,6 +25,8 @@
   var COL_COMUNIDAD_MIEMBROS = 'comunidad_miembros';
   var COL_REUNIONES = 'reuniones';
   var COL_COMUNIDAD_CATEGORIAS = 'comunidad_categorias';
+  var COL_PODCAST_CATEGORIAS = 'podcast_categorias';
+  var COL_PODCAST_COLECCIONES = 'podcast_colecciones';
 
   /* ─── GLOBAL NAMESPACE ────────────────────────────────────── */
   var V = window.VCONV = window.VCONV || {};
@@ -39,6 +41,8 @@
   V.COL_COMUNIDAD_MIEMBROS = COL_COMUNIDAD_MIEMBROS;
   V.COL_REUNIONES = COL_REUNIONES;
   V.COL_COMUNIDAD_CATEGORIAS = COL_COMUNIDAD_CATEGORIAS;
+  V.COL_PODCAST_CATEGORIAS = COL_PODCAST_CATEGORIAS;
+  V.COL_PODCAST_COLECCIONES = COL_PODCAST_COLECCIONES;
 
   /* ─── STATE ───────────────────────────────────────────────── */
   var db = null;
@@ -709,7 +713,7 @@
     var top = _navHistory[_navHistory.length - 1];
     if (top !== id) _navHistory.push(id);
     if (_navHistory.length > 20) _navHistory.shift();
-    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewFinanzas', 'viewReportes', 'viewRedGlobal', 'viewSuperadmin'];
+    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewPodcasts', 'viewFinanzas', 'viewReportes', 'viewRedGlobal', 'viewSuperadmin'];
     allViews.forEach(function (v) {
       var node = $(v);
       if (node) node.classList.toggle('active', v === id);
@@ -995,6 +999,18 @@
     }
   }
 
+  // Podcasts: catálogo público de audio. La lectura es abierta (reglas de
+  // Firestore), así que la vista no filtra por rol; el panel de gestión dentro
+  // del propio módulo sí depende de canManage().
+  function showPodcasts() {
+    showView('viewPodcasts');
+    try {
+      if (typeof V.onPodcastsShow === 'function') V.onPodcastsShow();
+    } catch (e) {
+      toast('No se pudo cargar Podcasts: ' + (e && e.message ? e.message : e), true);
+    }
+  }
+
   function showFinanzas() {
     showView('viewFinanzas');
     try {
@@ -1099,6 +1115,7 @@
       viewDashboard: 'escritorio',
       viewCatalog: 'cursos', viewCourse: 'cursos', viewLesson: 'cursos', viewEditor: 'cursos',
       viewComunidades: 'comunidades',
+      viewPodcasts: 'podcasts',
       viewAdmin: 'admin',
       viewFinanzas: 'finanzas',
       viewReportes: 'reportes',
@@ -1122,6 +1139,7 @@
       case 'viewDashboard': label = 'Escritorio'; break;
       case 'viewAdmin': label = 'Gestión de Usuarios'; break;
       case 'viewComunidades': label = 'Comunidades'; break;
+      case 'viewPodcasts': label = 'Podcasts'; break;
       case 'viewFinanzas': label = 'Finanzas'; break;
       case 'viewReportes': label = 'Reportes Financieros'; break;
       case 'viewRedGlobal': label = 'Red MLM Global'; break;
@@ -1178,6 +1196,7 @@
       case 'escritorio': goDashboard(); break;
       case 'cursos': setMode(userRole === 'estudiante' ? 'estudiante' : 'gestor'); break;
       case 'comunidades': showComunidades(); break;
+      case 'podcasts': showPodcasts(); break;
       case 'admin': setMode('admin'); break;
       case 'finanzas': showFinanzas(); break;
       case 'reportes': showReportes(); break;
@@ -1525,6 +1544,7 @@
   V.goDashboard = goDashboard;
   V.goBack = goBack;
   V.showComunidades = showComunidades;
+  V.showPodcasts = showPodcasts;
   V.showFinanzas = showFinanzas;
   V.showReportes = showReportes;
   V.showRedGlobal = showRedGlobal;

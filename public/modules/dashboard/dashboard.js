@@ -161,6 +161,11 @@
       cards.push({ icon: '🤝', title: 'Comunidades', tag: 'Mi red', desc: rol === 'gestor' ? 'Administra tu grupo, miembros y asistencia.' : 'Tu comunidad, coordinador y asistencia.', action: function () { V.showComunidades(); } });
     }
 
+    // Podcasts: el catálogo es público (lo leen también visitantes sin sesión),
+    // así que la tarjeta se ofrece a cualquier rol; la gestión de colecciones y
+    // episodios se abre dentro del módulo solo a quien puede gestionarla.
+    cards.push({ icon: '🎧', title: 'Podcasts', tag: 'Audio', desc: (typeof V.canManage === 'function' && V.canManage()) ? 'Administra colecciones y episodios.' : 'Escucha las colecciones de audio.', action: function () { if (V.showPodcasts) V.showPodcasts(); } });
+
     cards.forEach(function (c) {
       var card = el('button', 'dash-card');
       card.type = 'button';

@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="modules/comunidades/comunidades.css">
   <link rel="stylesheet" href="modules/finanzas/finanzas.css">
   <link rel="stylesheet" href="modules/mlm/mlm.css">
+  <link rel="stylesheet" href="modules/podcasts/podcasts.css">
   <link rel="stylesheet" href="modules/portal/portal.css">
   <link rel="stylesheet" href="modules/superadmin/superadmin.css">
 </head>
@@ -39,6 +40,7 @@
       <a href="#" class="sidebar-link" data-nav="escritorio"><span class="sidebar-ico">🏠</span> Escritorio</a>
       <a href="#" class="sidebar-link" data-nav="cursos"><span class="sidebar-ico">📚</span> Mis Cursos</a>
       <a href="#" class="sidebar-link" data-nav="comunidades"><span class="sidebar-ico">🤝</span> Comunidades</a>
+      <a href="#" class="sidebar-link" data-nav="podcasts"><span class="sidebar-ico">🎧</span> Podcasts</a>
 
       <p class="sidebar-group" id="sidebarGroupAdmin" style="display:none;">Administración</p>
       <a href="#" class="sidebar-link" data-nav="admin" id="sidebarLinkAdmin" style="display:none;"><span class="sidebar-ico">🔐</span> Gestión de Usuarios</a>
@@ -585,6 +587,38 @@
         <button type="button" id="btnNuevaComunidad" class="btn btn-primary" style="display:none;">➕ Nueva Comunidad</button>
       </div>
       <div id="comunidadesContent"></div>
+    </div>
+
+    <!-- ═══ MÓDULO PODCASTS (catálogo público de audio) ═══ -->
+    <div class="view" id="viewPodcasts">
+      <div class="section-header">
+        <div>
+          <h2>🎧 Podcasts</h2>
+          <p id="podcastSub">Colecciones de audio y episodios para escuchar.</p>
+        </div>
+        <div id="podcastHeaderActions" class="section-header-acciones">
+          <button type="button" id="btnPodcastGestionar" class="btn btn-outline">⚙ Gestionar colecciones</button>
+          <button type="button" id="btnNuevaColeccion" class="btn btn-primary">➕ Nueva colección</button>
+        </div>
+      </div>
+      <div id="podcastCategoriasBar" class="podcast-cats"></div>
+      <div id="podcastCollections" class="podcast-grid"></div>
+      <div id="podcastEpisodesHead" style="display:none;">
+        <div>
+          <h3 id="podcastEpisodesTitle"></h3>
+          <p id="podcastEpisodesCount" class="muted"></p>
+        </div>
+        <div>
+          <button type="button" id="podcastVolverTodas" class="btn btn-outline">← Todas las colecciones</button>
+          <button type="button" id="podcastCopiarEnlace" class="btn btn-outline">🔗 Copiar enlace</button>
+        </div>
+      </div>
+      <div id="podcastEpisodes" class="podcast-episode-list"></div>
+      <div id="podcastPlayer" class="podcast-player" style="display:none;">
+        <div id="podcastPlayerInfo"></div>
+        <audio id="podcastAudio" controls preload="none"></audio>
+      </div>
+      <div id="podcastAdmin" style="display:none;"></div>
     </div>
 
     <!-- ═══ MÓDULO FINANZAS (superadmin · CRM centralizado) ═══ -->
@@ -1235,6 +1269,7 @@
   <script src="modules/finanzas/finanzas.js"></script>
   <!-- Portal público -->
   <script src="modules/portal/portal.js"></script>
+  <script src="modules/podcasts/podcasts.js"></script>
 <script src="modules/superadmin/superadmin.js"></script>
 </body>
 </html>

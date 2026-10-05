@@ -39,6 +39,7 @@
   var coleccionesSub = null;
   var episodiosSub = null;
   var coleccionActualId = '';
+  var coleccionEditandoId = '';
   var episodioEditandoId = '';
   var categoriaFiltro = '';
   var gestionando = false;
@@ -139,8 +140,8 @@
     function emit() {
       onDocs(Object.keys(map).map(function (id) { return map[id]; }).sort(orden));
     }
-    qs.forEach(function (q) {
-      unsubs.push(q.onSnapshot(function (snap) {
+    qs.forEach(function (q, i) {
+      var propia = q.onSnapshot(function (snap) {
         snap.docChanges().forEach(function (ch) {
           if (ch.type === 'removed') delete map[ch.doc.id];
         });
@@ -152,13 +153,22 @@
         emit();
       }, function (err) {
         console.warn('[podcasts] no se pudo leer ' + col.id + ': ' + (err && err.message));
-        unsubs.forEach(function (fn) { try { fn(); } catch (e) {} });
-        unsubs = [];
-        if (typeof onError === 'function') onError();
-      }));
+        // Se suelta SOLO la pata que falló. Antes se bajaban las tres y con ello
+        // moría el catálogo entero: un 403 en la consulta de borradores dejaba la
+        // rejilla vacía aunque las colecciones publicadas seRIERAN legibles.
+        // onError() sigue reservándose para el caso en que no queda ninguna viva,
+        // que es cuando sí conviene liberar el hueco y reintentar después.
+        try { propia(); } catch (e) {}
+        unsubs[i] = null;
+        if (!unsubs.some(function (fn) { return !!fn; })) {
+          unsubs = [];
+          if (typeof onError === 'function') onError();
+        }
+      });
+      unsubs[i] = propia;
     });
     return function () {
-      unsubs.forEach(function (fn) { try { fn(); } catch (e) {} });
+      unsubs.forEach(function (fn) { if (fn) { try { fn(); } catch (e) {} } });
       unsubs = [];
     };
   }
@@ -358,7 +368,7 @@
       if (puedeGestionar() && !esPublicado(col)) foot.appendChild(el('span', 'status-pill', 'Borrador'));
       card.appendChild(foot);
 
-      card.addEventListener('click', function () { seleccionarColeccion(col.id, true); });
+      card.addEventListener('click', function () { abrirGestionDeColeccion(col.id); });
       grid.appendChild(card);
     });
   }
@@ -382,13 +392,36 @@
     if (cnt) cnt.textContent = visibles(episodiosCache).length + ' episodio(s)';
 
     var lista = visibles(episodiosCache);
+
+    // Mostrar embed de la colección si existe (se inyecta automáticamente, con prioridad)
+    var embedColHtml = col.embedCode || col.embedcode || col.embed || col.codigoEmbed || col.codigo_embed || col.embedHtml || col.embed_code || col.embedHTML || col.EMBEDCODE || col.EmbedCode || '';
+    if (col && !embedColHtml) {
+      try {
+        for (var k in col) {
+          if (col.hasOwnProperty(k) && /embed/i.test(k)) {
+            if (typeof col[k] === 'string' && col[k]) { embedColHtml = col[k]; break; }
+          }
+        }
+      } catch (e) {}
+    }
+    if (embedColHtml) {
+      try { console.log('[podcasts] embedColHtml detectado:', embedColHtml.substring(0, 80)); } catch (e) { console.log('[podcasts] embedColHtml detectado'); }
+      var embedColeccion = el('div', 'podcast-embed');
+      var safe = sanitizeEmbed(embedColHtml);
+      try { console.log('[podcasts] embedColHtml sanitizado:', safe.substring(0, 80)); } catch (e) { console.log('[podcasts] embedColHtml sanitizado'); }
+      embedColeccion.innerHTML = safe;
+      list.appendChild(embedColeccion);
+    }
+
     if (!lista.length) {
-      list.appendChild(V.emptyState(
-        '🎙️', 'Sin episodios',
-        puedeGestionar()
-          ? 'Añade el primer audio a esta colección desde el panel de gestión.'
-          : 'Esta colección todavía no tiene audios publicados.'
-      ));
+      if (!embedColHtml) {
+        list.appendChild(V.emptyState(
+          '🎙️', 'Sin episodios',
+          puedeGestionar()
+            ? 'Añade el primer audio a esta colección desde el panel de gestión.'
+            : 'Esta colección todavía no tiene audios publicados.'
+        ));
+      }
       return;
     }
 
@@ -508,6 +541,9 @@
   /* ─── SELECCIÓN Y ENLACE DIRECTO ────────────────────────────── */
   function seleccionarColeccion(colId, moverUrl) {
     coleccionActualId = colId || '';
+    if (!colId) {
+      coleccionEditandoId = '';
+    }
     episodioEditandoId = '';
     renderColecciones();
     renderEpisodios();
@@ -522,6 +558,38 @@
       escribirUrl(null);
     }
     if (gestionando) renderAdmin();
+  }
+
+  /* Elegir una colección en la rejilla y, a la vez, abrirla para editarla.
+
+     renderAdmin() se salta por completo mientras gestionando es false, y además
+     vacía el panel (podcasts.js → renderAdmin). Por eso, en modo catálogo, la clic
+     solo movía la URL y pintaba los episodios: el formulario quedaba sin
+     construir y el botón de eliminar, que solo se añade cuando hay una colección
+     seleccionada, no aparecía. Aquí se entra en modo gestión antes de
+     seleccionar, y seleccionarColeccion() ya se encarga de refrescar todo.
+
+     El salto se condiciona a puedeGestionar() porque para el visitante la misma
+     clic significa "escuchar esta colección", y forzarlo abriría un panel de
+     gestión que no puede usar. */
+  function abrirGestionDeColeccion(colId) {
+    if (!puedeGestionar()) { seleccionarColeccion(colId, true); return; }
+    if (!gestionando) {
+      gestionando = true;
+      // El modo cambia el alcance de las suscripciones: sin resuscribirse, la
+      // rejilla seguiría sin traer los borradores que sí se ven al gestionar.
+      reconstruirSuscripciones();
+      actualizarBotonesCabecera();
+    }
+    editarColeccion(colId);
+    return;
+  }
+
+  // Editar una colección: abre el panel con el formulario relleno y selecciona
+  // la colección para que se carguen sus episodios.
+  function editarColeccion(colId) {
+    coleccionEditandoId = colId || '';
+    seleccionarColeccion(colId, true);
   }
 
   function escribirUrl(params) {
@@ -595,6 +663,12 @@
       orden: normOrden(datos.orden),
       publicado: !!datos.publicado,
       embedCode: typeof datos.embedCode === 'string' ? datos.embedCode : '',
+      embedcode: typeof datos.embedCode === 'string' ? datos.embedCode : '',
+      embed: typeof datos.embedCode === 'string' ? datos.embedCode : '',
+      codigoEmbed: typeof datos.embedCode === 'string' ? datos.embedCode : '',
+      codigo_embed: typeof datos.embedCode === 'string' ? datos.embedCode : '',
+      embedHtml: typeof datos.embedCode === 'string' ? datos.embedCode : '',
+      embed_code: typeof datos.embedCode === 'string' ? datos.embedCode : '',
       actualizado: new Date().toISOString()
     };
     var ref = id
@@ -625,6 +699,7 @@
     }).then(function () { return ref.delete(); })
       .then(function () {
         V.toast('Colección eliminada ✓');
+        if (coleccionEditandoId === col.id) coleccionEditandoId = '';
         if (coleccionActualId === col.id) seleccionarColeccion('', true);
       })
       .catch(function (e) { V.toast('No se pudo eliminar: ' + e.message, true); });
@@ -803,12 +878,14 @@
   }
 
   function formColeccion() {
-    var col = coleccionPorId(coleccionActualId);
+    var colId = coleccionEditandoId || coleccionActualId;
+    var col = colId ? coleccionPorId(colId) : null;
     var card = adminCard(
       col ? 'Editar colección' : 'Nueva colección',
       'Título, descripción, portada y orden. Se guarda en Firestore y la lista se actualiza sin desplegar nada.',
       '📁'
     );
+    var embedVal = col ? (col.embedCode || col.embedcode || col.embed || col.codigoEmbed || col.codigo_embed || col.embedHtml || col.embed_code || '') : '';
 
     var inTitulo = input('podcastColTitulo', 'text', col ? texto(col.titulo) : '', 'Ej: La Biblia resumida en audio');
     var selCat = document.createElement('select');
@@ -845,7 +922,7 @@
     card.appendChild(r4);
 
     var r4b = fila();
-    r4b.appendChild(campo('Código Embed / Enlace Multimedia Libre', textarea('podcastColEmbed', col && typeof col.embedCode === 'string' ? col.embedCode : '', 'Pega aquí un iframe, código embed o contenido multimedia externo'), 'Se renderizará de forma segura en la vista pública.', true));
+    r4b.appendChild(campo('Código Embed / Enlace Multimedia Libre', textarea('podcastColEmbed', embedVal, 'Pega aquí un iframe, código embed o contenido multimedia externo'), 'Se renderizará de forma segura en la vista pública.', true));
     card.appendChild(r4b);
 
     var acciones = el('div', 'form-actions');
@@ -860,7 +937,10 @@
         embedCode: $('podcastColEmbed') ? $('podcastColEmbed').value : ''
       }, col ? col.id : '');
     }));
-    if (col) acciones.appendChild(boton('🗑 Eliminar colección', 'btn btn-danger', function () { borrarColeccion(col); }));
+    if (col) {
+      acciones.appendChild(boton('🗑 Eliminar colección', 'btn btn-danger', function () { borrarColeccion(col); }));
+      acciones.appendChild(boton('✖ Cancelar edición', 'btn btn-outline', function () { coleccionEditandoId = ''; renderAdmin(); }));
+    }
     card.appendChild(acciones);
 
     // Aviso de por qué el formulario aparece vacío: la diferencia entre
@@ -1073,6 +1153,7 @@
       // Se limpia también la selección (y con ella la URL): si no, el formulario
       // de "nueva" aparecería sobre la colección anterior y la barra de
       // direcciones seguiría anunciando un ?podcast= que ya no describe la vista.
+      coleccionEditandoId = '';
       seleccionarColeccion('', true);
       renderAdmin();
       var t = $('podcastColTitulo');
