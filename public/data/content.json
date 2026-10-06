@@ -23,6 +23,12 @@
         "title": "Conoce nuestra historia y propósito",
         "subtitle": "Un mensaje de bienvenida de Vida en Convocación: quiénes somos y a qué nos dedicamos."
       },
+      "podcasts": {
+        "eyebrow": "Podcasts",
+        "title": "Escucha nuestros podcasts",
+        "subtitle": "Colecciones de audio y episodios para escuchar a tu ritmo, sin registrarte.",
+        "cta": "🎧 Escuchar podcasts"
+      },
       "blocks": {
         "eyebrow": "Pilares",
         "title": "Nuestros pilares institucionales",

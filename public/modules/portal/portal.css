@@ -194,6 +194,16 @@ html { scroll-behavior: smooth; }
   padding: 0.8rem 1.5rem; border-radius: var(--radius);
 }
 
+/* ── PODCASTS (ficha de acceso directo, bajo el video) ───
+   Reutiliza la tarjeta de cursos —misma geometría, mismos textos— y solo
+   cambia el acento del borde para que las dos fichas de la portada no se
+   confundan. */
+.portal-podcasts .portal-courses-card { border-color: var(--accent); }
+.portal-podcasts .portal-courses-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.16);
+}
+
 /* ── VIDEO CORPORATIVO ─────────────────────────────────────
    Sección pública de la portada, debajo del hero. La URL llega desde
    Firestore (config/portal) y el reproductor se construye en portal.js. */

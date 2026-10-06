@@ -192,7 +192,7 @@
     // La sesión de Firebase aún se está resolviendo (arranque pendiente): se
     // deja la landing en pantalla y se abre el catálogo apenas concluya.
     if (isAnon && !appStarted) {
-      openCatalogPending = true;
+      vistaInvitadoPendiente = 'catalog';
       return;
     }
     showApp();
@@ -202,6 +202,19 @@
       localStorage.setItem('vconv_mode', 'estudiante');
     }
     setMode(mode);
+  }
+  // Acceso directo de la portada a los podcasts. El módulo también es de
+  // lectura abierta (las reglas de Firestore lo permiten sin sesión), así que
+  // el visitante llega igual que a los cursos. El showApp() es imprescindible:
+  // showPodcasts() solo enciende la vista, y con la portada delante el shell
+  // seguiría oculto — se vería una pantalla en blanco.
+  function showGuestPodcasts() {
+    if (isAnon && !appStarted) {
+      vistaInvitadoPendiente = 'podcasts';
+      return;
+    }
+    showApp();
+    showPodcasts();
   }
   function openAuth(tab) {
     if (tab) setAuthTab(tab);
@@ -1362,10 +1375,23 @@
   // solo se refresca la UI sin volver a vincular eventos ni inicializar
   // módulos.
   var appStarted = false;
-  // Un visitante tocó "Cursos gratuitos" durante el arranque (aún sin sesión
-  // resuelta en Firebase): al montar la app se abre el catálogo en vez de
-  // quedarse en la landing.
-  var openCatalogPending = false;
+  // Una visita tocó un atajo de la portada ("Cursos gratuitos", "Podcasts")
+  // durante el arranque (aún sin sesión de Firebase): al montar la app se abre
+  // esa sección en vez de quedarse en la landing. Guarda el destino —no un
+  // booleano— porque ya hay más de una sección que se puede pedir así.
+  var vistaInvitadoPendiente = '';
+  // Resuelve el atajo pendiente. showApp() va siempre por delante: sin él el
+  // shell sigue oculto y la navegación elegida no se vería.
+  function abrirVistaInvitadoPendiente() {
+    var destino = vistaInvitadoPendiente;
+    vistaInvitadoPendiente = '';
+    if (!destino) return false;
+    showApp();
+    if (destino === 'podcasts') showPodcasts();
+    // 'catalog' no navega: setMode() de más arriba ya dejó el catálogo abierto
+    // y volver a llamarlo solo repetiría el pintado de todos los módulos.
+    return true;
+  }
   function startApp(rol) {
     userRole = rol;
     V.userRole = rol;
@@ -1398,13 +1424,16 @@
       // conserva la landing page visible; si ya es una cuenta registrada se
       // refresca la UI y se muestra su escritorio.
       if (isAnon) {
-        if (openCatalogPending || deepLinkPendiente()) {
-          openCatalogPending = false;
-          showApp();
-        } else {
-          $('appRoot').style.display = 'none';
-          var pwPortal = $('portalScreen');
-          if (pwPortal) pwPortal.style.display = '';
+        // abrirVistaInvitadoPendiente() ya llama a showApp() por su cuenta, así
+        // que solo se muestra el shell cuando no había atajo pendiente.
+        if (!abrirVistaInvitadoPendiente()) {
+          if (deepLinkPendiente()) {
+            showApp();
+          } else {
+            $('appRoot').style.display = 'none';
+            var pwPortal = $('portalScreen');
+            if (pwPortal) pwPortal.style.display = '';
+          }
         }
       } else {
         refreshAuthUi();
@@ -1422,9 +1451,8 @@
     // queda montado en segundo plano (eventos + suscripciones del catálogo)
     // para que el acceso "Cursos gratuitos" abra el catálogo al instante.
     if (isAnon) {
-      if (openCatalogPending) {
-        openCatalogPending = false;
-        showApp();
+      if (vistaInvitadoPendiente) {
+        abrirVistaInvitadoPendiente();
       } else if (deepLinkPendiente()) {
         // Un enlace directo (?curso=…) es una intención explícita de abrir
         // cursos: se muestra el shell, pero la navegación real la hace
@@ -1552,6 +1580,7 @@
   V.showPortal = showPortal;
   V.showPublicPortal = showPublicPortal;
   V.showGuestCatalog = showGuestCatalog;
+  V.showGuestPodcasts = showGuestPodcasts;
   V.showApp = showApp;
   V.registerDeepLink = registerDeepLink;
   // API de enlaces directos para los módulos: publicar sus parámetros, saber si

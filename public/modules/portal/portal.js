@@ -170,6 +170,12 @@
     setText('coursesSubtitle', coursesSec.subtitle);
     setText('portalCtaCourses', hero.ctaCourses);
 
+    var podcastsSec = sections.podcasts || {};
+    setText('podcastsEyebrow', podcastsSec.eyebrow);
+    setText('podcastsTitle', podcastsSec.title);
+    setText('podcastsSubtitle', podcastsSec.subtitle);
+    setText('portalCtaPodcasts', podcastsSec.cta);
+
     // Los textos de la sección de video NO se pintan aquí: los lleva
     // renderVideoSection(), que es quien sabe combinarlos con config/portal.
     // Ponerlos solo desde content.json los dejaría atados a una de las dos
@@ -318,6 +324,35 @@
     V.openAuth('login');
   }
 
+  // Ficha de acceso a Podcasts: el catálogo es de lectura abierta, así que el
+  // atajo sirve igual para el visitante que para la cuenta registrada y no hace
+  // falta pasar por el Escritorio ni por el formulario de acceso.
+  function goPodcasts() {
+    closeSidebar();
+    if (typeof V.showGuestPodcasts === 'function') { V.showGuestPodcasts(); return; }
+    if (hasRealSession()) { V.showApp(); return; }
+    V.openAuth('login');
+  }
+
+  // Resumen real de la ficha: cuántos conjuntos de audio hay publicados ahora.
+  // Usa resumenPublico() del módulo de podcasts —un get suelto, sin suscripción
+  // abierta— para que la portada no deje un oyente vivo por una cifra decorativa.
+  // Si todavía no hay colecciones se conserva el texto de content.json: la
+  // sección no se oculta, porque el módulo existe aunque se publique después.
+  function renderPodcastsResumen() {
+    var sub = $('podcastsSubtitle');
+    if (!sub) return;
+    if (!V.podcasts || typeof V.podcasts.resumenPublico !== 'function') return;
+    var base = sub.textContent;
+    V.podcasts.resumenPublico(function (lista) {
+      if (!sub || !lista || !lista.length) return;
+      var n = lista.length;
+      var extra = n + (n === 1 ? ' colección de audio' : ' colecciones de audio') + ' para escuchar';
+      var titulo = lista[0] && typeof lista[0].titulo === 'string' ? lista[0].titulo.trim() : '';
+      sub.textContent = extra + (titulo ? '. La más reciente: ' + titulo : '.');
+    });
+  }
+
   function bindPortalEvents() {
     var themeBtn = $('portalThemeToggle');
     if (themeBtn) themeBtn.addEventListener('click', togglePortalTheme);
@@ -383,6 +418,10 @@
         goCourses();
       });
     });
+
+    // Ficha de podcasts: botón de la tarjeta hacia la sección de audio.
+    var podcastsCta = $('portalCtaPodcasts');
+    if (podcastsCta) podcastsCta.addEventListener('click', goPodcasts);
 
     var form = $('contactForm');
     if (form) form.addEventListener('submit', handleContactSubmit);
@@ -1230,6 +1269,9 @@
       subscribeVideoConfig();
       renderAdminPortalConfig();
       renderAdminVideoPreview();
+      // El recuento de la ficha necesita V.db, que solo vale dentro de
+      // startApp(); por eso se pide aquí y no en init().
+      renderPodcastsResumen();
     }
   };
   V.registerModule(PortalModule);

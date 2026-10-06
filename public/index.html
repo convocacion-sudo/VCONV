@@ -861,6 +861,24 @@
         </div>
       </section>
 
+      <!-- ═══ PODCASTS (ficha de acceso directo · bajo el video) ═══ -->
+      <!-- Atajo de la portada al módulo de audio: un clic lleva a la sección de
+           podcasts, sin pasar por el Escritorio. El catálogo se lee sin sesión
+           (ver firestore.rules → podcast_colecciones), así que el visitante
+           también puede escucharlo. Los tres textos admiten override en
+           data/content.json (portal.sections.podcasts); el resumen con el
+           número de colecciones lo pinta portal.js con resumenPublico(). -->
+      <section class="portal-section portal-podcasts" id="portalPodcasts">
+        <div class="portal-courses-card">
+          <div class="portal-courses-info">
+            <span class="portal-eyebrow" id="podcastsEyebrow">Podcasts</span>
+            <h2 id="podcastsTitle">Escucha nuestros podcasts</h2>
+            <p id="podcastsSubtitle">Colecciones de audio y episodios para escuchar a tu ritmo, sin registrarte.</p>
+          </div>
+          <button type="button" class="btn btn-primary portal-courses-btn" id="portalCtaPodcasts">🎧 Escuchar podcasts</button>
+        </div>
+      </section>
+
       <section class="portal-section portal-courses" id="portalCourses">
         <div class="portal-courses-card">
           <div class="portal-courses-info">
