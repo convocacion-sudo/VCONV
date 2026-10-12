@@ -1485,6 +1485,11 @@
   }
 
   function refreshAuthUi() {
+    // El shell pudo quedar oculto (visitante en la portada: appRoot display:none).
+    // Al detectar una sesión activa hay que mostrar la app ANTES de navegar; de
+    // lo contrario el usuario permanece en la landing y solo ve su Escritorio
+    // tras pulsar el logo o recargar.
+    showApp();
     if (isAnon) setupGuestChip(currentUser); else setupUserChip(currentUser);
     var logoutBtn = $('btnLogout');
     if (logoutBtn) logoutBtn.textContent = isAnon ? '🔐 Crear cuenta' : 'Salir';
