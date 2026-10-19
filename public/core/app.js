@@ -216,6 +216,19 @@
     showApp();
     showPodcasts();
   }
+  // Acceso directo de la portada a la Tienda Consolidada (marketplace). El
+  // catálogo de productos es de lectura abierta (reglas esPublico()), así que
+  // el visitante llega igual que a cursos/podcasts. showApp() es imprescindible:
+  // showTienda() solo enciende la vista, y con la portada delante el shell
+  // seguiría oculto.
+  function showGuestTienda() {
+    if (isAnon && !appStarted) {
+      vistaInvitadoPendiente = 'tienda';
+      return;
+    }
+    showApp();
+    showTienda();
+  }
   function openAuth(tab) {
     if (tab) setAuthTab(tab);
     if (authInitFailure) showAuthError(authInitFailure);
@@ -726,7 +739,7 @@
     var top = _navHistory[_navHistory.length - 1];
     if (top !== id) _navHistory.push(id);
     if (_navHistory.length > 20) _navHistory.shift();
-    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewPodcasts', 'viewFinanzas', 'viewReportes', 'viewRedGlobal', 'viewSuperadmin'];
+    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewPodcasts', 'viewTienda', 'viewFinanzas', 'viewReportes', 'viewRedGlobal', 'viewSuperadmin'];
     allViews.forEach(function (v) {
       var node = $(v);
       if (node) node.classList.toggle('active', v === id);
@@ -768,6 +781,10 @@
         return [dash, { label: 'Gestión de Usuarios' }];
       case 'viewComunidades':
         return [dash, { label: 'Comunidades' }];
+      case 'viewPodcasts':
+        return [dash, { label: 'Podcasts' }];
+      case 'viewTienda':
+        return [dash, { label: 'Tienda' }];
       case 'viewFinanzas':
         return [dash, { label: 'Finanzas' }];
       case 'viewReportes':
@@ -1024,6 +1041,20 @@
     }
   }
 
+  // Tienda Consolidada (marketplace): catálogo público de productos con
+  // comisión, fichas de producto y contacto directo con el vendedor. La
+  // lectura es abierta (reglas de Firestore esPublico()), así que la vista no
+  // filtra por rol; el panel de vendedor dentro del propio módulo sí depende
+  // de tener sesión iniciada.
+  function showTienda() {
+    showView('viewTienda');
+    try {
+      if (typeof V.onTiendaShow === 'function') V.onTiendaShow();
+    } catch (e) {
+      toast('No se pudo cargar la Tienda: ' + (e && e.message ? e.message : e), true);
+    }
+  }
+
   function showFinanzas() {
     showView('viewFinanzas');
     try {
@@ -1129,6 +1160,7 @@
       viewCatalog: 'cursos', viewCourse: 'cursos', viewLesson: 'cursos', viewEditor: 'cursos',
       viewComunidades: 'comunidades',
       viewPodcasts: 'podcasts',
+      viewTienda: 'tienda',
       viewAdmin: 'admin',
       viewFinanzas: 'finanzas',
       viewReportes: 'reportes',
@@ -1153,6 +1185,7 @@
       case 'viewAdmin': label = 'Gestión de Usuarios'; break;
       case 'viewComunidades': label = 'Comunidades'; break;
       case 'viewPodcasts': label = 'Podcasts'; break;
+      case 'viewTienda': label = 'Tienda'; break;
       case 'viewFinanzas': label = 'Finanzas'; break;
       case 'viewReportes': label = 'Reportes Financieros'; break;
       case 'viewRedGlobal': label = 'Red MLM Global'; break;
@@ -1210,6 +1243,7 @@
       case 'cursos': setMode(userRole === 'estudiante' ? 'estudiante' : 'gestor'); break;
       case 'comunidades': showComunidades(); break;
       case 'podcasts': showPodcasts(); break;
+      case 'tienda': showTienda(); break;
       case 'admin': setMode('admin'); break;
       case 'finanzas': showFinanzas(); break;
       case 'reportes': showReportes(); break;
@@ -1388,6 +1422,7 @@
     if (!destino) return false;
     showApp();
     if (destino === 'podcasts') showPodcasts();
+    if (destino === 'tienda') showTienda();
     // 'catalog' no navega: setMode() de más arriba ya dejó el catálogo abierto
     // y volver a llamarlo solo repetiría el pintado de todos los módulos.
     return true;
@@ -1578,6 +1613,7 @@
   V.goBack = goBack;
   V.showComunidades = showComunidades;
   V.showPodcasts = showPodcasts;
+  V.showTienda = showTienda;
   V.showFinanzas = showFinanzas;
   V.showReportes = showReportes;
   V.showRedGlobal = showRedGlobal;
@@ -1586,6 +1622,7 @@
   V.showPublicPortal = showPublicPortal;
   V.showGuestCatalog = showGuestCatalog;
   V.showGuestPodcasts = showGuestPodcasts;
+  V.showGuestTienda = showGuestTienda;
   V.showApp = showApp;
   V.registerDeepLink = registerDeepLink;
   // API de enlaces directos para los módulos: publicar sus parámetros, saber si

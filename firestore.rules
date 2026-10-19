@@ -397,6 +397,54 @@ service cloud.firestore {
       }
     }
 
+    /* ── TIENDA CONSOLIDADA · MARKETPLACE (PÚBLICO · NIVEL 1) ──
+       Módulo de contenido ABIERTO: el visitante sin sesión (esPublico()) lista
+       el catálogo de productos y ve la ficha (precio, % de comisión y datos de
+       contacto del vendedor) sin registrarse. Igual que podcasts: abrir la
+       lectura no expone nada que no esté ya a un clic de verse en pantalla, y
+       NO se guarda aquí ningún dato personal sensible ni el UID de quien edita.
+
+       Estructura:
+         tienda_categorias/{catId} → clasificación del catálogo
+         tienda_productos/{prodId} → cada producto (con su comisión)
+         tienda_vendedores/{uid}   → perfil público del vendedor
+
+       Escritura: cada vendedor gestiona SUS productos y SU perfil (con sesión
+       real, vendedorId == request.auth.uid); las categorías y la moderación del
+       catálogo quedan en manos de canManage() (gestor/superadmin), la misma
+       frontera que el resto del CMS. */
+    match /tienda_categorias/{catId} {
+      // canManage() en la lectura: la consulta where('publicado','==',false) que
+      // monta el módulo al gestionar vuelve 403 sin esta rama.
+      allow read: if esVisiblePublico() || canManage();
+      allow create, update, delete: if canManage();
+    }
+
+    match /tienda_productos/{prodId} {
+      // El DUEÑO lee su producto en cualquier estado, incluso borrador, para
+      // poder gestionarlo desde "Mi tienda"; el visitante solo lo publicado; el
+      // gestor/superadmin, todo. La rama del dueño va sobre resource (el
+      // documento ya existente) y es la que autoriza su consulta
+      // where('vendedorId','==',uid): Firestore exige que la regla demuestre
+      // que toda la consulta es legible.
+      allow read: if esVisiblePublico()
+        || canManage()
+        || (isRegistered() && resource.data.vendedorId == request.auth.uid);
+      // Al crear, el producto debe nacer a nombre de quien lo crea (o de un
+      // admin). Al editar o borrar solo el dueño o el superadmin.
+      allow create: if isRegistered()
+        && (request.resource.data.vendedorId == request.auth.uid || isAdmin());
+      allow update, delete: if isAdmin()
+        || (isRegistered() && resource.data.vendedorId == request.auth.uid);
+    }
+
+    match /tienda_vendedores/{uid} {
+      // Perfil PÚBLICO del vendedor (nombre, WhatsApp, red social): lo lee
+      // cualquier identidad. Solo su dueño (o el superadmin) lo escribe.
+      allow read: if esVisiblePublico() || signedIn();
+      allow write: if isAdmin() || (isRegistered() && request.auth.uid == uid);
+    }
+
     /* ── CONFIG (perfiles organizacionales) ────────────────── */
     // Listas de opciones del CRM (departamentos, ciudades, etc.).
     match /config/{id} {

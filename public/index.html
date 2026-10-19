@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="modules/finanzas/finanzas.css">
   <link rel="stylesheet" href="modules/mlm/mlm.css">
   <link rel="stylesheet" href="modules/podcasts/podcasts.css">
+  <link rel="stylesheet" href="modules/tienda/tienda.css">
   <link rel="stylesheet" href="modules/portal/portal.css">
   <link rel="stylesheet" href="modules/superadmin/superadmin.css">
 </head>
@@ -41,6 +42,7 @@
       <a href="#" class="sidebar-link" data-nav="cursos"><span class="sidebar-ico">📚</span> Mis Cursos</a>
       <a href="#" class="sidebar-link" data-nav="comunidades"><span class="sidebar-ico">🤝</span> Comunidades</a>
       <a href="#" class="sidebar-link" data-nav="podcasts"><span class="sidebar-ico">🎧</span> Podcasts</a>
+      <a href="#" class="sidebar-link" data-nav="tienda"><span class="sidebar-ico">🛒</span> Tienda</a>
 
       <p class="sidebar-group" id="sidebarGroupAdmin" style="display:none;">Administración</p>
       <a href="#" class="sidebar-link" data-nav="admin" id="sidebarLinkAdmin" style="display:none;"><span class="sidebar-ico">🔐</span> Gestión de Usuarios</a>
@@ -621,6 +623,29 @@
       <div id="podcastAdmin" style="display:none;"></div>
     </div>
 
+    <!-- ═══ MÓDULO TIENDA CONSOLIDADA (marketplace público de productos) ═══ -->
+    <!-- Catálogo abierto: las reglas de Firestore (esPublico()) dejan leer
+         tienda_productos sin sesión, igual que cursos y podcasts. La ficha de
+         producto muestra el % de comisión y el botón de contacto (WhatsApp /
+         red social) del vendedor. El panel "Mi tienda" solo aparece para
+         cuentas registradas: es el vendedor gestionando SU catálogo. -->
+    <div class="view" id="viewTienda">
+      <div class="section-header">
+        <div>
+          <h2>🛒 Tienda</h2>
+          <p id="tiendaSub">Productos de vendedores de la comunidad con comisión directa.</p>
+        </div>
+        <div id="tiendaHeaderActions" class="section-header-acciones">
+          <button type="button" id="btnTiendaGestionar" class="btn btn-outline">⚙ Mi tienda</button>
+          <button type="button" id="btnNuevoProducto" class="btn btn-primary">➕ Nuevo producto</button>
+        </div>
+      </div>
+      <div id="tiendaCategoriasBar" class="tienda-cats"></div>
+      <div id="tiendaGrid" class="tienda-grid"></div>
+      <div id="tiendaDetail" class="tienda-detail" style="display:none;"></div>
+      <div id="tiendaAdmin" style="display:none;"></div>
+    </div>
+
     <!-- ═══ MÓDULO FINANZAS (superadmin · CRM centralizado) ═══ -->
     <div class="view" id="viewFinanzas">
       <div class="section-header">
@@ -792,6 +817,7 @@
         <nav class="portal-links" id="portalNav">
           <a href="#portalInicio">Inicio</a>
           <a href="#portalCourses" class="portal-courses-go">Cursos</a>
+          <a href="#portalTienda">Tienda</a>
           <a href="#portalBlocks">Pilares</a>
           <a href="#portalContact">Contacto</a>
         </nav>
@@ -815,6 +841,7 @@
       <nav class="portal-sidebar-links" id="portalSidebarNav">
         <a href="#portalInicio">Inicio</a>
         <a href="#portalCourses" class="portal-courses-go">Cursos</a>
+        <a href="#portalTienda">Tienda</a>
         <a href="#portalBlocks">Pilares</a>
         <a href="#portalContact">Contacto</a>
       </nav>
@@ -887,6 +914,23 @@
             <p id="coursesSubtitle"></p>
           </div>
           <button type="button" class="btn btn-primary portal-courses-btn" id="portalCtaCourses">📚 Ver cursos gratuitos</button>
+        </div>
+      </section>
+
+      <!-- ═══ TIENDA CONSOLIDADA (ficha de acceso directo · marketplace) ═══ -->
+      <!-- Atajo de la portada a la tienda: un clic abre el catálogo público de
+           productos, sin pasar por el Escritorio. La lectura es abierta
+           (firestore.rules → tienda_productos), así que el visitante también
+           puede ver fichas y contactar al vendedor. Los textos admiten override
+           en data/content.json (portal.sections.tienda). -->
+      <section class="portal-section portal-tienda" id="portalTienda">
+        <div class="portal-courses-card">
+          <div class="portal-courses-info">
+            <span class="portal-eyebrow" id="tiendaPortalEyebrow">Tienda</span>
+            <h2 id="tiendaPortalTitle">Compra con propósito</h2>
+            <p id="tiendaPortalSubtitle">Productos de emprendedores de la comunidad. Explora, conoce la comisión de cada producto y contacta al vendedor por WhatsApp o redes.</p>
+          </div>
+          <button type="button" class="btn btn-primary portal-courses-btn" id="portalCtaTienda">🛒 Ver la tienda</button>
         </div>
       </section>
 
@@ -1288,6 +1332,7 @@
   <!-- Portal público -->
   <script src="modules/portal/portal.js"></script>
   <script src="modules/podcasts/podcasts.js"></script>
+  <script src="modules/tienda/tienda.js"></script>
 <script src="modules/superadmin/superadmin.js"></script>
 </body>
 </html>

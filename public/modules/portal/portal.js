@@ -176,6 +176,12 @@
     setText('podcastsSubtitle', podcastsSec.subtitle);
     setText('portalCtaPodcasts', podcastsSec.cta);
 
+    var tiendaSec = sections.tienda || {};
+    setText('tiendaPortalEyebrow', tiendaSec.eyebrow);
+    setText('tiendaPortalTitle', tiendaSec.title);
+    setText('tiendaPortalSubtitle', tiendaSec.subtitle);
+    setText('portalCtaTienda', tiendaSec.cta);
+
     // Los textos de la sección de video NO se pintan aquí: los lleva
     // renderVideoSection(), que es quien sabe combinarlos con config/portal.
     // Ponerlos solo desde content.json los dejaría atados a una de las dos
@@ -334,6 +340,16 @@
     V.openAuth('login');
   }
 
+  // Ficha de acceso a la Tienda Consolidada: el catálogo de productos es de
+  // lectura abierta (reglas esPublico()), así que el atajo sirve igual para el
+  // visitante que para la cuenta registrada, sin pasar por el formulario.
+  function goTienda() {
+    closeSidebar();
+    if (typeof V.showGuestTienda === 'function') { V.showGuestTienda(); return; }
+    if (hasRealSession()) { V.showApp(); return; }
+    V.openAuth('login');
+  }
+
   // Resumen real de la ficha: cuántos conjuntos de audio hay publicados ahora.
   // Usa resumenPublico() del módulo de podcasts —un get suelto, sin suscripción
   // abierta— para que la portada no deje un oyente vivo por una cifra decorativa.
@@ -350,6 +366,22 @@
       var extra = n + (n === 1 ? ' colección de audio' : ' colecciones de audio') + ' para escuchar';
       var titulo = lista[0] && typeof lista[0].titulo === 'string' ? lista[0].titulo.trim() : '';
       sub.textContent = extra + (titulo ? '. La más reciente: ' + titulo : '.');
+    });
+  }
+
+  // Resumen real de la ficha de la tienda: cuántos productos hay publicados
+  // ahora. Usa resumenPublico() del módulo de tienda —un get suelto, sin
+  // suscripción abierta— para no dejar una escucha viva por una cifra
+  // decorativa. Si todavía no hay productos se conserva el texto de content.json.
+  function renderTiendaResumen() {
+    var sub = $('tiendaPortalSubtitle');
+    if (!sub) return;
+    if (!V.tienda || typeof V.tienda.resumenPublico !== 'function') return;
+    V.tienda.resumenPublico(function (lista) {
+      if (!sub || !lista || !lista.length) return;
+      var n = lista.length;
+      sub.textContent = n + (n === 1 ? ' producto publicado' : ' productos publicados') +
+        ' por vendedores de la comunidad. Explora fichas, conoce la comisión y contacta directo.';
     });
   }
 
@@ -422,6 +454,10 @@
     // Ficha de podcasts: botón de la tarjeta hacia la sección de audio.
     var podcastsCta = $('portalCtaPodcasts');
     if (podcastsCta) podcastsCta.addEventListener('click', goPodcasts);
+
+    // Ficha de la tienda: botón de la tarjeta hacia el catálogo de productos.
+    var tiendaCta = $('portalCtaTienda');
+    if (tiendaCta) tiendaCta.addEventListener('click', goTienda);
 
     var form = $('contactForm');
     if (form) form.addEventListener('submit', handleContactSubmit);
@@ -1272,6 +1308,7 @@
       // El recuento de la ficha necesita V.db, que solo vale dentro de
       // startApp(); por eso se pide aquí y no en init().
       renderPodcastsResumen();
+      renderTiendaResumen();
     }
   };
   V.registerModule(PortalModule);

@@ -1,0 +1,140 @@
+/* ════════════════════════════════════════════════════════════════
+   VCONV · Módulo Tienda Consolidada — Marketplace (público)
+   Catálogo de productos, ficha con % de comisión y contacto con el
+   vendedor, y panel "Mi tienda" para cuentas registradas.
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── FILTRO POR CATEGORÍA ────────────────────────────────────── */
+.tienda-cats {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+.tienda-cat {
+  padding: 0.35rem 0.9rem; border-radius: 99px;
+  border: 1px solid var(--border); background: var(--bg-secondary);
+  color: var(--text-secondary); font-size: 0.78rem; font-weight: 700;
+  cursor: pointer; transition: all var(--transition); white-space: nowrap;
+}
+.tienda-cat:hover { border-color: var(--border-hover); color: var(--text-primary); }
+.tienda-cat.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ── REJILLA DE PRODUCTOS ────────────────────────────────────── */
+.tienda-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem;
+}
+.tienda-card {
+  display: flex; flex-direction: column; text-align: left;
+  background: var(--bg-card); border: 1px solid var(--border); border-top: 3px solid var(--gold);
+  border-radius: var(--radius-lg); padding: 0; overflow: hidden; cursor: pointer;
+  transition: transform var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+.tienda-card:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
+.tienda-card.active { border-color: var(--accent); border-top-color: var(--accent); box-shadow: var(--accent-glow); }
+.tienda-thumb {
+  width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block;
+  background: var(--bg-tertiary); border-bottom: 1px solid var(--border);
+}
+.tienda-thumb-fallback {
+  width: 100%; aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center;
+  font-size: 2.4rem; background: var(--bg-tertiary); border-bottom: 1px solid var(--border);
+}
+.tienda-card-body { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.95rem 1rem; flex: 1; }
+.tienda-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+.tienda-card-title { font-size: 0.98rem; font-weight: 700; color: var(--text-primary); line-height: 1.35; }
+.tienda-card-cat { font-size: 0.72rem; color: var(--text-muted); font-weight: 600; }
+.tienda-card-desc {
+  font-size: 0.82rem; color: var(--text-secondary); line-height: 1.55;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.tienda-price { font-size: 1.05rem; font-weight: 800; color: var(--gold); letter-spacing: -0.01em; }
+.tienda-card-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  margin-top: auto; padding-top: 0.6rem;
+}
+.tienda-comision {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.72rem; font-weight: 800; padding: 0.2rem 0.55rem; border-radius: 99px;
+  background: var(--gold-glow); color: var(--gold); border: 1px solid var(--gold-soft);
+}
+.tienda-vendedor { font-size: 0.72rem; color: var(--text-muted); font-weight: 600; }
+
+/* ── FICHA DE PRODUCTO ───────────────────────────────────────── */
+.tienda-detail {
+  margin-bottom: 2rem; padding: 1.4rem;
+  background: var(--bg-card); border: 1px solid var(--border); border-top: 3px solid var(--accent);
+  border-radius: var(--radius-lg);
+}
+.tienda-detail-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+  flex-wrap: wrap; margin-bottom: 1rem;
+}
+.tienda-detail-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 1.4rem; }
+.tienda-gallery { display: flex; flex-direction: column; gap: 0.6rem; }
+.tienda-gallery-main {
+  width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--radius);
+  background: var(--bg-tertiary); border: 1px solid var(--border);
+}
+.tienda-gallery-main-fallback {
+  width: 100%; aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center;
+  font-size: 3rem; border-radius: var(--radius); background: var(--bg-tertiary); border: 1px solid var(--border);
+}
+.tienda-gallery-thumbs { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.tienda-gallery-thumbs img {
+  width: 62px; height: 62px; object-fit: cover; border-radius: 10px;
+  border: 1px solid var(--border); cursor: pointer; background: var(--bg-tertiary);
+}
+.tienda-gallery-thumbs img.active { border-color: var(--accent); box-shadow: var(--accent-glow); }
+.tienda-detail-info { display: flex; flex-direction: column; gap: 0.7rem; }
+.tienda-detail-title { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.02em; color: var(--text-primary); }
+.tienda-detail-desc { font-size: 0.9rem; color: var(--text-secondary); line-height: 1.7; white-space: pre-wrap; }
+.tienda-detail-meta { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.tienda-detail-price { font-size: 1.6rem; font-weight: 900; color: var(--gold); }
+.tienda-detail-actions { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.4rem; }
+.tienda-seller-box {
+  display: flex; flex-direction: column; gap: 0.3rem; padding: 0.85rem 1rem;
+  background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.tienda-seller-box h4 { font-size: 0.85rem; font-weight: 800; margin: 0; }
+.tienda-seller-box p { font-size: 0.8rem; color: var(--text-muted); margin: 0; }
+.tienda-detail-empty { font-size: 0.85rem; color: var(--text-muted); padding: 1rem 0; }
+
+/* ── PANEL DE VENDEDOR (Mi tienda · cuentas registradas) ─────── */
+.tienda-admin { margin-top: 2.5rem; }
+.tienda-admin-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-top: 3px solid var(--gold);
+  border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1.5rem;
+}
+.tienda-admin-head { margin-bottom: 1.25rem; }
+.tienda-admin-head h3 { font-size: 1.05rem; font-weight: 800; margin-bottom: 0.25rem; }
+.tienda-admin-head p { font-size: 0.82rem; color: var(--text-muted); }
+.tienda-admin-empty { font-size: 0.85rem; color: var(--text-muted); padding: 1rem 0; }
+.tienda-cat-admin { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+.tienda-cat-admin .input { flex: 1; min-width: 200px; }
+
+.tienda-mis-productos { display: flex; flex-direction: column; gap: 0.75rem; }
+.tienda-mini {
+  display: flex; align-items: center; gap: 0.85rem;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 0.65rem 0.85rem;
+}
+.tienda-mini img, .tienda-mini .tienda-mini-fallback {
+  width: 46px; height: 46px; border-radius: 10px; flex-shrink: 0;
+  object-fit: cover; background: var(--bg-tertiary); border: 1px solid var(--border);
+}
+.tienda-mini-fallback { display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+.tienda-mini-body { flex: 1; min-width: 0; }
+.tienda-mini-body h4 { font-size: 0.88rem; font-weight: 700; margin-bottom: 0.1rem; }
+.tienda-mini-meta { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.tienda-mini-meta span { font-size: 0.72rem; color: var(--text-muted); font-weight: 700; }
+.tienda-row-actions { display: flex; gap: 0.35rem; flex-shrink: 0; }
+
+/* ── RESPONSIVE ───────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .tienda-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .tienda-detail-grid { grid-template-columns: 1fr; }
+  .tienda-mini { flex-wrap: wrap; }
+  .tienda-row-actions { width: 100%; justify-content: flex-end; }
+}
+@media (max-width: 520px) {
+  .tienda-grid { grid-template-columns: 1fr 1fr; }
+}
