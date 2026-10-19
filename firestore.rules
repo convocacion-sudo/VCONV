@@ -54,6 +54,14 @@ service cloud.firestore {
         || isGestor()
         || isAdmin();
     }
+    // Permiso explícito del CRM para vincular una tienda externa. Se lee del
+    // propio documento usuarios/{uid} (fuente única de permisos) y usa get()
+    // con valor por defecto: un documento/campo ausente NO debe lanzar error
+    // ni conceder el permiso. El superadmin conserva el bypass de siempre.
+    function esVendedorAutorizado() {
+      return isRegistered()
+        && get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.get('vendedorAutorizado', false) == true;
+    }
     // ═══ ALCANCE DE LA RED DEL ROL AVANZADO ═════════════════════
     // El avanzado NO lee la base completa: solo los documentos financieros
     // cuyo titular (campo `userId`) es él mismo o un descendiente suyo de
@@ -219,7 +227,16 @@ service cloud.firestore {
             || esMiSponsor()
             || isGestor()
             || isAdmin());
-      allow write: if signedIn() && (uid == request.auth.uid || isAdmin());
+      // El dueño puede actualizar su perfil, pero NO puede auto-asignarse el
+      // permiso de vendedor: "Vendedor Autorizado" solo lo concede el CRM
+      // (isAdmin). En un alta (resource == null) el campo debe venir ausente.
+      function noCambiaVendedorAutorizado() {
+        return !('vendedorAutorizado' in request.resource.data)
+          || (resource != null
+              && request.resource.data.vendedorAutorizado == resource.data.get('vendedorAutorizado', false));
+      }
+      allow write: if signedIn()
+        && (isAdmin() || (uid == request.auth.uid && noCambiaVendedorAutorizado()));
     }
 
     /* ── MAPEO DE CÓDIGOS DE REFERIDO (MLM) ────────────────── */
@@ -439,10 +456,14 @@ service cloud.firestore {
     }
 
     match /tienda_vendedores/{uid} {
-      // Perfil PÚBLICO del vendedor (nombre, WhatsApp, red social): lo lee
-      // cualquier identidad. Solo su dueño (o el superadmin) lo escribe.
+      // Perfil PÚBLICO de la tienda externa (negocio, plataforma, categoría,
+      // descripción y URL/embed): lo lee cualquier identidad para que el
+      // marketplace funcione sin sesión. La ESCRITURA exige, además de ser el
+      // dueño, el permiso explícito "Vendedor Autorizado" que concede el CRM
+      // (usuarios/{uid}.vendedorAutorizado). El superadmin mantiene su bypass.
       allow read: if esVisiblePublico() || signedIn();
-      allow write: if isAdmin() || (isRegistered() && request.auth.uid == uid);
+      allow write: if isAdmin()
+        || (isRegistered() && request.auth.uid == uid && esVendedorAutorizado());
     }
 
     /* ── CONFIG (perfiles organizacionales) ────────────────── */

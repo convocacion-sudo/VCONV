@@ -216,9 +216,9 @@
     showApp();
     showPodcasts();
   }
-  // Acceso directo de la portada a la Tienda Consolidada (marketplace). El
-  // catálogo de productos es de lectura abierta (reglas esPublico()), así que
-  // el visitante llega igual que a cursos/podcasts. showApp() es imprescindible:
+  // Acceso directo de la portada a la Tienda Consolidada (marketplace). La
+  // vitrina de tiendas externas es de lectura abierta (reglas esPublico()), así
+  // que el visitante llega igual que a cursos/podcasts. showApp() es imprescindible:
   // showTienda() solo enciende la vista, y con la portada delante el shell
   // seguiría oculto.
   function showGuestTienda() {
@@ -1041,11 +1041,11 @@
     }
   }
 
-  // Tienda Consolidada (marketplace): catálogo público de productos con
-  // comisión, fichas de producto y contacto directo con el vendedor. La
-  // lectura es abierta (reglas de Firestore esPublico()), así que la vista no
-  // filtra por rol; el panel de vendedor dentro del propio módulo sí depende
-  // de tener sesión iniciada.
+  // Tienda Consolidada (marketplace): vitrina pública de tiendas externas
+  // vinculadas por los vendedores, con visor embebido. La lectura es abierta
+  // (reglas de Firestore esPublico()), así que la vista no filtra por rol; el
+  // panel "Mi Tienda Externa" del propio módulo depende de tener sesión y el
+  // permiso Vendedor Autorizado.
   function showTienda() {
     showView('viewTienda');
     try {

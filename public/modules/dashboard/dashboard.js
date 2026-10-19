@@ -166,10 +166,10 @@
     // episodios se abre dentro del módulo solo a quien puede gestionarla.
     cards.push({ icon: '🎧', title: 'Podcasts', tag: 'Audio', desc: (typeof V.canManage === 'function' && V.canManage()) ? 'Administra colecciones y episodios.' : 'Escucha las colecciones de audio.', action: function () { if (V.showPodcasts) V.showPodcasts(); } });
 
-    // Tienda Consolidada: el catálogo de productos es público, así que la
-    // tarjeta se ofrece a cualquier rol. Publicar y editar productos se abre
-    // dentro del módulo solo a quien tenga sesión iniciada.
-    cards.push({ icon: '🛒', title: 'Tienda', tag: 'Marketplace', desc: (typeof V.canManage === 'function' && V.canManage()) ? 'Administra productos, categorías y comisiones.' : 'Explora productos y contacta a los vendedores.', action: function () { if (V.showTienda) V.showTienda(); } });
+    // Tienda Consolidada: la vitrina de tiendas externas es pública, así que la
+    // tarjeta se ofrece a cualquier rol. Vincular "Mi Tienda Externa" se abre
+    // dentro del módulo solo con sesión y el permiso Vendedor Autorizado.
+    cards.push({ icon: '🛒', title: 'Tienda', tag: 'Marketplace', desc: (typeof V.canManage === 'function' && V.canManage()) ? 'Supervisa las tiendas vinculadas por los vendedores.' : 'Explora tiendas y visita cada negocio.', action: function () { if (V.showTienda) V.showTienda(); } });
 
     cards.forEach(function (c) {
       var card = el('button', 'dash-card');

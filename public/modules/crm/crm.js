@@ -1003,6 +1003,7 @@ td.setAttribute('colspan', '13');
     body.appendChild(viewBlock('🛡️', 'blue', 'Rol y Configuración', [
       ['Rol en la plataforma', rolLabel(user.rol || 'estudiante')],
       ['Estado de cuenta', user.estado || 'Activo'],
+      ['Vendedor Autorizado', user.vendedorAutorizado ? 'Sí' : 'No'],
       ['Perfil organizacional', user.perfil],
       ['Profesión', user.profesion],
       ['Oficio', user.oficio]
@@ -1193,6 +1194,8 @@ td.setAttribute('colspan', '13');
     $('crmBanco').value = user.banco || '';
     $('crmNumeroCuenta').value = user.numeroCuenta || '';
     $('crmRegistradoPortal').checked = !!user.registradoPortal;
+    var chkVendedor = $('crmVendedorAutorizado');
+    if (chkVendedor) chkVendedor.checked = !!user.vendedorAutorizado;
     $('crmRol').value = user.rol || 'estudiante';
     $('crmEstado').value = user.estado || 'Activo';
 
@@ -1491,7 +1494,8 @@ td.setAttribute('colspan', '13');
       notas: $('crmNotas').value.trim(),
       banco: $('crmBanco').value,
       numeroCuenta: $('crmNumeroCuenta').value.trim(),
-      registradoPortal: !!$('crmRegistradoPortal').checked
+      registradoPortal: !!$('crmRegistradoPortal').checked,
+      vendedorAutorizado: !!($('crmVendedorAutorizado') && $('crmVendedorAutorizado').checked)
     };
 
     if (!editingUser.fechaSuscripcion && !editingUser.createdAt) {

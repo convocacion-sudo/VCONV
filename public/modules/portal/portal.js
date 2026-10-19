@@ -340,9 +340,9 @@
     V.openAuth('login');
   }
 
-  // Ficha de acceso a la Tienda Consolidada: el catálogo de productos es de
-  // lectura abierta (reglas esPublico()), así que el atajo sirve igual para el
-  // visitante que para la cuenta registrada, sin pasar por el formulario.
+  // Ficha de acceso a la Tienda Consolidada: la vitrina de tiendas externas es
+  // de lectura abierta (reglas esPublico()), así que el atajo sirve igual para
+  // el visitante que para la cuenta registrada, sin pasar por el formulario.
   function goTienda() {
     closeSidebar();
     if (typeof V.showGuestTienda === 'function') { V.showGuestTienda(); return; }
@@ -369,10 +369,11 @@
     });
   }
 
-  // Resumen real de la ficha de la tienda: cuántos productos hay publicados
-  // ahora. Usa resumenPublico() del módulo de tienda —un get suelto, sin
-  // suscripción abierta— para no dejar una escucha viva por una cifra
-  // decorativa. Si todavía no hay productos se conserva el texto de content.json.
+  // Resumen real de la ficha de la tienda: cuántas tiendas externas hay
+  // publicadas ahora. Usa resumenPublico() del módulo de tienda —un get
+  // suelto, sin suscripción abierta— para no dejar una escucha viva por una
+  // cifra decorativa. Si todavía no hay tiendas se conserva el texto de
+  // content.json.
   function renderTiendaResumen() {
     var sub = $('tiendaPortalSubtitle');
     if (!sub) return;
@@ -380,8 +381,8 @@
     V.tienda.resumenPublico(function (lista) {
       if (!sub || !lista || !lista.length) return;
       var n = lista.length;
-      sub.textContent = n + (n === 1 ? ' producto publicado' : ' productos publicados') +
-        ' por vendedores de la comunidad. Explora fichas, conoce la comisión y contacta directo.';
+      sub.textContent = n + (n === 1 ? ' tienda vinculada' : ' tiendas vinculadas') +
+        ' por vendedores de la comunidad. Explora cada negocio y visita su tienda desde VCONV.';
     });
   }
 

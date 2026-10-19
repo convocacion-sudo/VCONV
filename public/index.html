@@ -623,21 +623,20 @@
       <div id="podcastAdmin" style="display:none;"></div>
     </div>
 
-    <!-- ═══ MÓDULO TIENDA CONSOLIDADA (marketplace público de productos) ═══ -->
-    <!-- Catálogo abierto: las reglas de Firestore (esPublico()) dejan leer
-         tienda_productos sin sesión, igual que cursos y podcasts. La ficha de
-         producto muestra el % de comisión y el botón de contacto (WhatsApp /
-         red social) del vendedor. El panel "Mi tienda" solo aparece para
-         cuentas registradas: es el vendedor gestionando SU catálogo. -->
+    <!-- ═══ MÓDULO TIENDA CONSOLIDADA (vitrina pública de tiendas externas) ═══ -->
+    <!-- Vitrina abierta: las reglas de Firestore (esPublico()) dejan leer
+         tienda_vendedores sin sesión, igual que cursos y podcasts. Cada tarjeta
+         muestra avatar, negocio, categoría, plataforma y descripción; "Ver
+         Tienda" abre un visor embebido. "Mi Tienda Externa" solo aparece para
+         cuentas registradas con el permiso Vendedor Autorizado. -->
     <div class="view" id="viewTienda">
       <div class="section-header">
         <div>
           <h2>🛒 Tienda</h2>
-          <p id="tiendaSub">Productos de vendedores de la comunidad con comisión directa.</p>
+          <p id="tiendaSub">Tiendas de vendedores de la comunidad.</p>
         </div>
         <div id="tiendaHeaderActions" class="section-header-acciones">
-          <button type="button" id="btnTiendaGestionar" class="btn btn-outline">⚙ Mi tienda</button>
-          <button type="button" id="btnNuevoProducto" class="btn btn-primary">➕ Nuevo producto</button>
+          <button type="button" id="btnTiendaGestionar" class="btn btn-outline">⚙ Mi Tienda Externa</button>
         </div>
       </div>
       <div id="tiendaCategoriasBar" class="tienda-cats"></div>
@@ -1184,6 +1183,14 @@
                 <option value="Inactivo">Inactivo</option>
                 <option value="Suspendido">Suspendido</option>
               </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field field-full">
+              <label class="fin-check-label">
+                <input type="checkbox" id="crmVendedorAutorizado">
+                <span>Vendedor Autorizado (puede configurar "Mi Tienda Externa")</span>
+              </label>
             </div>
           </div>
           <div class="form-row">
