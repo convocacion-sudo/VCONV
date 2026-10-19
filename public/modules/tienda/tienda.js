@@ -62,6 +62,23 @@
   /* ─── HELPERS ──────────────────────────────────────────────── */
   function texto(v) { return typeof v === 'string' ? v.trim() : ''; }
 
+  function escaparHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // Formato enriquecido básico para la descripción: **negritas**, saltos de
+  // línea y emojis. El texto se escapa ANTES de inyectarse, así que el HTML
+  // que escriba el vendedor nunca se ejecuta.
+  function descripcionHtml(raw) {
+    return escaparHtml(texto(raw))
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\r?\n/g, '<br>');
+  }
+
   // Misma tolerancia que esVisiblePublico() en firestore.rules: sin campo
   // cuenta como publicado y solo un false explícito esconde el documento.
   function esPublicado(d) {
@@ -269,6 +286,7 @@
 
   function chipRed(red, cls) {
     var a = el('a', cls);
+    a.classList.add('tienda-red-' + (red.label === 'YouTube' ? 'youtube' : red.id));
     a.href = red.url;
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
@@ -475,6 +493,26 @@
     return el('div', 'tienda-store-avatar tienda-store-avatar-initials', iniciales(nombreTienda(t)));
   }
 
+  // Banner promocional opcional. Si la imagen no carga, se retira por
+  // completo para no dejar un hueco roto en la tarjeta.
+  function portadaTienda(t) {
+    var url = urlSegura(t && t.portadaUrl);
+    if (!url) return null;
+    var wrap = el('div', 'tienda-store-cover');
+    var img = document.createElement('img');
+    img.className = 'tienda-store-cover-img';
+    img.src = url;
+    img.alt = '';
+    img.loading = 'lazy';
+    img.addEventListener('error', function () {
+      var card = wrap.parentNode;
+      if (card) card.classList.remove('has-cover');
+      if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+    });
+    wrap.appendChild(img);
+    return wrap;
+  }
+
   function renderTiendas() {
     var grid = $('tiendaGrid');
     if (!grid) return;
@@ -495,6 +533,12 @@
     lista.forEach(function (t) {
       var card = el('article', 'tienda-store-card');
 
+      var portada = portadaTienda(t);
+      if (portada) {
+        card.classList.add('has-cover');
+        card.appendChild(portada);
+      }
+
       var head = el('div', 'tienda-store-head');
       head.appendChild(avatarTienda(t));
 
@@ -512,7 +556,10 @@
       if (!esPublicado(t)) card.appendChild(el('span', 'status-pill', 'Borrador'));
 
       var desc = texto(t.descripcion);
-      card.appendChild(el('p', 'tienda-store-desc', desc || 'El vendedor aún no agregó detalles de su tienda.'));
+      var descEl = el('p', 'tienda-store-desc');
+      if (desc) descEl.innerHTML = descripcionHtml(desc);
+      else descEl.textContent = 'El vendedor aún no agregó detalles de su tienda.';
+      card.appendChild(descEl);
 
       var redes = redesSecundarias(t);
       if (redes.length) {
@@ -522,7 +569,7 @@
       }
 
       var foot = el('div', 'tienda-store-foot');
-      var verBtn = el('button', 'btn btn-primary btn-sm', 'Ver Tienda');
+      var verBtn = el('button', 'btn btn-primary tienda-store-cta', 'Ver Tienda →');
       verBtn.type = 'button';
       verBtn.addEventListener('click', function () { abrirVisor(t); });
       foot.appendChild(verBtn);
@@ -679,7 +726,7 @@
     m.fbLogo.appendChild(avatarTienda(t));
     m.fbTitle.textContent = 'Abre esta tienda en ' + label;
     m.fbText.textContent = motivo || 'Esta tienda no se puede mostrar dentro de VCONV.';
-    m.fbDesc.textContent = descTxt;
+    m.fbDesc.innerHTML = descripcionHtml(descTxt);
     m.fbDesc.style.display = descTxt ? '' : 'none';
 
     if (href) {
@@ -722,8 +769,9 @@
     }
 
     if (src) {
-      m.desc.textContent = texto(t && t.descripcion);
-      m.desc.style.display = m.desc.textContent ? '' : 'none';
+      var descTxt = texto(t && t.descripcion);
+      m.desc.innerHTML = descripcionHtml(descTxt);
+      m.desc.style.display = descTxt ? '' : 'none';
       m.fallback.style.display = 'none';
       m.frame = crearFrame(m, src, t, plat);
       m.frame.style.display = '';
@@ -877,11 +925,20 @@
     r2.appendChild(campo('Logo / Avatar (URL, opcional)', input('tiendaAvatar', 'url', texto(perfil.avatarUrl), 'https://…/logo.png')));
     card.appendChild(r2);
 
+    var rPortada = fila();
+    rPortada.appendChild(campo(
+      'Imagen Promocional / Portada (URL, opcional)',
+      input('tiendaPortada', 'url', texto(perfil.portadaUrl), 'https://…/portada.jpg'),
+      'Se muestra como banner destacado en la parte superior de tu tarjeta pública. Usa una imagen horizontal (aprox. 1200×600).',
+      true
+    ));
+    card.appendChild(rPortada);
+
     var r3 = fila();
     r3.appendChild(campo(
       'Descripción / Detalles de la Tienda',
       textarea('tiendaDescripcion', texto(perfil.descripcion), 'Agrega tu propuesta de valor, términos, garantía o información que no está en tu red social…', 4),
-      'Este texto es el que verán los visitantes en la tarjeta pública.',
+      'Acepta **negritas**, saltos de línea y emojis. Este texto es el que verán los visitantes en la tarjeta pública.',
       true
     ));
     card.appendChild(r3);
@@ -930,6 +987,7 @@
         categoria: $('tiendaCategoria').value,
         descripcion: $('tiendaDescripcion').value,
         avatarUrl: $('tiendaAvatar').value,
+        portadaUrl: $('tiendaPortada').value,
         tiendaUrl: $('tiendaEnlace').value,
         whatsapp: $('tiendaWhatsapp').value,
         instagram: $('tiendaInstagram').value,
@@ -1000,6 +1058,7 @@
       categoria: texto(datos.categoria),
       descripcion: texto(datos.descripcion),
       avatarUrl: urlSegura(datos.avatarUrl),
+      portadaUrl: urlSegura(datos.portadaUrl),
       tiendaUrl: enlace,
       whatsappUrl: enlacesRed.whatsappUrl,
       instagramUrl: enlacesRed.instagramUrl,
