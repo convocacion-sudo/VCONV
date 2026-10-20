@@ -238,6 +238,15 @@
     if (t === 'comunidad') return ETIQUETA_COMUNIDAD;
     return 'Aporte personal';
   }
+  function estadoLabel(e) {
+    var s = String(e || '').toLowerCase();
+    if (s === 'pendiente') return 'Pendiente';
+    if (s === 'liquidada') return 'Liquidada';
+    if (s === 'anulada') return 'Anulada';
+    if (s === 'pagado') return 'Pagado';
+    if (s === 'registrada') return 'Registrada';
+    return e ? String(e) : 'Registrada';
+  }
 
   /* ─── PARÁMETROS DE LA BOLSA DE COMISIONES Y CAJA MAYOR ────── */
   // Porcentajes vigentes de la red (lectura dinámica): se leen de la
@@ -718,6 +727,55 @@
     });
   }
 
+  // Reporte de aporte/donación con comprobante, por parte del propio
+  // usuario. Se crea la transacción en estado 'pendiente' para que el
+  // superadmin la valide (cambie a 'liquidada'). NO liquida comisiones
+  // todavía: la bolsa MLM se reparte en la validación. El medio de pago y
+  // la referencia del comprobante se guardan como campos del documento.
+  function reportarAportePendiente(datos) {
+    return loadConfig().then(function () {
+      if (!isEnabled()) throw new Error('El módulo Finanzas está desactivado.');
+      if (!V.db || V.isAnon || !V.userId) throw new Error('Debes tener una cuenta para reportar un aporte.');
+      var monto = redondear(Number(datos.monto) || 0);
+      if (!(monto > 0)) throw new Error('Escribe un monto válido mayor a cero.');
+      var metodo = String(datos.metodo || '').trim();
+      if (!metodo) throw new Error('Selecciona el medio de pago que usaste.');
+      var referencia = String(datos.referencia || '').trim();
+      if (!referencia) throw new Error('Escribe la referencia o número de comprobante.');
+      var cat = categoriaById(datos.categoriaId) || categoriasActivas()[0];
+      if (!cat) throw new Error('No hay categorías de aporte disponibles.');
+
+      var tx = {
+        origen: 'usuario',
+        origenId: V.userId,
+        etiqueta: ETIQUETA_USUARIO,
+        userId: V.userId,
+        comunidadId: '',
+        categoriaId: cat.id,
+        cuentaId: (datos.cuentaId && String(datos.cuentaId)) || '',
+        monto: monto,
+        tipo: 'personal',
+        concepto: (datos.concepto || '').trim(),
+        metodoPago: metodo,
+        referenciaPago: referencia,
+        comprobanteUrl: urlSegura(datos.comprobanteUrl),
+        fecha: new Date().toISOString(),
+        estado: 'pendiente',
+        creadoPor: V.userId
+      };
+      tx.distribucion = distribucionTx({ monto: monto });
+      return V.db.collection(COL_TRANS).add(tx).then(function (ref) { return ref.id; });
+    });
+  }
+
+  // Solo http(s): el comprobante se muestra como enlace en el panel admin.
+  function urlSegura(raw) {
+    var u = String(raw || '').trim();
+    if (!u) return '';
+    if (/^https?:\/\//i.test(u)) return u;
+    return '';
+  }
+
   // Liquidación de una ofrenda de grupo desde Comunidades: transacción a
   // nombre del coordinador, con su comisión N1 + red N2–N5.
   function liquidarOfrendaGrupo(datos) {
@@ -995,6 +1053,7 @@
     var e = String(estado || '').toLowerCase();
     if (e === 'liquidada') return 'pos';
     if (e === 'anulada') return 'neg';
+    if (e === 'pendiente') return 'pend';
     return '';
   }
 
@@ -1006,10 +1065,11 @@
     var btnPago = V.$('btnNuevoDesembolso');
     if (esAvanzadoUser()) { hideBotonesEscritorio(btnNuevo, btnPago); renderVistaFinanzasAvanzado(cont); return; }
     if (!isAdminUser()) {
-      cont.innerHTML = '';
-      cont.appendChild(V.emptyState('🔒', 'Solo superadmin', 'El módulo centralizado de Finanzas está disponible exclusivamente para el rol superadmin.'));
-      if (btnNuevo) btnNuevo.style.display = 'none';
-      if (btnPago) btnPago.style.display = 'none';
+      // Usuario normal (estudiante/miembro/gestor): NO se bloquea la vista.
+      // El CTA de aporte vive fuera de este contenedor y siempre se ve; aquí
+      // se muestra además un resumen de sus propios movimientos.
+      hideBotonesEscritorio(btnNuevo, btnPago);
+      renderVistaFinanzasMiembro(cont);
       return;
     }
     if (btnNuevo) btnNuevo.style.display = '';
@@ -1036,6 +1096,35 @@
   function hideBotonesEscritorio(btnNuevo, btnPago) {
     if (btnNuevo) btnNuevo.style.display = 'none';
     if (btnPago) btnPago.style.display = 'none';
+  }
+
+  /* ─── VISTA FINANZAS · USUARIO NORMAL (miembro/estudiante) ────
+     Muestra el resumen de sus propios aportes y comisiones. El CTA para
+     realizar un aporte/donación vive fuera de este contenedor (HTML
+     estático), por lo que siempre queda visible en la parte superior. */
+  function renderVistaFinanzasMiembro(cont) {
+    cont.innerHTML = '';
+    cont.appendChild(el('p', 'fin-loading', 'Cargando tus finanzas…'));
+    Promise.all([todasTransacciones(), todasComisiones(), misPagos(), loadConfig()])
+      .then(function (res) {
+        if (!document.body.contains(cont)) return;
+        var transacciones = res[0] || [];
+        var comisiones = res[1] || [];
+        var pagos = res[2] || [];
+        cont.innerHTML = '';
+        renderStats(cont, transacciones, comisiones, pagos);
+        if (transacciones.length || comisiones.length || pagos.length) {
+          renderHistorial(cont, transacciones);
+          renderGanancias(cont, comisiones);
+          renderMisPagos(cont, pagos);
+        } else {
+          cont.appendChild(el('p', 'fin-empty', 'Aún no tienes movimientos. Usa el botón "Realizar Aporte / Donación" para registrar tu primer aporte.'));
+        }
+      })
+      .catch(function () {
+        cont.innerHTML = '';
+        cont.appendChild(el('p', 'fin-empty', 'No se pudieron cargar tus finanzas en este momento.'));
+      });
   }
 
   /* ─── VISTA FINANZAS · ROL AVANZADO (solo lectura) ───────────
@@ -1229,6 +1318,7 @@
     selEst.className = 'select';
     var estOptions = [
       { value: '', label: 'Todos los estados' },
+      { value: 'pendiente', label: 'Pendiente (por validar)' },
       { value: 'registrada', label: 'Registrada' },
       { value: 'liquidada', label: 'Liquidada' },
       { value: 'anulada', label: 'Anulada' }
@@ -1682,6 +1772,7 @@
     var selEstado = document.createElement('select');
     selEstado.className = 'select';
     fillSelectOpciones(selEstado, [
+      { value: 'pendiente', label: 'Pendiente (por validar)' },
       { value: 'registrada', label: 'Registrada' },
       { value: 'liquidada', label: 'Liquidada' },
       { value: 'anulada', label: 'Anulada' }
@@ -2067,6 +2158,7 @@
     selEst.className = 'select';
     fillSelectOpciones(selEst, [
       { value: '', label: 'Todos los estados' },
+      { value: 'pendiente', label: 'Pendiente (por validar)' },
       { value: 'registrada', label: 'Registrada' },
       { value: 'liquidada', label: 'Liquidada' },
       { value: 'anulada', label: 'Anulada' }
@@ -2242,7 +2334,11 @@
         var cat = categoriaById(tx.categoriaId);
         tr.appendChild(celda(cat ? cat.nombre : (tx.categoriaId || '—')));
         tr.appendChild(celda(fmtMoneda(tx.monto), 'fin-monto'));
-        tr.appendChild(celda(String(tx.estado || '')));
+        var tdEst = celda('');
+        tdEst.appendChild(el('span', 'fin-pill ' + (estadoPillCls(tx.estado) || 'gris'), estadoLabel(tx.estado)));
+        if (tx.referenciaPago) tdEst.appendChild(el('div', 'fin-fila-sub', 'Ref: ' + tx.referenciaPago));
+        if (tx.metodoPago) tdEst.appendChild(el('div', 'fin-fila-sub', 'Pago: ' + tx.metodoPago));
+        tr.appendChild(tdEst);
         tbody.appendChild(tr);
       });
       table.appendChild(tbody);
@@ -2569,13 +2665,15 @@
     var panel = V.$('finanzasPanel');
     var body = V.$('finanzasBody');
     if (!panel || !body) return;
-    var enabled = isEnabled();
-    if (!enabled || V.isAnon || !V.userId) { panel.style.display = 'none'; return; }
+    // CUALQUIER usuario autenticado ve el panel y el CTA (sin filtros de rol
+    // ni de módulo). Solo se oculta si no hay sesión.
+    if (V.isAnon || !V.userId) { panel.style.display = 'none'; return; }
     panel.style.display = '';
+    bindAporteCta();
     body.innerHTML = '';
-    body.appendChild(el('p', 'fin-loading', 'Cargando tus finanzas…'));
+    var loader = el('p', 'fin-loading', 'Cargando tus finanzas…');
+    body.appendChild(loader);
 
-    var loader = body.lastChild;
     var vuelto = false;
     var watchdog = null;
 
@@ -2583,11 +2681,16 @@
       if (loader && loader.parentNode) loader.parentNode.removeChild(loader);
       loader = null;
     }
+    // Borra todo el cuerpo. El CTA vive fuera de este contenedor (HTML
+    // estático), por lo que nunca se ve afectado por el repintado.
+    function limpiarCuerpo() {
+      body.innerHTML = '';
+    }
     function fallo(mensaje) {
       vuelto = true;
       if (watchdog) { clearTimeout(watchdog); watchdog = null; }
       limpiarCarga();
-      body.innerHTML = '';
+      limpiarCuerpo();
       body.appendChild(el('p', 'fin-empty', mensaje));
     }
     // Red de seguridad anti-congelamiento: si la promesa nunca termina
@@ -2610,7 +2713,8 @@
           var transacciones = res && res[0] ? res[0] : [];
           var comisiones = res && res[1] ? res[1] : [];
           var pagos = res && res[2] ? res[2] : [];
-          body.innerHTML = '';
+          limpiarCarga();
+          limpiarCuerpo();
           renderStats(body, transacciones, comisiones, pagos);
           renderFormAporte(body);
           if (transacciones.length || comisiones.length || pagos.length) {
@@ -2639,6 +2743,209 @@
       // carga se arma en todos los casos (incluso si el try falló antes).
       armarWatchdog();
     }
+  }
+
+  // Enlaza el CTA estático (definido en index.html) para CUALQUIER usuario
+  // autenticado. No depende de rol, permisos, config del módulo ni recargas
+  // de datos: el markup vive fuera de finanzasBody y nunca se borra.
+  function bindAporteCta() {
+    ['btnAporteDonacion', 'btnAporteDonacionModulo'].forEach(function (id) {
+      var btn = V.$(id);
+      if (!btn || btn._aporteBound) return;
+      btn._aporteBound = true;
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        abrirModalAporte();
+      });
+    });
+  }
+
+  // Medios de pago mostrados en el modal: dos opciones de transferencia
+  // directa manual (Nequi y Bancolombia). Usan los datos de las cuentas del
+  // catálogo si están disponibles.
+  function mediosPagoAporte() {
+    var cuentaPorBanco = function (needle) {
+      for (var i = 0; i < cuentasCache.length; i++) {
+        var c = cuentasCache[i];
+        if (String(c.banco || '').toLowerCase().indexOf(needle) !== -1) return c;
+      }
+      return null;
+    };
+    var nequi = cuentaPorBanco('nequi');
+    var banco = cuentaPorBanco('bancolombia');
+    return [
+      {
+        id: 'nequi',
+        label: 'Nequi',
+        icon: '📱',
+        banco: nequi ? nequi.banco : 'Nequi',
+        numero: nequi ? nequi.numero : '300 000 0000',
+        nota: 'Envía el dinero desde tu app Nequi a este número y guarda el comprobante.'
+      },
+      {
+        id: 'bancolombia',
+        label: 'Bancolombia',
+        icon: '🏦',
+        banco: banco ? banco.banco : 'Bancolombia Ahorros',
+        numero: banco ? banco.numero : '000 0000 0000',
+        nota: 'Transferencia o consignación a la cuenta de ahorros. Adjunta el número de referencia.'
+      }
+    ];
+  }
+
+  function abrirModalAporte() {
+    if (V.isAnon || !V.userId) { V.toast('Inicia sesión para realizar un aporte.', true); return; }
+    var overlay = el('div', 'modal-overlay');
+    var card = el('div', 'modal-card fin-modal');
+    card.appendChild(el('h3', '', '💳 Realizar Aporte / Donación'));
+
+    var form = el('div', 'fin-form');
+
+    // Medios de pago (tarjetas informativas con selección).
+    form.appendChild(el('label', '', 'Selecciona el medio de pago'));
+    var mediosWrap = el('div', 'fin-medios-pago');
+    var medios = mediosPagoAporte();
+    var metodoSel = 'nequi';
+
+    medios.forEach(function (mp) {
+      var opt = el('label', 'fin-medio-card');
+      var radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'finMedioPago';
+      radio.value = mp.id;
+      radio.checked = mp.id === metodoSel;
+      opt.appendChild(radio);
+      var body = el('div', 'fin-medio-body');
+      body.appendChild(el('div', 'fin-medio-head', mp.icon + ' ' + mp.label));
+      body.appendChild(el('div', 'fin-medio-dato', mp.banco));
+      body.appendChild(el('div', 'fin-medio-num', mp.numero));
+      body.appendChild(el('div', 'fin-medio-nota', mp.nota));
+      opt.appendChild(body);
+      radio.addEventListener('change', function () { metodoSel = mp.id; });
+      mediosWrap.appendChild(opt);
+    });
+    form.appendChild(mediosWrap);
+
+    // Monto
+    var fMonto = el('div', 'field');
+    fMonto.appendChild(el('label', '', 'Monto aportado'));
+    var inpMonto = document.createElement('input');
+    inpMonto.type = 'number';
+    inpMonto.className = 'input';
+    inpMonto.min = '1';
+    inpMonto.step = '1';
+    inpMonto.placeholder = 'Ej: 50000';
+    fMonto.appendChild(inpMonto);
+    form.appendChild(fMonto);
+
+    // Categoría (opcional; por defecto la primera activa)
+    var fCat = el('div', 'field');
+    fCat.appendChild(el('label', '', 'Tipo de aporte'));
+    var selCat = document.createElement('select');
+    selCat.className = 'select';
+    fCat.appendChild(selCat);
+    form.appendChild(fCat);
+
+    // Referencia / comprobante
+    var fRef = el('div', 'field');
+    fRef.appendChild(el('label', '', 'Número de comprobante o referencia *'));
+    var inpRef = document.createElement('input');
+    inpRef.type = 'text';
+    inpRef.className = 'input';
+    inpRef.placeholder = 'Ej: 1234567890 o la referencia de PSE';
+    inpRef.autocomplete = 'off';
+    fRef.appendChild(inpRef);
+    form.appendChild(fRef);
+
+    // URL del comprobante (opcional)
+    var fUrl = el('div', 'field');
+    fUrl.appendChild(el('label', '', 'Enlace al comprobante (opcional)'));
+    var inpUrl = document.createElement('input');
+    inpUrl.type = 'url';
+    inpUrl.className = 'input';
+    inpUrl.placeholder = 'https://…/comprobante.jpg';
+    fUrl.appendChild(inpUrl);
+    form.appendChild(fUrl);
+
+    // Concepto
+    var fCon = el('div', 'field');
+    fCon.appendChild(el('label', '', 'Concepto (opcional)'));
+    var inpCon = document.createElement('input');
+    inpCon.type = 'text';
+    inpCon.className = 'input';
+    inpCon.placeholder = 'Ej: Diezmo de octubre';
+    fCon.appendChild(inpCon);
+    form.appendChild(fCon);
+
+    form.appendChild(el('p', 'fin-form-note', 'Tu aporte quedará en estado "Pendiente" hasta que el administrador valide el comprobante.'));
+
+    var acciones = el('div', 'fin-modal-acciones');
+    var btnSave = el('button', 'btn btn-primary', 'Enviar solicitud');
+    btnSave.type = 'button';
+    var btnCancel = el('button', 'btn btn-outline', 'Cancelar');
+    btnCancel.type = 'button';
+    acciones.appendChild(btnSave);
+    acciones.appendChild(btnCancel);
+    form.appendChild(acciones);
+    card.appendChild(form);
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    overlay.classList.add('show');
+
+    // Categorías disponibles (excluye ofrendas de grupo).
+    var cats = categoriasActivas().filter(function (c) { return c.tipo !== 'grupo'; });
+    cats.forEach(function (c) {
+      var o = document.createElement('option');
+      o.value = c.id;
+      o.textContent = c.nombre + ' (' + tipoLabel(c.tipo) + ')';
+      selCat.appendChild(o);
+    });
+
+    // Datos reales de cuentas (best-effort).
+    loadCuentas().catch(function () { return []; }).then(function () {
+      if (!document.body.contains(mediosWrap)) return;
+      // Re-pinta los datos de Nequi/Bancolombia con el catálogo cargado.
+      var reales = mediosPagoAporte();
+      var items = mediosWrap.querySelectorAll('.fin-medio-card');
+      for (var i = 0; i < items.length && i < reales.length; i++) {
+        var datos = items[i].querySelectorAll('.fin-medio-dato, .fin-medio-num');
+        if (datos[0]) datos[0].textContent = reales[i].banco;
+        if (datos[1]) datos[1].textContent = reales[i].numero;
+      }
+    });
+
+    function cerrar() {
+      overlay.classList.remove('show');
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+    btnCancel.addEventListener('click', cerrar);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) cerrar(); });
+
+    btnSave.addEventListener('click', function () {
+      var metodo = metodoSel;
+      var ref = inpRef.value.trim();
+      if (!(Number(inpMonto.value) > 0)) { V.toast('Escribe un monto válido mayor a cero.', true); return; }
+      if (!ref) { V.toast('Escribe la referencia o número de comprobante.', true); return; }
+      btnSave.disabled = true;
+      btnSave.textContent = '⏳ Enviando…';
+      reportarAportePendiente({
+        metodo: metodo,
+        monto: inpMonto.value,
+        categoriaId: selCat.value,
+        referencia: ref,
+        comprobanteUrl: inpUrl.value,
+        concepto: inpCon.value
+      }).then(function () {
+        V.toast('Solicitud enviada ✓ Queda Pendiente de validación.');
+        cerrar();
+        refreshPanel();
+      }).catch(function (e) {
+        V.toast(e && e.message ? e.message : 'Error al enviar la solicitud.', true);
+        btnSave.disabled = false;
+        btnSave.textContent = 'Enviar solicitud';
+      });
+    });
   }
 
   function renderStats(container, transacciones, comisiones, pagos) {
@@ -2839,10 +3146,15 @@
       if (isAdminUser() && t.userId && t.userId !== V.userId) {
         partes.push('Usuario: ' + (usuarioById(t.userId) ? nombreUsuario(usuarioById(t.userId)) : t.userId));
       }
-      partes.push(t.estado || 'registrada');
+      if (t.metodoPago) partes.push('Pago: ' + t.metodoPago);
+      if (t.referenciaPago) partes.push('Ref: ' + t.referenciaPago);
       if (t.fecha) partes.push(V.fmtDate(t.fecha));
       var subTxt = partes.join(' · ');
       info.appendChild(el('div', 'fin-fila-sub', subTxt));
+      if (t.estado) {
+        var estCls = estadoPillCls(t.estado) || 'gris';
+        info.appendChild(el('span', 'fin-pill ' + estCls, estadoLabel(t.estado)));
+      }
       row.appendChild(info);
       var right = el('div', 'fin-fila-info');
       right.appendChild(el('div', 'fin-fila-monto' + (t.tipo === 'grupo' ? ' pos' : ''), fmtMoneda(t.monto)));
@@ -3556,10 +3868,13 @@
 
   function applyFinanzasUiState() {
     try {
-      var enabled = isEnabled();
+      // El botón CTA de aporte/donación se enlaza siempre para cualquier
+      // usuario autenticado (sin rol, permisos ni estado del módulo).
+      if (V.$('btnAporteDonacion')) bindAporteCta();
+      // El panel de Finanzas se muestra a CUALQUIER usuario con sesión.
       var panel = V.$('finanzasPanel');
-      if (panel) panel.style.display = (enabled && !V.isAnon && V.userId) ? '' : 'none';
-      if (enabled && !V.isAnon && V.userId) renderPerfil();
+      if (panel) panel.style.display = (!V.isAnon && V.userId) ? '' : 'none';
+      if (!V.isAnon && V.userId) renderPerfil();
       renderFinanzasAdmin();
       if (V.$('finanzasContent')) renderVistaFinanzas();
       if (V.$('reportesContent')) renderVistaReportes();
@@ -3580,6 +3895,10 @@
 
   /* ─── HOOKS DE NAVEGACIÓN ──────────────────────────────────── */
   function onFinanzasShow() {
+    // El CTA de aporte/donación debe quedar enlazado y visible al entrar a la
+    // pestaña Finanzas para cualquier usuario con sesión. Se re-enlaza por si
+    // el botón se recreó.
+    bindAporteCta();
     renderVistaFinanzas();
     var btnNuevo = V.$('btnNuevaTransaccion');
     if (btnNuevo) {
@@ -3605,6 +3924,8 @@
     categoriasActivas: categoriasActivas,
     categoriasDeTipo: categoriasDeTipo,
     registrarAportePersonal: registrarAportePersonal,
+    reportarAportePendiente: reportarAportePendiente,
+    abrirModalAporte: abrirModalAporte,
     liquidarOfrendaGrupo: liquidarOfrendaGrupo,
     misTransacciones: misTransacciones,
     misComisiones: misComisiones,

@@ -18,7 +18,7 @@
 /* ── STATS ───────────────────────────────────────────── */
 .com-stats { display: grid; grid-template-columns: 1fr; gap: 1rem; margin-bottom: 1.5rem; }
 @media (min-width: 560px) { .com-stats { grid-template-columns: repeat(2, 1fr); } }
-@media (min-width: 860px) { .com-stats { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 860px) { .com-stats { grid-template-columns: repeat(5, 1fr); } }
 .com-stat-card {
   background: var(--bg-card); border: 1px solid var(--border); border-top: 3px solid var(--accent);
   border-radius: var(--radius-lg);
@@ -26,6 +26,8 @@
 }
 .com-stat-value { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; }
 .com-stat-label { font-size: 0.78rem; color: var(--text-muted); font-weight: 600; margin-top: 0.15rem; }
+.com-stat-card.com-stat-faltas { border-top-color: var(--danger); }
+.com-stat-faltas .com-stat-value { color: var(--danger); }
 
 /* ── BADGES / TIPO ───────────────────────────────────── */
 .com-badge {
@@ -138,6 +140,56 @@
 .com-success { color: var(--success); font-size: 0.8rem; }
 .com-empty { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); }
 .com-empty .es-icon { font-size: 2rem; display: block; margin-bottom: 0.75rem; }
+
+/* ── PRÓXIMA REUNIÓN (miembro) ───────────────────────── */
+.com-next-meeting { border-top-color: var(--accent); }
+.com-next-title { font-size: 1.15rem; font-weight: 800; color: var(--text-primary); margin: 0.2rem 0 0; }
+.com-next-meta { font-size: 0.85rem; font-weight: 700; color: var(--accent); margin: 0.35rem 0 0; }
+.com-next-desc {
+  font-size: 0.88rem; line-height: 1.65; color: var(--text-secondary);
+  white-space: pre-wrap; word-break: break-word; margin: 0.5rem 0 0;
+}
+.com-next-actions {
+  display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem;
+}
+.com-next-actions .btn { flex: 1; min-width: 190px; }
+
+/* ── PÍLDORAS DE ESTADO DE ASISTENCIA ────────────────── */
+.com-asistencia-pill {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  font-size: 0.72rem; font-weight: 800; padding: 0.3rem 0.7rem; border-radius: 99px;
+  border: 1px solid var(--border); background: var(--bg-secondary); color: var(--text-secondary);
+  white-space: nowrap;
+}
+.com-asistencia-pill.st-pendiente { color: var(--text-muted); }
+.com-asistencia-pill.st-confirmado { color: var(--accent); border-color: var(--accent-soft); background: var(--accent-glow); }
+.com-asistencia-pill.st-asistio { color: var(--success); border-color: var(--success); background: var(--success-bg); }
+.com-asistencia-pill.st-falta { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+
+/* ── REUNIONES / VALIDACIÓN (coordinador y admin) ────── */
+.com-meeting-form-card { border-top-color: var(--gold); }
+.com-form-full { grid-column: 1 / -1; }
+.com-meeting-help { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.85rem; }
+.com-meeting-list { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1.25rem; }
+.com-meeting-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.9rem;
+  padding: 0.85rem 1rem; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-secondary); transition: all var(--transition); flex-wrap: wrap;
+}
+.com-meeting-row:hover { border-color: var(--border-hover); }
+.com-meeting-row.active { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.com-meeting-info { min-width: 0; flex: 1; }
+.com-meeting-title { font-size: 0.95rem; font-weight: 800; color: var(--text-primary); }
+.com-meeting-meta { font-size: 0.78rem; color: var(--text-muted); font-weight: 600; margin-top: 0.15rem; }
+.com-meeting-counts { font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.3rem; }
+.com-meeting-detail { margin-top: 0.25rem; }
+.com-meeting-validate {
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  padding: 1.1rem 1.2rem; background: var(--bg-primary);
+}
+.com-meeting-validate h4 { font-size: 1rem; font-weight: 800; }
+.com-asistencia-list { margin: 0.75rem 0 0.25rem; border-top: 1px solid var(--border); }
+.com-asistencia-list .com-member-row:first-child { border-top: none; }
 
 @media (max-width: 600px) {
   .com-card { padding: 1.1rem 1.2rem; }

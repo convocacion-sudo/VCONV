@@ -88,6 +88,73 @@
   background: rgba(148, 163, 184, 0.14); color: #94a3b8;
   border: 1px solid rgba(148, 163, 184, 0.35);
 }
+.fin-monto.pend { color: #f59e0b; }
+
+/* ── CTA APORTE / DONACIÓN (miembros y estudiantes) ────────── */
+.fin-cta-aporte {
+  position: relative;
+  display: flex; align-items: center; justify-content: space-between; gap: 1.25rem;
+  flex-wrap: wrap; margin: 0 0 1.25rem; padding: 1.4rem 1.5rem;
+  border: 1px solid rgba(34, 197, 94, 0.45); border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.18), rgba(59, 130, 246, 0.14));
+  border-top: 4px solid #22c55e;
+  box-shadow: 0 14px 34px -18px rgba(34, 197, 94, 0.75), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+.fin-cta-text { min-width: 0; flex: 1; }
+.fin-cta-title { font-size: 1.2rem; font-weight: 800; color: var(--text-primary); margin: 0 0 0.3rem; letter-spacing: -0.01em; }
+.fin-cta-sub { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; margin: 0; }
+.fin-btn-aporte {
+  flex-shrink: 0; padding: 1rem 1.6rem; font-size: 1.02rem; font-weight: 800;
+  border-radius: 14px; color: #fff; border: none; cursor: pointer;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  box-shadow: 0 12px 26px -12px rgba(34, 197, 94, 0.9);
+  animation: finPulse 2.4s ease-in-out infinite;
+}
+.fin-btn-aporte:hover { filter: brightness(1.07); transform: translateY(-2px); animation: none; }
+.fin-btn-aporte:active { transform: translateY(0); }
+@keyframes finPulse {
+  0%, 100% { box-shadow: 0 12px 26px -12px rgba(34, 197, 94, 0.9); }
+  50% { box-shadow: 0 12px 26px -12px rgba(34, 197, 94, 0.9), 0 0 0 8px rgba(34, 197, 94, 0.16); }
+}
+@media (max-width: 560px) {
+  .fin-cta-aporte { flex-direction: column; align-items: stretch; text-align: center; }
+  .fin-btn-aporte { width: 100%; }
+}
+
+/* ── MODAL APORTE: MEDIOS DE PAGO ──────────────────────────── */
+/* Solo dos medios (Nequi y Bancolombia): una tarjeta junto a la otra.
+   En pantallas angostas cae a una columna. */
+.fin-medios-pago {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  width: 100%;
+}
+@media (max-width: 560px) {
+  .fin-medios-pago { grid-template-columns: 1fr; }
+}
+.fin-medio-card {
+  display: flex; gap: 0.55rem; cursor: pointer; align-items: flex-start;
+  box-sizing: border-box; width: 100%; min-width: 0;
+  padding: 0.85rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-elev, rgba(255, 255, 255, 0.03));
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.fin-medio-card:has(input:checked) {
+  border-color: #22c55e; background: rgba(34, 197, 94, 0.08);
+}
+/* CRÍTICO: el radio NO debe heredar el width:100% de .fin-form input,
+   o se come toda la tarjeta y aplasta el texto. */
+.fin-medio-card input,
+.fin-form .fin-medio-card input {
+  width: auto; flex: 0 0 auto; min-width: 0;
+  margin-top: 0.2rem; accent-color: #22c55e;
+}
+.fin-medio-body { flex: 1 1 auto; min-width: 0; }
+.fin-medio-head { font-size: 0.88rem; font-weight: 800; color: var(--text-primary); }
+.fin-medio-dato { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem; }
+.fin-medio-num { font-size: 0.82rem; font-weight: 700; color: var(--text-primary); word-break: break-word; }
+.fin-medio-nota { font-size: 0.72rem; color: var(--text-muted); line-height: 1.4; margin-top: 0.3rem; }
 
 /* ── DESGLOSE MLM ──────────────────────────────────────────── */
 .fin-desglose { margin-top: 0.4rem; }
@@ -184,6 +251,10 @@
   background: rgba(239, 68, 68, 0.14); color: #ef4444;
   border: 1px solid rgba(239, 68, 68, 0.35);
 }
+.fin-pill.pend {
+  background: rgba(245, 158, 11, 0.14); color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
 
 /* ── KPIs ──────────────────────────────────────────────────── */
 .fin-stats-kpi { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
@@ -192,9 +263,11 @@
 .fin-stat-value.blue { color: var(--accent-2, #3b82f6); }
 
 /* ── MODAL CREAR / EDITAR TRANSACCIÓN ──────────────────────── */
-.fin-modal { width: 100%; max-width: 560px; }
+.fin-modal { width: 90%; max-width: 650px; overflow-x: hidden; }
 .fin-modal-head { margin-bottom: 0.25rem; }
 .fin-modal .fin-form { display: flex; flex-direction: column; gap: 0.8rem; }
+/* El bloque de medios de pago siempre ocupa el ancho del formulario. */
+.fin-modal .fin-medios-pago { align-self: stretch; }
 .fin-origen-radio { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.25rem; }
 .fin-radio {
   display: flex; align-items: center; gap: 0.45rem; cursor: pointer;

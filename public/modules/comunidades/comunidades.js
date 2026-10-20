@@ -5,7 +5,10 @@
      - comunidades            (id, nombre, tipo, coordinadorId, createdAt)
      - comunidad_categorias   (id, value, label) — opciones dinámicas de tipo
      - comunidad_miembros     (id, comunidadId, crmId, estado, fechaVinculacion)
-     - reuniones              (id, comunidadId, fechaReunion, asistencia{crmId:bool})
+     - reuniones              (id, comunidadId, titulo, descripcion, fecha, hora,
+                               tipo: presencial|virtual, fechaReunion,
+                               asistencias{crmId: pendiente|confirmado|asistio|falta},
+                               asistencia{crmId:bool} — espejo legacy para reportes)
      - finanzas_transacciones (tipo 'grupo', comunidadId, monto, concepto, fecha) —
        ofrendas de grupo liquidadas desde esta sección (integración con Finanzas)
    ════════════════════════════════════════════════════════════════ */
@@ -31,6 +34,18 @@
     { value: 'en_proceso', label: 'En proceso' }
   ];
   var COL_OFRS = 'finanzas_transacciones';
+  var COL_REUNIONES = V.COL_REUNIONES || 'reuniones';
+
+  var ESTADOS_ASISTENCIA = {
+    pendiente: { label: 'Pendiente', icon: '⏳' },
+    confirmado: { label: 'Confirmado', icon: '✅' },
+    asistio: { label: 'Asistió', icon: '🟢' },
+    falta: { label: 'Falta', icon: '❌' }
+  };
+  var TIPOS_REUNION = {
+    presencial: { label: 'Presencial', icon: '🏠' },
+    virtual: { label: 'Virtual', icon: '💻' }
+  };
 
   function fmtMoneda(n) {
     var v = Number(n) || 0;
@@ -69,6 +84,85 @@
     return r === 'superadmin' || r === 'admin';
   }
 
+  /* ─── HELPERS DE REUNIONES / ASISTENCIA ─────────────────────── */
+  function tipoReunionLabel(t) {
+    var x = TIPOS_REUNION[t] || TIPOS_REUNION.presencial;
+    return x.label;
+  }
+  function tipoReunionIcon(t) {
+    var x = TIPOS_REUNION[t] || TIPOS_REUNION.presencial;
+    return x.icon;
+  }
+  function metaEstadoAsistencia(st) {
+    return ESTADOS_ASISTENCIA[st] || ESTADOS_ASISTENCIA.pendiente;
+  }
+
+  // Fecha + hora reales de la reunión. Los documentos antiguos solo tienen
+  // fechaReunion (ISO); se usan como respaldo para no romper el historial.
+  function fechaHoraReunion(r) {
+    if (!r) return null;
+    var fecha = typeof r.fecha === 'string' && r.fecha ? r.fecha
+      : (r.fechaReunion ? String(r.fechaReunion).slice(0, 10) : '');
+    if (!fecha) return null;
+    var hora = typeof r.hora === 'string' && r.hora ? r.hora : '00:00';
+    var d = new Date(fecha + 'T' + hora + ':00');
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function fechaHoraTexto(r) {
+    var d = fechaHoraReunion(r);
+    if (!d) return 'Fecha por confirmar';
+    var txt = d.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' });
+    return txt + (r && r.hora ? ' · ' + r.hora : '');
+  }
+
+  function ordenReunionesAsc(a, b) {
+    var da = fechaHoraReunion(a);
+    var db = fechaHoraReunion(b);
+    return (da ? da.getTime() : 0) - (db ? db.getTime() : 0);
+  }
+
+  function estadoAsistencia(reu, crmId) {
+    if (!reu || !crmId) return 'pendiente';
+    var st = reu.asistencias && reu.asistencias[crmId];
+    if (st && ESTADOS_ASISTENCIA[st]) return st;
+    var legado = reu.asistencia && reu.asistencia[crmId];
+    if (legado === true) return 'asistio';
+    if (legado === false) return 'falta';
+    return 'pendiente';
+  }
+
+  function proximaReunion(comId) {
+    var ahora = Date.now();
+    var lista = reuniones.filter(function (r) { return r.comunidadId === comId; })
+      .sort(ordenReunionesAsc);
+    for (var i = 0; i < lista.length; i++) {
+      var d = fechaHoraReunion(lista[i]);
+      // Se mantiene visible la reunión en curso hasta 2 horas después.
+      if (d && d.getTime() >= ahora - 2 * 60 * 60 * 1000) return lista[i];
+    }
+    return null;
+  }
+
+  function conteoAsistencia(reu, comId) {
+    var c = { total: 0, asistio: 0, falta: 0, confirmado: 0, pendiente: 0 };
+    miembrosActivosDe(comId).forEach(function (m) {
+      c.total++;
+      var st = estadoAsistencia(reu, m.crmId);
+      if (st === 'asistio') c.asistio++;
+      else if (st === 'falta') c.falta++;
+      else if (st === 'confirmado') c.confirmado++;
+      else c.pendiente++;
+    });
+    return c;
+  }
+
+  function hoyISO() {
+    var d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 10);
+  }
+
   /* ─── STATE ─────────────────────────────────────────────────── */
   var comunidades = [];
   var miembros = [];
@@ -78,6 +172,7 @@
   var ofrendasLoaded = false;
   var currComId = null;     // comunidad seleccionada en coordinador
   var currReunionId = null; // reunión seleccionada
+  var tabActivo = 'grupo';  // pestaña activa del coordinador
 
   /* ─── DATA LOADERS ──────────────────────────────────────────── */
   function loadUsuarios() {
@@ -561,10 +656,86 @@
   function asistenciaResumen(comunidadId, crmId) {
     var reunionesCom = reuniones.filter(function (r) { return r.comunidadId === comunidadId; });
     var asistencias = 0;
+    var faltas = 0;
+    var confirmadas = 0;
+    var total = 0; // reuniones con estado definitivo (asistió o falta)
     reunionesCom.forEach(function (r) {
-      if (r.asistencia && r.asistencia[crmId] === true) asistencias++;
+      var st = estadoAsistencia(r, crmId);
+      if (st === 'asistio') { asistencias++; total++; }
+      else if (st === 'falta') { faltas++; total++; }
+      else if (st === 'confirmado') confirmadas++;
     });
-    return { total: reunionesCom.length, asistencias: asistencias };
+    return {
+      total: total,
+      programadas: reunionesCom.length,
+      asistencias: asistencias,
+      faltas: faltas,
+      confirmadas: confirmadas
+    };
+  }
+
+  // Tarjeta de "Próxima reunión" con confirmación para el miembro.
+  function renderProximaReunion(reu, crmId) {
+    var card = el('div', 'com-card com-next-meeting');
+    var head = el('div', 'com-card-head');
+    head.appendChild(el('h3', '', '📅 Próxima reunión'));
+    head.appendChild(el('span', 'com-badge tipo-' + (reu.tipo || 'presencial'),
+      tipoReunionIcon(reu.tipo) + ' ' + tipoReunionLabel(reu.tipo)));
+    card.appendChild(head);
+
+    card.appendChild(el('h4', 'com-next-title', reu.titulo || 'Reunión de la comunidad'));
+    card.appendChild(el('p', 'com-next-meta', '🗓️ ' + fechaHoraTexto(reu)));
+
+    var desc = typeof reu.descripcion === 'string' ? reu.descripcion.trim() : '';
+    if (desc) card.appendChild(el('p', 'com-next-desc', desc));
+
+    var estado = estadoAsistencia(reu, crmId);
+    var meta = metaEstadoAsistencia(estado);
+    var actions = el('div', 'com-next-actions');
+    actions.appendChild(el('span', 'com-asistencia-pill st-' + estado, meta.icon + ' ' + meta.label));
+
+    if (estado === 'confirmado') {
+      var ok = el('button', 'btn btn-success', '✅ Asistencia confirmada');
+      ok.type = 'button';
+      ok.disabled = true;
+      actions.appendChild(ok);
+    } else if (estado === 'asistio') {
+      var ok2 = el('button', 'btn btn-success', '🟢 Asistencia validada');
+      ok2.type = 'button';
+      ok2.disabled = true;
+      actions.appendChild(ok2);
+    } else {
+      var btn = el('button', 'btn btn-primary', '✅ Confirmar asistencia');
+      btn.type = 'button';
+      btn.addEventListener('click', function () { confirmarAsistencia(reu, btn); });
+      actions.appendChild(btn);
+    }
+
+    card.appendChild(actions);
+    return card;
+  }
+
+  function confirmarAsistencia(reu, btn) {
+    if (!V.db) { V.toast('La base de datos no está disponible.', true); return; }
+    if (!reu || !reu.id) { V.toast('La reunión ya no está disponible.', true); return; }
+    if (!V.userId) { V.toast('Inicia sesión para confirmar tu asistencia.', true); return; }
+
+    var prev = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Confirmando…'; }
+    var upd = {};
+    upd['asistencias.' + V.userId] = 'confirmado';
+    upd.actualizado = new Date().toISOString();
+
+    return V.db.collection(COL_REUNIONES).doc(reu.id).update(upd)
+      .then(function () {
+        V.toast('Asistencia confirmada ✓');
+        return loadReuniones();
+      })
+      .then(function () { renderPanel(); })
+      .catch(function (e) {
+        V.toast('No se pudo confirmar la asistencia: ' + e.message, true);
+        if (btn) { btn.disabled = false; btn.textContent = prev; }
+      });
   }
 
   function renderEstudiante(content) {
@@ -591,15 +762,20 @@
     [
       { value: tipoLabel(com.tipo), label: 'Nivel' },
       { value: String(miembrosActivosDe(com.id).length), label: 'Miembros activos' },
-      { value: asis.asistencias + ' de ' + asis.total, label: 'Reuniones asistidas' },
+      { value: asis.asistencias + ' / ' + asis.total, label: 'Reuniones asistidas' },
+      { value: String(asis.faltas), label: 'Faltas', tone: 'faltas' },
       { value: asis.total ? Math.round((asis.asistencias / asis.total) * 100) + '%' : '—', label: 'Participación' }
     ].forEach(function (c) {
-      var sc = el('div', 'com-stat-card');
+      var sc = el('div', 'com-stat-card' + (c.tone ? ' com-stat-' + c.tone : ''));
       sc.appendChild(el('div', 'com-stat-value', String(c.value)));
       sc.appendChild(el('div', 'com-stat-label', c.label));
       stats.appendChild(sc);
     });
     card.appendChild(stats);
+
+    // Próxima reunión (si hay alguna programada)
+    var prox = proximaReunion(com.id);
+    if (prox) content.appendChild(renderProximaReunion(prox, vin.crmId));
 
     // Coordinador
     var coordCard = el('div', 'com-card');
@@ -742,10 +918,13 @@
       panel.appendChild(renderOfrendasSection(currComId, panel));
     }
 
-    tGrupo.addEventListener('click', renderGrupo);
-    tAsis.addEventListener('click', renderAsistencia);
-    tOfr.addEventListener('click', renderOfrendas);
-    renderGrupo();
+    tGrupo.addEventListener('click', function () { tabActivo = 'grupo'; renderGrupo(); });
+    tAsis.addEventListener('click', function () { tabActivo = 'asistencia'; renderAsistencia(); });
+    tOfr.addEventListener('click', function () { tabActivo = 'ofrendas'; renderOfrendas(); });
+
+    if (tabActivo === 'asistencia') renderAsistencia();
+    else if (tabActivo === 'ofrendas') renderOfrendas();
+    else renderGrupo();
   }
 
   function renderVinculacion(comId) {
@@ -817,222 +996,299 @@
     var com = comunidadById(comId);
     var base = el('div');
 
+    // 1) Programar nueva reunión (se refresca en sitio al guardar)
+    base.appendChild(renderProgramarReunion(comId, function (id) {
+      currReunionId = id;
+      recargar();
+      renderLista();
+      renderDetalle();
+    }));
+
+    // 2) Listado de reuniones + panel de validación
     var card = el('div', 'com-card');
-    card.appendChild(el('h3', '', '✅ Control de asistencia — ' + (com ? com.nombre : '')));
+    card.appendChild(el('h3', '', '🗓️ Reuniones y asistencia — ' + (com ? com.nombre : '')));
+    card.appendChild(el('p', 'com-meeting-help', 'Selecciona una reunión y marca a los asistentes. Quienes queden sin marcar se registran como falta.'));
 
-    // Selector de reunión (semanal). La lista se regenera al eliminar.
-    var reunionesCom = reuniones.filter(function (r) { return r.comunidadId === comId; })
-      .sort(function (a, b) { return (a.fechaReunion || '').localeCompare(b.fechaReunion || ''); });
-
-    function recargarReuniones() {
-      reunionesCom = reuniones.filter(function (r) { return r.comunidadId === comId; })
-        .sort(function (a, b) { return (a.fechaReunion || '').localeCompare(b.fechaReunion || ''); });
-      selReu.innerHTML = '';
-      var optNueva = document.createElement('option');
-      optNueva.value = '__new__'; optNueva.textContent = '+ Nueva reunión semanal';
-      selReu.appendChild(optNueva);
-      reunionesCom.forEach(function (r) {
-        var opt = document.createElement('option');
-        opt.value = r.id; opt.textContent = 'Reunión ' + V.fmtDate(r.fechaReunion);
-        opt.selected = r.id === currReunionId;
-        selReu.appendChild(opt);
-      });
-      if (btnDelReu) btnDelReu.disabled = (selReu.value === '__new__');
-    }
-
-    var toolbar = el('div', 'com-toolbar');
-    var selReu = document.createElement('select');
-    selReu.className = 'select';
-    selReu.id = 'comReunionSel';
-    toolbar.appendChild(selReu);
-
-    // Botón de eliminar reunión junto al selector.
-    var btnDelReu = el('button', 'btn btn-danger btn-sm', '🗑️');
-    btnDelReu.type = 'button';
-    btnDelReu.id = 'comBtnEliminarReunion';
-    btnDelReu.title = 'Eliminar esta reunión y sus registros de asistencia';
-    btnDelReu.disabled = true;
-    toolbar.appendChild(btnDelReu);
-
-    var fechaInput = document.createElement('input');
-    fechaInput.type = 'date';
-    fechaInput.className = 'input';
-    fechaInput.id = 'comFechaInput';
-    fechaInput.style.maxWidth = '180px';
-
-    function openNativePicker() {
-      if (typeof fechaInput.showPicker === 'function') {
-        try { fechaInput.showPicker(); }
-        catch (e) {
-          if (e.name !== 'InvalidStateError' && e.name !== 'NotSupportedError' && e.name !== 'SecurityError') throw e;
-        }
-      }
-    }
-    fechaInput.addEventListener('mousedown', function (ev) { ev.preventDefault(); openNativePicker(); });
-    fechaInput.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openNativePicker(); }
-    });
-    fechaInput.addEventListener('click', openNativePicker);
-    toolbar.appendChild(fechaInput);
-
-    var btnLoad = el('button', 'btn btn-outline btn-sm', 'Cargar');
-    btnLoad.type = 'button';
-    btnLoad.id = 'comBtnCargar';
-    toolbar.appendChild(btnLoad);
-    card.appendChild(toolbar);
-
-    var listWrap = el('div', '');
-    listWrap.id = 'comAsistenciaList';
-    card.appendChild(listWrap);
-
+    var listaWrap = el('div', 'com-meeting-list');
+    var detalleWrap = el('div', 'com-meeting-detail');
+    card.appendChild(listaWrap);
+    card.appendChild(detalleWrap);
     base.appendChild(card);
 
-    function defaultFecha() {
-      var d = new Date();
-      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-      return d.toISOString().slice(0, 10);
+    var reunionesCom = [];
+
+    function recargar() {
+      reunionesCom = reuniones.filter(function (r) { return r.comunidadId === comId; })
+        .sort(function (a, b) { return ordenReunionesAsc(b, a); });
     }
 
-    function loadReunion(reunionId) {
-      var reu = null;
-      for (var i = 0; i < reunionesCom.length; i++) if (reunionesCom[i].id === reunionId) reu = reunionesCom[i];
-      listWrap.innerHTML = '';
-      btnDelReu.disabled = true;
-      if (!reu) {
-        listWrap.appendChild(V.emptyState('📅', 'Reunión nueva', 'Registra la asistencia de los miembros activos para la reunión.'));
+    function buscarReunion(id) {
+      for (var i = 0; i < reunionesCom.length; i++) if (reunionesCom[i].id === id) return reunionesCom[i];
+      return null;
+    }
+
+    function renderLista() {
+      listaWrap.innerHTML = '';
+      if (!reunionesCom.length) {
+        listaWrap.appendChild(V.emptyState('📅', 'Sin reuniones programadas', 'Usa el formulario de arriba para programar la primera reunión.'));
         return;
       }
-      btnDelReu.disabled = false;
-      currReunionId = reu.id;
-      renderChecklist(reu);
+      reunionesCom.forEach(function (r) {
+        var c = conteoAsistencia(r, comId);
+        var row = el('div', 'com-meeting-row' + (r.id === currReunionId ? ' active' : ''));
+        var info = el('div', 'com-meeting-info');
+        info.appendChild(el('div', 'com-meeting-title', r.titulo || 'Reunión de la comunidad'));
+        info.appendChild(el('div', 'com-meeting-meta',
+          tipoReunionIcon(r.tipo) + ' ' + tipoReunionLabel(r.tipo) + ' · ' + fechaHoraTexto(r)));
+        info.appendChild(el('div', 'com-meeting-counts',
+          '🟢 ' + c.asistio + ' asistieron · ❌ ' + c.falta + ' faltas · ✅ ' + c.confirmado + ' confirmados · ⏳ ' + c.pendiente + ' pendientes'));
+        row.appendChild(info);
+        var btn = el('button', 'btn btn-outline btn-sm', r.id === currReunionId ? 'Validando…' : 'Validar asistencia');
+        btn.type = 'button';
+        btn.addEventListener('click', function () {
+          currReunionId = r.id;
+          renderLista();
+          renderDetalle();
+        });
+        row.appendChild(btn);
+        listaWrap.appendChild(row);
+      });
     }
 
-    function renderChecklist(reu) {
-      listWrap.innerHTML = '';
-      fechaInput.value = reu.fechaReunion ? reu.fechaReunion.slice(0, 10) : defaultFecha();
+    function renderDetalle() {
+      detalleWrap.innerHTML = '';
+      var reu = buscarReunion(currReunionId);
+      if (!reu) {
+        detalleWrap.appendChild(el('p', 'com-empty', 'Selecciona una reunión para validar la asistencia.'));
+        return;
+      }
+
+      var box = el('div', 'com-meeting-validate');
+      var head = el('div', 'com-card-head');
+      head.appendChild(el('h4', '', reu.titulo || 'Reunión de la comunidad'));
+      head.appendChild(el('span', 'com-badge tipo-' + (reu.tipo || 'presencial'),
+        tipoReunionIcon(reu.tipo) + ' ' + tipoReunionLabel(reu.tipo)));
+      box.appendChild(head);
+      box.appendChild(el('p', 'com-meeting-meta', '🗓️ ' + fechaHoraTexto(reu)));
+
+      var desc = typeof reu.descripcion === 'string' ? reu.descripcion.trim() : '';
+      if (desc) box.appendChild(el('p', 'com-next-desc', desc));
+
       var actives = miembrosActivosDe(comId);
       if (!actives.length) {
-        listWrap.appendChild(V.emptyState('👥', 'Sin miembros activos', 'Víncula miembros activos para registrar asistencia.'));
+        box.appendChild(V.emptyState('👥', 'Sin miembros activos', 'Víncula miembros activos para registrar asistencia.'));
+        detalleWrap.appendChild(box);
         return;
       }
-      var asist = reu.asistencia || {};
+
+      var listaMiembros = el('div', 'com-asistencia-list');
       actives.forEach(function (m) {
         var usr = usuarioDe(m.crmId);
+        var st = estadoAsistencia(reu, m.crmId);
+        var meta = metaEstadoAsistencia(st);
         var row = el('label', 'com-member-row');
         var cb = document.createElement('input');
         cb.type = 'checkbox';
-        cb.checked = asist[m.crmId] === true;
+        cb.checked = st === 'asistio';
         cb.dataset.crmId = m.crmId;
         row.appendChild(cb);
         row.appendChild(el('span', 'com-member-name', userFullName(usr)));
-        var pres = asist[m.crmId] === true ? 'Presente' : 'Ausente';
-        row.appendChild(el('span', 'com-member-badge', pres));
-        listWrap.appendChild(row);
+        row.appendChild(el('span', 'com-asistencia-pill st-' + st, meta.icon + ' ' + meta.label));
+        listaMiembros.appendChild(row);
       });
+      box.appendChild(listaMiembros);
 
       var actions = el('div', 'form-actions');
-      var btnSave = el('button', 'btn btn-primary', 'Guardar asistencia');
+      var btnSave = el('button', 'btn btn-primary', '💾 Guardar asistencia y faltas');
       btnSave.type = 'button';
-      btnSave.id = 'comBtnGuardarAsistencia';
       actions.appendChild(btnSave);
-      listWrap.appendChild(actions);
+      if (isAdmin()) {
+        var btnDel = el('button', 'btn btn-danger', '🗑️ Eliminar reunión');
+        btnDel.type = 'button';
+        btnDel.addEventListener('click', function () {
+          if (!confirm('¿Eliminar esta reunión y sus registros de asistencia?')) return;
+          btnDel.disabled = true;
+          V.db.collection(COL_REUNIONES).doc(reu.id).delete()
+            .then(function () {
+              V.toast('Reunión eliminada ✓');
+              if (currReunionId === reu.id) currReunionId = null;
+              return loadReuniones();
+            })
+            .then(function () {
+              recargar();
+              if (!currReunionId && reunionesCom.length) currReunionId = reunionesCom[0].id;
+              renderLista();
+              renderDetalle();
+            })
+            .catch(function (e) {
+              V.toast('Error al eliminar la reunión: ' + e.message, true);
+              btnDel.disabled = false;
+            });
+        });
+        actions.appendChild(btnDel);
+      }
+      box.appendChild(actions);
+      detalleWrap.appendChild(box);
 
       btnSave.addEventListener('click', function () {
-        var nuevosAsist = {};
-        var checks = listWrap.querySelectorAll('input[type="checkbox"][data-crm-id]');
-        for (var ci = 0; ci < checks.length; ci++) {
-          nuevosAsist[checks[ci].dataset.crmId] = checks[ci].checked;
+        var asistencias = {};
+        var asistencia = {};
+        Object.keys(reu.asistencias || {}).forEach(function (k) { asistencias[k] = reu.asistencias[k]; });
+        Object.keys(reu.asistencia || {}).forEach(function (k) { asistencia[k] = reu.asistencia[k]; });
+        var checks = listaMiembros.querySelectorAll('input[type="checkbox"][data-crm-id]');
+        for (var i = 0; i < checks.length; i++) {
+          var uid = checks[i].dataset.crmId;
+          var presente = !!checks[i].checked;
+          asistencias[uid] = presente ? 'asistio' : 'falta';
+          asistencia[uid] = presente;
         }
-        var fechaStr = fechaInput.value || defaultFecha();
-        var docId = (comId + '__' + fechaStr).replace(/[^a-zA-Z0-9_]/g, '_');
-        V.db.collection(V.COL_REUNIONES).doc(docId).set({
-          id: docId,
-          comunidadId: comId,
-          fechaReunion: new Date(fechaStr + 'T12:00:00').toISOString(),
-          asistencia: nuevosAsist
+        btnSave.disabled = true;
+        btnSave.textContent = '⏳ Guardando…';
+        V.db.collection(COL_REUNIONES).doc(reu.id).set({
+          asistencia: asistencia,
+          asistencias: asistencias,
+          actualizado: new Date().toISOString()
         }, { merge: true })
-          .then(function () { V.toast('Asistencia guardada ✓'); return loadReuniones(); })
-          .then(function () { renderPanel(); })
-          .catch(function (e) { V.toast('Error: ' + e.message, true); });
+          .then(function () {
+            V.toast('Asistencia y faltas guardadas ✓');
+            return loadReuniones();
+          })
+          .then(function () {
+            recargar();
+            renderLista();
+            renderDetalle();
+          })
+          .catch(function (e) {
+            V.toast('Error al guardar la asistencia: ' + e.message, true);
+            btnSave.disabled = false;
+            btnSave.textContent = '💾 Guardar asistencia y faltas';
+          });
       });
     }
 
-    selReu.addEventListener('change', function () {
-      var esNueva = this.value === '__new__';
-      btnDelReu.disabled = esNueva;
-      if (esNueva) {
-        listWrap.innerHTML = '';
-        fechaInput.value = defaultFecha();
-        var reuTmp = { id: null, fechaReunion: new Date(fechaInput.value).toISOString() };
-        renderChecklist(reuTmp);
-      } else {
-        loadReunion(this.value);
-      }
-    });
-    btnLoad.addEventListener('click', function () {
-      var value = selReu.value;
-      btnDelReu.disabled = value === '__new__';
-      if (value === '__new__') {
-        var reuTmp = { id: null, fechaReunion: new Date(fechaInput.value).toISOString() };
-        renderChecklist(reuTmp);
-      } else {
-        loadReunion(value);
-      }
-    });
-
-    // Eliminar reunión y sus registros de asistencia asociados.
-    btnDelReu.addEventListener('click', function () {
-      var value = selReu.value;
-      if (value === '__new__' || !value) { V.toast('Selecciona una reunión existente para eliminar.', true); return; }
-      var reu = null;
-      for (var i = 0; i < reunionesCom.length; i++) if (reunionesCom[i].id === value) reu = reunionesCom[i];
-      if (!reu) { V.toast('Reunión no encontrada.', true); return; }
-      if (!confirm('¿Estás seguro de eliminar esta reunión y sus registros de asistencia asociados?')) return;
-      btnDelReu.disabled = true;
-      V.db.collection(V.COL_REUNIONES).doc(reu.id).delete()
-        .then(function () { V.toast('Reunión eliminada ✓'); return loadReuniones(); })
-        .then(function () {
-          recargarReuniones();
-          // Seleccionar automáticamente la reunión anterior (inmediatamente
-          // previa a la eliminada) o, si no existe, la más reciente.
-          var delFecha = reu.fechaReunion || '';
-          var elegida = null;
-          reunionesCom.forEach(function (cand) {
-            if (delFecha && (cand.fechaReunion || '') <= delFecha) elegida = cand;
-          });
-          if (!elegida && reunionesCom.length) elegida = reunionesCom[reunionesCom.length - 1];
-          if (elegida) {
-            currReunionId = elegida.id;
-            selReu.value = currReunionId;
-            loadReunion(currReunionId);
-          } else {
-            currReunionId = null;
-            selReu.value = '__new__';
-            btnDelReu.disabled = true;
-            listWrap.innerHTML = '';
-            fechaInput.value = defaultFecha();
-            renderChecklist({ id: null, fechaReunion: new Date(fechaInput.value).toISOString() });
-          }
-          renderPanel();
-        })
-        .catch(function (e) {
-          V.toast('Error al eliminar la reunión: ' + e.message, true);
-          recargarReuniones();
-          btnDelReu.disabled = false;
-        });
-    });
-
-    // Cargar la primera reunión o nueva
-    recargarReuniones();
-    if (currReunionId && reunionesCom.some(function (r) { return r.id === currReunionId; })) {
-      selReu.value = currReunionId;
-      loadReunion(currReunionId);
-    } else {
-      var reuTmp = { id: null, fechaReunion: new Date(defaultFecha()).toISOString() };
-      renderChecklist(reuTmp);
+    recargar();
+    if (!currReunionId || !buscarReunion(currReunionId)) {
+      var prox = proximaReunion(comId);
+      var elegida = prox || reunionesCom[0] || null;
+      currReunionId = elegida ? elegida.id : null;
     }
+    renderLista();
+    renderDetalle();
 
     return base;
+  }
+
+  // Formulario para programar una reunión (coordinador/admin).
+  function renderProgramarReunion(comId, onSaved) {
+    var card = el('div', 'com-card com-meeting-form-card');
+    card.appendChild(el('h3', '', '➕ Programar nueva reunión'));
+
+    var grid = el('div', 'com-form-grid two');
+
+    function field(label, control, full) {
+      var f = el('div', 'field' + (full ? ' com-form-full' : ''));
+      var l = el('label', '', label);
+      l.htmlFor = control.id;
+      f.appendChild(l);
+      f.appendChild(control);
+      return f;
+    }
+
+    var inputTitulo = document.createElement('input');
+    inputTitulo.type = 'text';
+    inputTitulo.className = 'input';
+    inputTitulo.id = 'comReuTitulo';
+    inputTitulo.placeholder = 'Ej: Reunión semanal de la comunidad';
+    grid.appendChild(field('Título de la reunión', inputTitulo, true));
+
+    var inputFecha = document.createElement('input');
+    inputFecha.type = 'date';
+    inputFecha.className = 'input';
+    inputFecha.id = 'comReuFecha';
+    inputFecha.value = hoyISO();
+    grid.appendChild(field('Fecha', inputFecha));
+
+    var inputHora = document.createElement('input');
+    inputHora.type = 'time';
+    inputHora.className = 'input';
+    inputHora.id = 'comReuHora';
+    inputHora.value = '18:00';
+    grid.appendChild(field('Hora', inputHora));
+
+    var selectTipo = document.createElement('select');
+    selectTipo.className = 'select';
+    selectTipo.id = 'comReuTipo';
+    Object.keys(TIPOS_REUNION).forEach(function (k) {
+      var opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = TIPOS_REUNION[k].icon + ' ' + TIPOS_REUNION[k].label;
+      selectTipo.appendChild(opt);
+    });
+    grid.appendChild(field('Tipo de reunión', selectTipo));
+
+    var inputDesc = document.createElement('textarea');
+    inputDesc.className = 'textarea';
+    inputDesc.id = 'comReuDescripcion';
+    inputDesc.rows = 3;
+    inputDesc.placeholder = 'Tema, lugar o enlace de la reunión (opcional)…';
+    grid.appendChild(field('Descripción (opcional)', inputDesc, true));
+
+    card.appendChild(grid);
+
+    var actions = el('div', 'form-actions');
+    var btn = el('button', 'btn btn-primary', '📅 Programar reunión');
+    btn.type = 'button';
+    actions.appendChild(btn);
+    card.appendChild(actions);
+
+    btn.addEventListener('click', function () {
+      if (!V.db) { V.toast('Firestore no está disponible.', true); return; }
+      var titulo = (inputTitulo.value || '').trim();
+      var fecha = inputFecha.value;
+      var hora = inputHora.value;
+      var tipo = selectTipo.value || 'presencial';
+      if (!titulo) { V.toast('Escribe el título de la reunión.', true); return; }
+      if (!fecha) { V.toast('Selecciona la fecha de la reunión.', true); return; }
+      if (!hora) { V.toast('Selecciona la hora de la reunión.', true); return; }
+      var d = new Date(fecha + 'T' + hora + ':00');
+      if (isNaN(d.getTime())) { V.toast('La fecha u hora no es válida.', true); return; }
+
+      var asistencias = {};
+      miembrosActivosDe(comId).forEach(function (m) { asistencias[m.crmId] = 'pendiente'; });
+
+      btn.disabled = true;
+      btn.textContent = '⏳ Programando…';
+      V.db.collection(COL_REUNIONES).add({
+        comunidadId: comId,
+        titulo: titulo,
+        descripcion: (inputDesc.value || '').trim(),
+        fecha: fecha,
+        hora: hora,
+        tipo: tipo,
+        fechaReunion: d.toISOString(),
+        asistencias: asistencias,
+        asistencia: {},
+        creado: new Date().toISOString(),
+        actualizado: new Date().toISOString()
+      }).then(function (ref) {
+        V.toast('Reunión programada ✓');
+        currReunionId = ref.id;
+        btn.disabled = false;
+        btn.textContent = '📅 Programar reunión';
+        inputTitulo.value = '';
+        inputDesc.value = '';
+        return loadReuniones().then(function () {
+          if (typeof onSaved === 'function') onSaved(ref.id);
+          else renderPanel();
+        });
+      }).catch(function (e) {
+        V.toast('Error al programar la reunión: ' + e.message, true);
+        btn.disabled = false;
+        btn.textContent = '📅 Programar reunión';
+      });
+    });
+
+    return card;
   }
 
   /* ─── OFRENDAS DE GRUPO (coordinador / admin) ─────────────── */
@@ -1580,15 +1836,16 @@
 
   function participacionMedia(reuC, comId) {
     if (!reuC.length) return 0;
-    var actives = miembrosActivosDe(comId).length;
-    if (!actives) return 0;
     var totalPts = 0;
+    var base = 0;
     reuC.forEach(function (r) {
-      var asis = r.asistencia || {};
-      var presentes = Object.keys(asis).filter(function (k) { return asis[k] === true; }).length;
-      totalPts += Math.min(100, Math.round((presentes / actives) * 100));
+      var c = conteoAsistencia(r, comId);
+      var registrados = c.asistio + c.falta;
+      if (!registrados) return; // reunión aún sin validar
+      totalPts += Math.round((c.asistio / registrados) * 100);
+      base++;
     });
-    return Math.round(totalPts / reuC.length);
+    return base ? Math.round(totalPts / base) : 0;
   }
 
   /* ─── SHOW HOOK ─────────────────────────────────────────────── */

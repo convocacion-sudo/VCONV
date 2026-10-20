@@ -1117,7 +1117,10 @@
     // su propia red para el rol avanzado. Reportes Financieros y Red MLM
     // Global siguen siendo exclusivos de superadmin (consolidan la base
     // completa y los porcentajes, que el avanzado no debe ver).
-    var veFinanzas = isAdmin || esAvanzado();
+    // Finanzas: visible para CUALQUIER usuario con sesión (estudiante, miembro,
+    // gestor, avanzado, superadmin) para que puedan realizar su aporte o
+    // donación. La gestión/CRUD interno sigue restringido dentro del módulo.
+    var veFinanzas = (!!uidSesion() || !!userId) && !isAnon;
     var linkFinanzas = $('sidebarLinkFinanzas');
     if (linkFinanzas) linkFinanzas.style.display = veFinanzas ? '' : 'none';
     var linkReportes = $('sidebarLinkReportes');
