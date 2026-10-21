@@ -524,6 +524,46 @@ html[data-theme="light"] .wa-chat-input:focus {
   .breadcrumb #btnBack { width: auto; }
 }
 
+/* ── MODO MANTENIMIENTO ─────────────────────────────────
+   Capa fija por encima de TODO (z-index 1500): tapa la landing y el
+   shell de la aplicación. El formulario de acceso se sube por encima
+   (1600) para que el superadmin pueda entrar mientras la plataforma
+   está en mantenimiento. */
+.maint-screen {
+  position: fixed; inset: 0; z-index: 1500; display: none;
+  align-items: center; justify-content: center; padding: 1.5rem;
+  background: var(--bg-primary);
+  overflow-y: auto;
+}
+html.is-maintenance .auth-overlay { z-index: 1600; }
+/* El botón flotante de WhatsApp vive por encima de todo (z-index 9998): en
+   mantenimiento se esconde para que la pantalla de aviso sea lo único que
+   ve el visitante. */
+html.is-maintenance .wa-float-btn,
+html.is-maintenance .wa-chat-panel { display: none !important; }
+.maint-card {
+  width: 100%; max-width: 520px; text-align: center;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow);
+  padding: 2.6rem 2rem 2rem; animation: fadeSlideIn 0.3s ease;
+}
+.maint-card .brand { display: block; font-size: 1.35rem; margin-bottom: 1.1rem; }
+.maint-ico { font-size: 2.6rem; line-height: 1; margin-bottom: 0.8rem; }
+.maint-card h1 {
+  font-size: 1.35rem; font-weight: 800; letter-spacing: -0.01em;
+  color: var(--text-primary); margin-bottom: 0.7rem;
+}
+.maint-msg { font-size: 0.95rem; color: var(--text-secondary); line-height: 1.6; }
+.maint-foot { font-size: 0.82rem; color: var(--text-muted); margin-top: 0.6rem; }
+.maint-login {
+  margin-top: 1.6rem; padding: 0.5rem 0.9rem;
+  background: transparent; color: var(--text-muted);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  transition: color var(--transition), border-color var(--transition);
+}
+.maint-login:hover { color: var(--accent); border-color: var(--accent); }
+
 /* ── AUTH SCREEN ─────────────────────────────────────── */
 .auth-overlay {
   position: fixed; inset: 0; z-index: 1000; display: none;

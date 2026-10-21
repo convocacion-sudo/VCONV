@@ -1034,6 +1034,21 @@
         <div class="portal-blocks" id="portalBlocksGrid"></div>
       </section>
 
+      <!-- Fichas del Home: las crea y edita el superadmin en el panel de
+           configuraciones (pestaña «Fichas del Home») y se guardan en la
+           colección `fichas`. La lectura es pública (firestore.rules →
+           match /fichas), así que el visitante las ve sin iniciar sesión.
+           Los textos admiten override en data/content.json
+           (portal.sections.fichas). -->
+      <section class="portal-section" id="portalFichas" style="display:none">
+        <div class="portal-section-head">
+          <span class="portal-eyebrow" id="fichasEyebrow"></span>
+          <h2 id="fichasTitle"></h2>
+          <p id="fichasSubtitle"></p>
+        </div>
+        <div class="portal-fichas" id="portalFichasGrid"></div>
+      </section>
+
 
     </main>
 
@@ -1343,6 +1358,23 @@
     </div>
   </div>
 
+  <!-- ═══ MODO MANTENIMIENTO ═══
+       Se muestra encima de todo (position:fixed) cuando el superadmin
+       activa el interruptor de mantenimiento en Configuración. El botón de
+       abajo deja entrar al superadmin: si el aviso tapara el formulario de
+       acceso, nadie con permisos podría entrar mientras la plataforma está
+       en mantenimiento. -->
+  <div class="maint-screen" id="maintenanceScreen" style="display:none;" role="alertdialog" aria-modal="true" aria-labelledby="maintenanceTitle">
+    <div class="maint-card">
+      <span class="brand">VCONV<span>.</span></span>
+      <div class="maint-ico" aria-hidden="true">🔧</div>
+      <h1 id="maintenanceTitle">Estamos realizando mejoras en la plataforma</h1>
+      <p class="maint-msg" id="maintenanceMessage">Estamos realizando mejoras en la plataforma. Vuelve en breve.</p>
+      <p class="maint-foot">Gracias por tu paciencia.</p>
+      <button type="button" class="maint-login" id="maintenanceLogin">🔑 Acceso para administradores</button>
+    </div>
+  </div>
+
   <!-- ═══ AUTH SCREEN ═══ -->
   <div class="auth-overlay" id="authScreen">
     <div class="auth-card">
@@ -1431,7 +1463,11 @@
   <!-- EmailJS (envío de correos desde el frontend) -->
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <!-- Core -->
-  <script src="core/app.js"></script>
+<script src="core/multimedia.js"></script>
+<script src="core/richtext.js"></script>
+<script src="core/mantenimiento.js"></script>
+<script src="core/app.js"></script>
+  <script src="core/formulario.js"></script>
   <!-- Módulos -->
   <script src="modules/mlm/mlm.js"></script>
   <script src="modules/roles/roles.js"></script>

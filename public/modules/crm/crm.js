@@ -45,6 +45,26 @@
   var ubicacionData = { departamentos: [], ciudades: {}, barrios: {} };
   var ubicacionUnsub = null;
   var editingUser = null;
+
+  /* Campos del perfil que YA existen en el CRM (con su propio control en
+     el formulario). Los que no estén en esta lista son campos
+     PERSONALIZADOS: su valor viaja en `extras`. */
+  var CAMPOS_BASE_PERFIL = {
+    nombre: 1, apellido: 1, documento: 1, telefono: 1, sexo: 1,
+    rangoEdad: 1, estadoCivil: 1, departamento: 1, ciudad: 1, barrio: 1,
+    perfil: 1, profesion: 1, oficio: 1, banco: 1, numeroCuenta: 1, notas: 1
+  };
+
+  /* Valor centinela de Firestore para BORRAR una clave del documento.
+     Se usa en los campos marcados como ELIMINADO: su dato no se conserva. */
+  function borrarCampo() {
+    try {
+      if (window.firebase && window.firebase.firestore && window.firebase.firestore.FieldValue) {
+        return window.firebase.firestore.FieldValue.delete();
+      }
+    } catch (e) { /* sin SDK global: el campo simplemente no se escribe */ }
+    return null;
+  }
   var editingProfileIndex = null;
   var editingProfesionIndex = null;
   var editingOficioIndex = null;
@@ -1371,6 +1391,23 @@ td.setAttribute('colspan', '13');
     // Roles adicionales (Fase A): se pintan marcados los que ya tiene.
     pintarRolesFormulario(user);
 
+    // Estructura vigente del formulario de Perfil: se aplican los estados
+    // (obligatorio / visible / oculto / eliminado) ANTES de leer nada, para
+    // que los campos personalizados existan en el formulario y para que un
+    // campo ELIMINADO no conserve su valor en el control (su dato se borra
+    // del documento al guardar).
+    if (V.formulario && typeof V.formulario.aplicarPerfil === 'function') {
+      V.formulario.aplicarPerfil();
+      var extrasUser = (user && user.extras && typeof user.extras === 'object') ? user.extras : {};
+      V.formulario.camposDe('perfil').forEach(function (c) {
+        var ctrl = document.getElementById((V.formulario.prefijoDe ? V.formulario.prefijoDe('perfil') : 'crm_') + c.id);
+        if (!ctrl) return;
+        if (c.estado === 'eliminado') { ctrl.value = ''; return; }
+        var v = extrasUser[c.id];
+        if (v !== undefined && v !== null) ctrl.value = v;
+      });
+    }
+
     // Perfil: carga en directo desde config/perfiles cada vez que se abre el modal.
     populatePerfilSelect(user.perfil);
     loadPerfilesFromDb().then(function () {
@@ -1676,6 +1713,42 @@ td.setAttribute('colspan', '13');
 
     if (!editingUser.fechaSuscripcion && !editingUser.createdAt) {
       data.fechaSuscripcion = new Date().toISOString();
+    }
+
+    // ─── ESTADOS DEL ESQUEMA DE FORMULARIOS ───────────────────────
+    // · OBLIGATORIO / VISIBLE → se guardan como siempre.
+    // · OCULTO                → el dato guardado se conserva (el control
+    //                           sigue con el valor que se cargó).
+    // · ELIMINADO             → el dato desaparece del documento.
+    // · Los campos PERSONALIZADOS (los que no son del CRM) se guardan
+    //   dentro de `extras`, que las reglas de Firestore admiten sin tocar
+    //   el esquema de `usuarios`.
+    var eliminadosPerfil = (V.formulario && typeof V.formulario.eliminados === 'function')
+      ? (V.formulario.eliminados('perfil') || []) : [];
+    var extrasPerfil = {};
+    if (V.formulario && typeof V.formulario.valoresPerfil === 'function') {
+      var valsPerfil = V.formulario.valoresPerfil() || {};
+      Object.keys(valsPerfil).forEach(function (k) {
+        if (CAMPOS_BASE_PERFIL[k]) return;
+        var v = valsPerfil[k];
+        if (v === '' || v === undefined || v === null) return;
+        extrasPerfil[k] = v;
+      });
+    }
+    eliminadosPerfil.forEach(function (id) {
+      var s = borrarCampo();
+      if (s) data[id] = s;
+    });
+    var extrasBase = (editingUser.extras && typeof editingUser.extras === 'object') ? editingUser.extras : {};
+    var extrasFinal = {};
+    Object.keys(extrasBase).forEach(function (k) { extrasFinal[k] = extrasBase[k]; });
+    Object.keys(extrasPerfil).forEach(function (k) { extrasFinal[k] = extrasPerfil[k]; });
+    eliminadosPerfil.forEach(function (id) { delete extrasFinal[id]; });
+    if (Object.keys(extrasFinal).length) {
+      data.extras = extrasFinal;
+    } else if (Object.keys(extrasBase).length) {
+      var sExtra = borrarCampo();
+      if (sExtra) data.extras = sExtra;
     }
 
     if (editingUser.uid === V.userId && data.rol !== V.userRole) {

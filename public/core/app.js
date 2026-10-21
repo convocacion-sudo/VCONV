@@ -411,6 +411,12 @@
     var hint = $('authHint');
     if (hint) hint.style.display = isAnon ? '' : 'none';
     $('authScreen').classList.add('show');
+    // La estructura de campos vigente se aplica AL ABRIR la pantalla: si el
+    // superadmin cambió los estados de los campos de Registro mientras la
+    // sesión estaba abierta, el formulario que ve el visitante es el nuevo.
+    if (typeof V.onFormularioShow === 'function') {
+      try { V.onFormularioShow(); } catch (e) { /* noop */ }
+    }
   }
   function closeAuth() { $('authScreen').classList.remove('show'); }
   function showAuthError(msg) { var e = $('authError'); e.textContent = msg; e.classList.add('show'); }
@@ -589,6 +595,16 @@
         var upd = { anonimo: false, proveedor: datos.proveedor || 'correo' };
         if (user.email) upd.email = user.email;
         if (datos.nombre) upd.nombre = datos.nombre;
+        // Los campos personalizados del registro se guardan en `extras`.
+        // Se FUSIONAN con los que ya había: al repetir el registro no se
+        // pierde lo que el usuario ya había escrito en otra sesión.
+        if (datos.extras && Object.keys(datos.extras).length) {
+          var prev = (doc.data() && doc.data().extras && typeof doc.data().extras === 'object') ? doc.data().extras : {};
+          var merged = {};
+          Object.keys(prev).forEach(function (k) { merged[k] = prev[k]; });
+          Object.keys(datos.extras).forEach(function (k) { merged[k] = datos.extras[k]; });
+          upd.extras = merged;
+        }
         return ref.set(upd, { merge: true });
       }
       var data = {
@@ -606,6 +622,7 @@
         proveedor: datos.proveedor || 'correo'
       };
       if (sponsor) data.sponsorId = sponsor;
+      if (datos.extras && Object.keys(datos.extras).length) data.extras = datos.extras;
       return ref.set(data, { merge: true });
     }).catch(function () { return null; });
   }
@@ -681,13 +698,66 @@
       });
   }
 
+  /* Valores de los campos PERSONALIZADOS del registro (los que no son
+     nombre, correo, contraseña ni referido). Se guardan en `extras` dentro
+     del documento del usuario: las reglas de Firestore permiten claves
+     extra, así que no hay que tocar el esquema de `usuarios`.
+     Los campos ocultos y eliminados no aportan valor (no aparecen), y los
+     eliminados además se borran al guardar el perfil. */
+  function extrasDelRegistro() {
+    var out = {};
+    if (!V.formulario || typeof V.formulario.valoresRegistro !== 'function') return out;
+    var vals = V.formulario.valoresRegistro() || {};
+    Object.keys(vals).forEach(function (k) {
+      if (k === 'nombre' || k === 'correo' || k === 'contrasena' || k === 'referido') return;
+      var v = vals[k];
+      if (v === '' || v === undefined || v === null) return;
+      out[k] = v;
+    });
+    return out;
+  }
+
   function handleRegister(e) {
     if (e) e.preventDefault();
     if (!auth) { showAuthError('Firebase Authentication no está disponible. Recarga la página.'); return; }
-    var nombre = $('regName').value.trim();
-    var email = $('regEmail').value.trim();
-    var pass = $('regPassword').value;
-    if (!nombre || !email || !pass) { showAuthError('Completa todos los campos.'); return; }
+
+    // La estructura vigente de campos decide qué se exige. Los campos que el
+    // superadmin marcó como obligatorios se comprueban aquí, con su
+    // etiqueta; los ocultos y eliminados no se piden ni se guardan.
+    if (V.formulario && typeof V.formulario.validarRegistro === 'function') {
+      var check = V.formulario.validarRegistro();
+      if (!check || check.ok !== true) {
+        showAuthError((check && check.mensaje) || 'Revisa los campos del formulario.');
+        return;
+      }
+    }
+
+    var nombre = $('regName') ? $('regName').value.trim() : '';
+    var email = $('regEmail') ? $('regEmail').value.trim() : '';
+    var pass = $('regPassword') ? $('regPassword').value : '';
+
+    // Correo y contraseña son la puerta de entrada a Firebase Auth: sin ellos
+    // no hay cuenta. Si el administrador los dejó ocultos o eliminados, el
+    // registro quedaría roto, así que se avisa en vez de fallar con un error
+    // incomprensible.
+    var estadoCampo = function (id) {
+      if (!V.formulario || typeof V.formulario.estadoDe !== 'function') return 'obligatorio';
+      return V.formulario.estadoDe('registro', id);
+    };
+    if (estadoCampo('correo') !== 'visible' && estadoCampo('correo') !== 'obligatorio') {
+      showAuthError('El correo es necesario para crear la cuenta. Avisa al administrador.');
+      return;
+    }
+    if (estadoCampo('contrasena') !== 'visible' && estadoCampo('contrasena') !== 'obligatorio') {
+      showAuthError('La contraseña es necesaria para crear la cuenta. Avisa al administrador.');
+      return;
+    }
+
+    // El nombre solo se exige si su estado es OBLIGATORIO: si el
+    // administrador lo dejó opcional (o lo ocultó), el registro se acepta
+    // sin él. El mensaje exacto lo pone validarRegistro(), que ya conoce
+    // la etiqueta de cada campo.
+    if (!email || !pass) { showAuthError('Completa todos los campos.'); return; }
     if (pass.length < 6) { showAuthError('La contraseña debe tener al menos 6 caracteres.'); return; }
     clearAuthError();
     var btn = $('btnRegister');
@@ -744,7 +814,8 @@
               email: email,
               rol: 'estudiante',
               proveedor: 'correo',
-              sponsorId: sponsorId
+              sponsorId: sponsorId,
+              extras: extrasDelRegistro()
             }).then(function () {
               var mlmApply = V.mlm ? V.mlm.aplicarPatrocinio(user.uid, sponsorId) : Promise.resolve();
               return mlmApply.then(function () { return user; });
@@ -932,6 +1003,14 @@
   };
 
   function showView(id) {
+    // Modo mantenimiento: si está activo, quien no tiene un rol con acceso
+    // (superadmin o contable) no navega por la aplicación. El bloqueo está
+    // AQUÍ, en el único punto por el que pasan todas las vistas, para que
+    // ninguna ruta nueva pueda abrirse por la puerta de atrás.
+    if (V.mantenimiento && typeof V.mantenimiento.bloquea === 'function' && V.mantenimiento.bloquea()) {
+      V.mantenimiento.aplicar();
+      return;
+    }
     if (VISTAS_SOLO_SUPERADMIN.indexOf(id) !== -1 && !esAdmin()) {
       toast('Acceso restringido al super administrador.', true);
       id = 'viewDashboard';
@@ -1807,6 +1886,24 @@
     // también tras un login (appStarted), y ahí es donde se reintenta si la
     // escucha murió por permisos mientras el visitante no tenía sesión.
     subscribeWhatsApp();
+
+    // Estructura vigente de los formularios (Registro y Perfil). Se lee UNA
+    // vez al arrancar y se aplica al DOM: a partir de ahí, el formulario que
+    // ve el visitante es el que el superadmin guardó en config/formulario.
+    if (V.formulario && typeof V.formulario.cargar === 'function') {
+      V.formulario.cargar();
+    }
+
+    // Modo mantenimiento. El estado se lee al arrancar y se sigue en vivo:
+    // si el superadmin activa el interruptor, las pestañas abiertas se
+    // bloquean al instante. Se aplica AQUÍ, con los roles ya fijados: un
+    // contable o un superadmin que entra durante el mantenimiento sigue
+    // usando la plataforma con normalidad, y el resto ve el aviso.
+    if (V.mantenimiento && typeof V.mantenimiento.aplicar === 'function') {
+      V.mantenimiento.aplicar();
+      V.mantenimiento.cargar();
+      V.mantenimiento.suscribir();
+    }
 
     if (isAnon) {
       // Visitantes: siempre modo estudiante y sin permisos de gestión.

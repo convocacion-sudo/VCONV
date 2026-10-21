@@ -4,13 +4,15 @@
    su documento de la colección `config` y el resto de la aplicación lo
    lee desde ahí:
 
-     Portal / Home      → config/portal.copy   (el copy de la portada)
-     Identidad y marca  → config/identidad
-     Formularios        → config/formularios    (esquema + catálogo)
-     Roles y módulos    → (solo lectura: el permiso real vive en el
-                          código y en firestore.rules)
-     Finanzas y MLM     → config/finanzas       (+ config/mlm, sincronizado)
-     Datos operativos   → finanzas_cuentas      (contable + superadmin)
+      Portal / Home      → config/portal.copy   (el copy de la portada)
+      Fichas del Home    → fichas/{id}          (las tarjetas de la portada)
+      Identidad y marca  → config/identidad
+      Campos de formularios → config/formulario  (estructura de Registro y
+                           Perfil, con 4 estados por campo)
+      Roles y módulos    → (solo lectura: el permiso real vive en el
+                           código y en firestore.rules)
+      Finanzas y MLM     → config/finanzas       (+ config/mlm, sincronizado)
+      Datos operativos   → finanzas_cuentas      (contable + superadmin)
 
    REGLAS DE LA FASE 1
    · El superadmin edita todas las pestañas.
@@ -54,8 +56,9 @@
   /* ─── PESTAÑAS ──────────────────────────────────────────────── */
   var TABS = [
     { id: 'portal', label: 'Portal / Home', icon: '🏠', roles: ['superadmin'], render: renderPortal },
+    { id: 'fichas', label: 'Fichas del Home', icon: '🗂️', roles: ['superadmin'], render: renderFichas },
     { id: 'identidad', label: 'Identidad y marca', icon: '🎨', roles: ['superadmin'], render: renderIdentidad },
-    { id: 'formularios', label: 'Formularios', icon: '📝', roles: ['superadmin'], render: renderFormularios },
+    { id: 'campos', label: 'Campos de formularios', icon: '📝', roles: ['superadmin'], render: renderCampos },
     { id: 'roles', label: 'Roles y módulos', icon: '🔑', roles: ['superadmin'], render: renderRoles },
     { id: 'finanzas', label: 'Finanzas y MLM', icon: '💰', roles: ['superadmin'], render: renderFinanzas },
     { id: 'operativos', label: 'Datos operativos', icon: '🏦', roles: ['superadmin', 'contable'], render: renderOperativos }
@@ -290,6 +293,9 @@
         { path: ['portal', 'sections', 'blocks', 'eyebrow'], label: 'Pilares · antetítulo' },
         { path: ['portal', 'sections', 'blocks', 'title'], label: 'Pilares · título' },
         { path: ['portal', 'sections', 'blocks', 'subtitle'], label: 'Pilares · subtítulo', tipo: 'area' },
+        { path: ['portal', 'sections', 'fichas', 'eyebrow'], label: 'Fichas · antetítulo' },
+        { path: ['portal', 'sections', 'fichas', 'title'], label: 'Fichas · título' },
+        { path: ['portal', 'sections', 'fichas', 'subtitle'], label: 'Fichas · subtítulo', tipo: 'area' },
         { path: ['portal', 'sections', 'contact', 'eyebrow'], label: 'Contacto · antetítulo' },
         { path: ['portal', 'sections', 'contact', 'title'], label: 'Contacto · título' },
         { path: ['portal', 'sections', 'contact', 'subtitle'], label: 'Contacto · subtítulo', tipo: 'area' }
@@ -338,6 +344,25 @@
       container.appendChild(notice);
 
       var controles = [];
+
+      /* ─── AJUSTES GENERALES · MODO MANTENIMIENTO ────────────────
+         El estado del modo mantenimiento NO va dentro de `copy`: es un
+         dato de OPERACIÓN, no un texto de la landing. Se guarda en la
+         clave `mantenimiento` del MISMO documento `config/portal`, que ya
+         es legible sin sesión (regla esPublico() en firestore.rules) y
+         que solo puede escribir el superadmin (isAdmin()).
+
+         Lo aplica core/mantenimiento.js: con el interruptor encendido, los
+         visitantes y los estudiantes ven la pantalla de aviso, mientras
+         que el superadmin y el contable siguen dentro para poder probar y
+         operar la plataforma. */
+      var cfgMant = (doc.mantenimiento && typeof doc.mantenimiento === 'object') ? doc.mantenimiento : {};
+      var MENSAJE_MANT_POR_DEFECTO = 'Estamos realizando mejoras en la plataforma. Vuelve en breve.';
+      var cuerpoMant = grupo(container, 'Ajustes generales', 'Estado de la plataforma para el público.', '⚙️');
+      var swMant = interruptor(cuerpoMant, 'Activar Modo Mantenimiento', cfgMant.activo === true,
+        'Mientras esté activo, los visitantes y los estudiantes encontrarán una pantalla de aviso en lugar de la aplicación. El superadmin y el contable siguen entrando con normalidad para probarla.');
+      var inMensajeMant = campo(cuerpoMant, 'Mensaje de mantenimiento', cfgMant.mensaje || MENSAJE_MANT_POR_DEFECTO, { tipo: 'area' });
+
       CAMPOS_PORTAL.forEach(function (g) {
         var body = grupo(container, g.titulo, g.descripcion, g.icono);
         g.items.forEach(function (it) {
@@ -421,13 +446,446 @@
             highlight: r.highlight ? r.highlight.value : (b.highlight || '')
           };
         });
-        return guardarDoc('portal', { copy: nuevo }).then(function () {
-          toast('Contenido de la portada guardado ✓');
+        var mant = {
+          activo: swMant.checked === true,
+          mensaje: String(inMensajeMant.value || '').trim() || MENSAJE_MANT_POR_DEFECTO
+        };
+        return guardarDoc('portal', { copy: nuevo, mantenimiento: mant }).then(function () {
+          // Se aplica en esta misma sesión (y en las demás, por la escucha en
+          // vivo de core/mantenimiento.js) sin tener que recargar.
+          if (V.mantenimiento && typeof V.mantenimiento.guardar === 'function') {
+            V.mantenimiento.guardar(mant);
+          }
+          toast('Contenido de la portada guardado ✓' + (mant.activo ? ' · Modo mantenimiento ACTIVADO' : ''));
         });
       });
     }).catch(function (e) {
       container.innerHTML = '';
       container.appendChild(el('p', 'set-error', 'No se pudo cargar la portada: ' + (e && e.message ? e.message : e)));
+    });
+  }
+
+  /* ─── PESTAÑA · FICHAS DEL HOME ─────────────────────────────── */
+  /* Las fichas son las tarjetas de la portada. Cada una puede llevar un
+     texto enriquecido y un medio (imagen o vídeo), y se publica o se deja
+     en borrador. Viven en la colección `fichas` (un documento por ficha)
+     y no en el copy de la portada: así se pueden ordenar, publicar y
+     borrar sin tocar los textos de las secciones. */
+  var COL_FICHAS = 'fichas';
+
+  function ordenarFichas(a, b) {
+    var oa = Number(a.orden);
+    var ob = Number(b.orden);
+    if (!isFinite(oa)) oa = 9999;
+    if (!isFinite(ob)) ob = 9999;
+    if (oa !== ob) return oa - ob;
+    return String(a.titulo || '').localeCompare(String(b.titulo || ''));
+  }
+
+  function leerFichas() {
+    if (!V.db) return Promise.resolve([]);
+    return V.db.collection(COL_FICHAS).get().then(function (snap) {
+      var out = [];
+      snap.forEach(function (doc) {
+        var data = doc.data() || {};
+        data.id = doc.id;
+        out.push(data);
+      });
+      out.sort(ordenarFichas);
+      return out;
+    }).catch(function (e) {
+      console.warn('[settings] no se pudieron leer las fichas:', e && e.message);
+      return [];
+    });
+  }
+
+  function medioDe(ficha) {
+    // Dos formas de llegar al mismo medio: el documento guardado en Firestore
+    // (campos planos mediaTipo/mediaUrl/mediaFuente) y el objeto del editor
+    // en memoria (medio: { tipo, url, fuente }). Se cubren las dos para que
+    // el medio no se pierda al guardar.
+    if (ficha && ficha.medio) {
+      return {
+        tipo: ficha.medio.tipo || 'ninguna',
+        url: ficha.medio.url || '',
+        fuente: ficha.medio.fuente || 'auto'
+      };
+    }
+    return {
+      tipo: ficha.mediaTipo || 'ninguna',
+      url: ficha.mediaUrl || '',
+      fuente: ficha.mediaFuente || 'auto'
+    };
+  }
+
+  function guardarFicha(ficha) {
+    if (!V.db) return Promise.reject(new Error('Firestore no disponible.'));
+    var ref = V.db.collection(COL_FICHAS).doc(ficha.id);
+    var medio = V.multimedia ? V.multimedia.normalizarMedio(medioDe(ficha)) : { tipo: 'ninguna', url: '', fuente: 'auto' };
+    var ahora = new Date().toISOString();
+    var data = {
+      titulo: String(ficha.titulo || '').trim(),
+      subtitulo: String(ficha.subtitulo || '').trim(),
+      icono: String(ficha.icono || '').trim(),
+      texto: String(ficha.texto || ''),
+      mediaTipo: medio.tipo,
+      mediaUrl: medio.url,
+      mediaFuente: medio.fuente,
+      publicado: !!ficha.publicado,
+      orden: Number(ficha.orden) || 0,
+      actualizado: ahora
+    };
+    if (!ficha.creado) data.creado = ahora;
+    return ref.set(data, { merge: true }).then(function () { return data; });
+  }
+
+  function eliminarFicha(id) {
+    if (!V.db || !id) return Promise.reject(new Error('Ficha no válida.'));
+    return V.db.collection(COL_FICHAS).doc(id).delete();
+  }
+
+  /* ─── SELECTOR MULTIMEDIA ──────────────────────────────────────
+     Elige una imagen o un vídeo. Sigue el patrón del módulo de Tiendas
+     (una URL validada + el tipo de fuente) y usa el clasificador de
+     core/multimedia.js, que es el MISMO que usa la portada para el
+     vídeo corporativo: lo que se ve aquí es lo que se verá allí. */
+  function abrirSelectorMedio(opciones, alElegir) {
+    opciones = opciones || {};
+    var actual = opciones.actual || { tipo: 'ninguna', url: '', fuente: 'auto' };
+    var galeria = opciones.galeria || [];
+
+    var overlay = el('div', 'set-modal-overlay');
+    var card = el('div', 'set-modal');
+
+    var head = el('div', 'set-modal-head');
+    head.appendChild(el('h3', '', '🖼️ Selector de medios'));
+    var cerrar = el('button', 'set-modal-x', '✕');
+    cerrar.type = 'button';
+    cerrar.title = 'Cerrar';
+    cerrar.addEventListener('click', function () { overlay.remove(); });
+    head.appendChild(cerrar);
+    card.appendChild(head);
+
+    var cuerpo = el('div', 'set-modal-body');
+    card.appendChild(cuerpo);
+
+    // Pestañas: imagen o vídeo.
+    var tipoSel = el('div', 'set-tabs-mini');
+    var btnImg = el('button', 'set-tab-mini', '🖼️ Imagen');
+    var btnVid = el('button', 'set-tab-mini', '🎬 Vídeo');
+    btnImg.type = 'button';
+    btnVid.type = 'button';
+    tipoSel.appendChild(btnImg);
+    tipoSel.appendChild(btnVid);
+    cuerpo.appendChild(tipoSel);
+
+    var fieldUrl = el('div', 'set-field full');
+    fieldUrl.appendChild(el('label', 'set-label', 'URL del medio'));
+    var inUrl = document.createElement('input');
+    inUrl.type = 'url';
+    inUrl.className = 'input';
+    inUrl.placeholder = 'https://…';
+    fieldUrl.appendChild(inUrl);
+    cuerpo.appendChild(fieldUrl);
+
+    var fieldFuente = el('div', 'set-field full');
+    fieldFuente.appendChild(el('label', 'set-label', 'Tipo de fuente (vídeo)'));
+    var selFuente = document.createElement('select');
+    selFuente.className = 'select';
+    (V.multimedia ? V.multimedia.TIPOS_VIDEO : [['auto', 'Detectar automáticamente']]).forEach(function (t) {
+      var o = document.createElement('option');
+      o.value = t[0];
+      o.textContent = t[1];
+      selFuente.appendChild(o);
+    });
+    fieldFuente.appendChild(selFuente);
+    var ayudaFuente = el('p', 'set-help', 'YouTube, Google Drive y Vimeo se reescriben a su forma de incrustación; el resto se reproduce tal cual.');
+    fieldFuente.appendChild(ayudaFuente);
+    cuerpo.appendChild(fieldFuente);
+
+    var preview = el('div', 'set-media-preview');
+    cuerpo.appendChild(preview);
+
+    // Galería: los medios que ya usan las otras fichas.
+    if (galeria.length) {
+      var boxGal = el('div', 'set-field full');
+      boxGal.appendChild(el('label', 'set-label', 'Medios ya usados en las fichas'));
+      var gal = el('div', 'set-galeria');
+      galeria.forEach(function (m) {
+        var b = el('button', 'set-gal-item');
+        b.type = 'button';
+        b.title = m.url;
+        if (m.tipo === 'imagen') {
+          var img = document.createElement('img');
+          img.src = m.url;
+          img.alt = '';
+          img.loading = 'lazy';
+          b.appendChild(img);
+        } else {
+          b.appendChild(el('span', 'set-gal-ico', '🎬'));
+        }
+        b.addEventListener('click', function () {
+          inUrl.value = m.url;
+          if (m.tipo === 'imagen') setTipo('imagen'); else setTipo('video');
+          refrescar();
+        });
+        gal.appendChild(b);
+      });
+      boxGal.appendChild(gal);
+      cuerpo.appendChild(boxGal);
+    }
+
+    var pie = el('div', 'set-modal-foot');
+    var btnCancelar = el('button', 'btn btn-outline', 'Cancelar');
+    btnCancelar.type = 'button';
+    btnCancelar.addEventListener('click', function () { overlay.remove(); });
+    var btnUsar = el('button', 'btn btn-primary', 'Usar este medio');
+    btnUsar.type = 'button';
+    btnUsar.addEventListener('click', function () {
+      var url = String(inUrl.value || '').trim();
+      var medio = { tipo: tipoActual, url: url, fuente: selFuente.value };
+      if (V.multimedia) medio = V.multimedia.normalizarMedio(medio);
+      overlay.remove();
+      alElegir(medio);
+    });
+    pie.appendChild(btnCancelar);
+    pie.appendChild(btnUsar);
+    card.appendChild(pie);
+
+    var tipoActual = actual.tipo === 'imagen' || actual.tipo === 'video' ? actual.tipo : 'imagen';
+
+    function setTipo(t) {
+      tipoActual = t;
+      btnImg.classList.toggle('is-active', t === 'imagen');
+      btnVid.classList.toggle('is-active', t === 'video');
+      fieldFuente.style.display = t === 'video' ? '' : 'none';
+      inUrl.placeholder = t === 'imagen'
+        ? 'https://…/foto.jpg'
+        : 'https://www.youtube.com/watch?v=… · https://…/video.mp4';
+      refrescar();
+    }
+
+    function refrescar() {
+      var url = String(inUrl.value || '').trim();
+      if (!url) {
+        preview.innerHTML = '';
+        preview.appendChild(el('p', 'set-help', 'Sin URL no hay medio que mostrar.'));
+        return;
+      }
+      if (V.multimedia) {
+        V.multimedia.montarMedio(preview, { tipo: tipoActual, url: url, fuente: selFuente.value }, { clase: 'set-media-img' });
+      } else {
+        preview.textContent = url;
+      }
+    }
+
+    btnImg.addEventListener('click', function () { setTipo('imagen'); });
+    btnVid.addEventListener('click', function () { setTipo('video'); });
+    inUrl.addEventListener('input', refrescar);
+    selFuente.addEventListener('change', refrescar);
+
+    inUrl.value = actual.url || '';
+    selFuente.value = actual.fuente || 'auto';
+    setTipo(tipoActual);
+
+    overlay.appendChild(card);
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+    inUrl.focus();
+  }
+
+  function renderFichas(container) {
+    container.appendChild(el('p', 'set-loading', 'Cargando las fichas…'));
+    leerFichas().then(function (fichas) {
+      container.innerHTML = '';
+
+      var notice = el('div', 'set-notice');
+      notice.appendChild(el('span', 'set-notice-ico', '🗂️'));
+      notice.appendChild(notaHTML('Las fichas se guardan en la colección <code>fichas</code> y aparecen en la portada. Solo se muestran las <strong>publicadas</strong>: las borradores se pueden dejar a medias sin que el visitante las vea. El texto admite formato (negrita, cursiva, color y tamaño) y cada ficha puede llevar una imagen o un vídeo.'));
+      container.appendChild(notice);
+
+      var sel = fichas.length ? 0 : -1;
+
+      var cuerpo = grupo(container, 'Fichas de la portada', 'Ordena, publica y edita cada tarjeta.', '🗂️');
+      var lista = el('div', 'set-sublista');
+      cuerpo.appendChild(lista);
+      var editor = el('div', 'set-editor');
+      cuerpo.appendChild(editor);
+
+      function pintarLista() {
+        lista.innerHTML = '';
+        if (!fichas.length) {
+          lista.appendChild(el('p', 'set-vacio', 'Todavía no hay fichas. Crea la primera con «➕ Nueva ficha».'));
+        }
+        fichas.forEach(function (f, i) {
+          var item = el('div', 'set-item' + (sel === i ? ' is-active' : ''));
+          var head = el('div', 'set-item-head');
+          head.appendChild(el('span', 'set-item-title', (f.icono || '✦') + ' ' + (f.titulo || 'Sin título')));
+          var acc = el('div', 'set-item-acc');
+          boton(acc, '↑', 'btn-outline btn-sm', function () {
+            if (i === 0) return;
+            var t = fichas[i - 1]; fichas[i - 1] = fichas[i]; fichas[i] = t;
+            pintarLista(); pintarEditor();
+          }).title = 'Subir';
+          boton(acc, '↓', 'btn-outline btn-sm', function () {
+            if (i >= fichas.length - 1) return;
+            var t = fichas[i + 1]; fichas[i + 1] = fichas[i]; fichas[i] = t;
+            pintarLista(); pintarEditor();
+          }).title = 'Bajar';
+          boton(acc, '✏️', 'btn-outline btn-sm', function () { sel = i; pintarLista(); pintarEditor(); }).title = 'Editar';
+          boton(acc, '✕', 'btn-outline btn-sm', function () {
+            if (!window.confirm('¿Eliminar la ficha "' + (f.titulo || 'sin título') + '"?')) return;
+            eliminarFicha(f.id).then(function () {
+              fichas.splice(i, 1);
+              if (sel >= fichas.length) sel = fichas.length - 1;
+              pintarLista(); pintarEditor();
+              toast('Ficha eliminada ✓');
+            }).catch(function (e) { toast('No se pudo eliminar: ' + (e && e.message ? e.message : e), true); });
+          }).title = 'Eliminar';
+          head.appendChild(acc);
+          item.appendChild(head);
+          var sub = el('p', 'set-item-sub');
+          sub.textContent = (f.publicado ? '🟢 Publicado' : '⚪ Borrador') + ' · orden ' + (Number(f.orden) || 0);
+          item.appendChild(sub);
+          lista.appendChild(item);
+        });
+        boton(lista, '➕ Nueva ficha', 'btn-outline btn-sm', function () {
+          sel = -1;
+          pintarLista();
+          pintarEditor();
+        });
+      }
+
+      function pintarEditor() {
+        editor.innerHTML = '';
+        var f = (sel >= 0 && sel < fichas.length) ? fichas[sel] : null;
+        var nueva = !f;
+
+        var refs = {};
+        var grid = el('div', 'set-grid');
+        refs.titulo = campo(grid, 'Título', f ? f.titulo : '', { placeholder: 'Crecimiento personal y espiritual' });
+        refs.subtitulo = campo(grid, 'Subtítulo', f ? f.subtitulo : '', { placeholder: 'Una frase corta' });
+        refs.icono = campo(grid, 'Icono (emoji)', f ? f.icono : '✦', { placeholder: '🌱' });
+        editor.appendChild(grid);
+
+        // Texto enriquecido
+        editor.appendChild(el('h4', 'set-subhead', 'Texto de la ficha'));
+        var hostTexto = el('div', 'set-field full');
+        editor.appendChild(hostTexto);
+        var rt = null;
+        if (V.richtext && typeof V.richtext.crear === 'function') {
+          rt = V.richtext.crear(hostTexto, { placeholder: 'Escribe el texto de la ficha…' });
+          if (f && f.texto) rt.setHtml(f.texto);
+        } else {
+          var ta = document.createElement('textarea');
+          ta.className = 'input set-textarea';
+          ta.rows = 5;
+          ta.value = f && f.texto ? String(f.texto).replace(/<[^>]*>/g, '') : '';
+          hostTexto.appendChild(ta);
+          rt = { getHtml: function () { return ta.value; } };
+        }
+
+        // Medio
+        editor.appendChild(el('h4', 'set-subhead', 'Medio asociado'));
+        var medioActual = f ? medioDe(f) : { tipo: 'ninguna', url: '', fuente: 'auto' };
+        var filaMedio = el('div', 'set-row');
+        var infoMedio = el('div', 'set-row-title');
+        filaMedio.appendChild(infoMedio);
+        var accMedio = el('div', 'set-item-acc');
+        var btnCambiar = boton(accMedio, '🎨 Seleccionar medio', 'btn-outline btn-sm', function () {
+          var galeria = [];
+          fichas.forEach(function (otra) {
+            var m = medioDe(otra);
+            if (m.url && m.tipo !== 'ninguna' && galeria.every(function (g) { return g.url !== m.url; })) {
+              galeria.push({ tipo: m.tipo, url: m.url });
+            }
+          });
+          abrirSelectorMedio({ actual: medioActual, galeria: galeria }, function (nuevo) {
+            medioActual = nuevo;
+            pintarEditor();
+          });
+        });
+        var btnQuitar = boton(accMedio, '✕ Quitar', 'btn-outline btn-sm', function () {
+          medioActual = { tipo: 'ninguna', url: '', fuente: 'auto' };
+          pintarEditor();
+        });
+        filaMedio.appendChild(accMedio);
+        editor.appendChild(filaMedio);
+        var preview = el('div', 'set-media-preview');
+        editor.appendChild(preview);
+        function pintarPreview() {
+          if (medioActual.tipo === 'ninguna' || !medioActual.url) {
+            infoMedio.textContent = 'Sin medio (solo texto).';
+            preview.innerHTML = '';
+            return;
+          }
+          infoMedio.textContent = (medioActual.tipo === 'imagen' ? 'Imagen' : 'Vídeo') + ' · ' + medioActual.url;
+          if (V.multimedia) V.multimedia.montarMedio(preview, medioActual, { clase: 'set-media-img' });
+        }
+        pintarPreview();
+
+        var sw = interruptor(editor, 'Publicada (visible en la portada)', f ? f.publicado !== false : false);
+        sw.checked = f ? f.publicado !== false : false;
+
+        var ordenInp = campo(editor, 'Orden', f ? (Number(f.orden) || 0) : (fichas.length ? (Number(fichas[fichas.length - 1].orden) || 0) + 1 : 0), { tipo: 'number', min: 0, step: 1 });
+
+        var acciones = el('div', 'set-actions');
+        var btnGuardar = el('button', 'btn btn-primary', nueva ? '➕ Crear ficha' : '💾 Guardar ficha');
+        btnGuardar.type = 'button';
+        btnGuardar.addEventListener('click', function () {
+          var datos = {
+            id: f ? f.id : 'ficha_' + Date.now(),
+            titulo: refs.titulo.value,
+            subtitulo: refs.subtitulo.value,
+            icono: refs.icono.value,
+            texto: rt.getHtml(),
+            medio: medioActual,
+            publicado: sw.checked,
+            orden: Number(ordenInp.value) || 0,
+            creado: f ? f.creado : null
+          };
+          if (!datos.titulo.trim()) { toast('La ficha necesita un título.', true); return; }
+          btnGuardar.disabled = true;
+          var original = btnGuardar.textContent;
+          btnGuardar.textContent = '⏳ Guardando…';
+          guardarFicha(datos).then(function () {
+            return leerFichas();
+          }).then(function (lista2) {
+            fichas.length = 0;
+            lista2.forEach(function (x) { fichas.push(x); });
+            sel = Math.max(0, fichas.findIndex(function (x) { return x.id === datos.id; }));
+            pintarLista(); pintarEditor();
+            toast('Ficha guardada ✓');
+          }).catch(function (e) {
+            toast('No se pudo guardar la ficha: ' + (e && e.message ? e.message : e), true);
+          }).then(function () {
+            btnGuardar.disabled = false;
+            btnGuardar.textContent = original;
+          });
+        });
+        acciones.appendChild(btnGuardar);
+        if (f) {
+          var btnEliminar = el('button', 'btn btn-outline', '🗑 Eliminar');
+          btnEliminar.type = 'button';
+          btnEliminar.addEventListener('click', function () {
+            if (!window.confirm('¿Eliminar la ficha "' + (f.titulo || 'sin título') + '"?')) return;
+            eliminarFicha(f.id).then(function () {
+              fichas.splice(sel, 1);
+              if (sel >= fichas.length) sel = fichas.length - 1;
+              pintarLista(); pintarEditor();
+              toast('Ficha eliminada ✓');
+            }).catch(function (e) { toast('No se pudo eliminar: ' + (e && e.message ? e.message : e), true); });
+          });
+          acciones.appendChild(btnEliminar);
+        }
+        editor.appendChild(acciones);
+      }
+
+      pintarLista();
+      pintarEditor();
+    }).catch(function (e) {
+      container.innerHTML = '';
+      container.appendChild(el('p', 'set-error', 'No se pudieron cargar las fichas: ' + (e && e.message ? e.message : e)));
     });
   }
 
@@ -478,11 +936,22 @@
     });
   }
 
-  /* ─── PESTAÑA · FORMULARIOS ────────────────────────────────── */
-  /* Un formulario es una lista de campos del CATÁLOGO COMPARTIDO. El
-     catálogo vive en config/formularios.campos y los formularios en
-     config/formularios.formularios: un campo nuevo se define una vez y
-     se reutiliza en todos los formularios que lo necesiten. */
+  /* ─── PESTAÑA · CAMPOS DE FORMULARIOS ───────────────────────── */
+  /* La estructura de los formularios de REGISTRO y de PERFIL se guarda
+     en `config/formulario` y la aplica core/formulario.js en tiempo de
+     ejecución. Cada campo tiene uno de los cuatro estados:
+     obligatorio, visible (opcional), oculto o eliminado.
+
+     OJO: aquí no se guarda una lista de campos "para el futuro": lo que
+     se guarda es exactamente lo que el formulario aplica. Si un campo
+     se marca como obligatorio, el registro lo exige de verdad. */
+  var ESTADOS_CAMPO = [
+    ['obligatorio', 'Obligatorio'],
+    ['visible', 'Visible (opcional)'],
+    ['oculto', 'Oculto'],
+    ['eliminado', 'Eliminado']
+  ];
+
   var TIPOS_CAMPO = [
     ['texto', 'Texto'],
     ['area', 'Texto largo'],
@@ -503,195 +972,183 @@
       .slice(0, 40);
   }
 
-  function renderFormularios(container) {
-    container.appendChild(el('p', 'set-loading', 'Cargando formularios…'));
-    leerDoc('formularios').then(function (doc) {
-      container.innerHTML = '';
-      var estado = {
-        campos: Array.isArray(doc.campos) ? clonar(doc.campos) : [],
-        formularios: Array.isArray(doc.formularios) ? clonar(doc.formularios) : [],
-        selCampo: null,
-        selFormulario: null
-      };
-
-      var notice = el('div', 'set-notice');
-      notice.appendChild(el('span', 'set-notice-ico', 'ℹ️'));
-      notice.appendChild(notaHTML('El <strong>catálogo de campos</strong> se define una vez y se reutiliza; cada <strong>formulario</strong> elige de él los campos que necesita. Se guarda en <code>config/formularios</code>.'));
-      container.appendChild(notice);
-
-      // ── Formularios ──
-      var bodyForm = grupo(container, 'Formularios', 'Cada formulario reúne campos del catálogo compartido.', '📄');
-      var listaForm = el('div', 'set-sublista');
-      bodyForm.appendChild(listaForm);
-      var editorForm = el('div', 'set-editor');
-      bodyForm.appendChild(editorForm);
-
-      // ── Catálogo de campos ──
-      var bodyCat = grupo(container, 'Catálogo de campos', 'Los campos disponibles para cualquier formulario.', '🧱');
-      var listaCat = el('div', 'set-sublista');
-      bodyCat.appendChild(listaCat);
-      var editorCat = el('div', 'set-editor');
-      bodyCat.appendChild(editorCat);
-
-      function pintarFormularios() {
-        listaForm.innerHTML = '';
-        if (!estado.formularios.length) {
-          listaForm.appendChild(el('p', 'set-vacio', 'Todavía no hay formularios.'));
-        }
-        estado.formularios.forEach(function (f, i) {
-          var item = el('div', 'set-item' + (estado.selFormulario === i ? ' is-active' : ''));
-          var head = el('div', 'set-item-head');
-          head.appendChild(el('span', 'set-item-title', (f.activo === false ? '⏸️ ' : '✅ ') + (f.nombre || 'Sin nombre')));
-          var acc = el('div', 'set-item-acc');
-          boton(acc, '✏️', 'btn-outline btn-sm', function () { estado.selFormulario = i; pintarFormularios(); }).title = 'Editar';
-          boton(acc, '✕', 'btn-outline btn-sm', function () {
-            estado.formularios.splice(i, 1);
-            estado.selFormulario = null;
-            pintarFormularios();
-          }).title = 'Eliminar';
-          head.appendChild(acc);
-          item.appendChild(head);
-          item.appendChild(el('p', 'set-item-sub', (f.descripcion || '') + ' · ' + (f.campos || []).length + ' campo(s)'));
-          listaForm.appendChild(item);
-        });
-        boton(listaForm, '➕ Nuevo formulario', 'btn-outline btn-sm', function () {
-          estado.formularios.push({ id: 'form_' + Date.now(), nombre: 'Formulario nuevo', descripcion: '', activo: true, campos: [] });
-          estado.selFormulario = estado.formularios.length - 1;
-          pintarFormularios();
-        });
-        pintarEditorFormulario();
+  /* Convierte la estructura anterior (catálogo + formularios) al formato
+     nuevo de estados, para no dejar datos en el aire si alguien ya
+     había configurado algo en la pestaña antigua. */
+  function migrarEsquemaLegacy(legacy) {
+    var base = (V.formulario && typeof V.formulario.esquemaPorDefecto === 'function')
+      ? V.formulario.esquemaPorDefecto() : null;
+    if (!base || !legacy || !Array.isArray(legacy.formularios)) return null;
+    var catalogo = Array.isArray(legacy.campos) ? legacy.campos : [];
+    var out = { version: 1, forms: {} };
+    legacy.formularios.forEach(function (f) {
+      var fid = f.id;
+      if (!fid) return;
+      var destino = base.forms[fid] ? fid : null;
+      if (!destino) {
+        out.forms[fid] = { id: fid, nombre: f.nombre || fid, campos: [] };
+        destino = fid;
       }
-
-      function pintarEditorFormulario() {
-        editorForm.innerHTML = '';
-        var f = estado.formularios[estado.selFormulario];
-        if (!f) {
-          editorForm.appendChild(el('p', 'set-vacio', 'Elige un formulario para editarlo.'));
-          return;
-        }
-        var grid = el('div', 'set-grid');
-        var inNombre = campo(grid, 'Nombre', f.nombre);
-        var inId = campo(grid, 'Identificador', f.id, { placeholder: 'inscripcion_comunidad' });
-        var inDesc = campo(grid, 'Descripción', f.descripcion, { tipo: 'area', ancho: 'full' });
-        editorForm.appendChild(grid);
-        var swActivo = interruptor(editorForm, 'Formulario activo', f.activo !== false);
-
-        editorForm.appendChild(el('h4', 'set-subhead', 'Campos del formulario'));
-        var lista = el('div', 'set-checklist');
-        if (!estado.campos.length) {
-          lista.appendChild(el('p', 'set-vacio', 'Primero crea campos en el catálogo de abajo.'));
-        }
-        estado.campos.forEach(function (c, ci) {
-          var row = el('label', 'set-check');
-          var cb = document.createElement('input');
-          cb.type = 'checkbox';
-          cb.checked = (f.campos || []).indexOf(c.id) !== -1;
-          cb.addEventListener('change', function () {
-            f.campos = f.campos || [];
-            var pos = f.campos.indexOf(c.id);
-            if (cb.checked && pos === -1) f.campos.push(c.id);
-            if (!cb.checked && pos !== -1) f.campos.splice(pos, 1);
-          });
-          row.appendChild(cb);
-          row.appendChild(el('span', 'set-check-label', (c.etiqueta || c.id) + ' · ' + c.tipo));
-          lista.appendChild(row);
-        });
-        editorForm.appendChild(lista);
-
-        boton(editorForm, '✔ Aplicar al formulario', 'btn-outline btn-sm', function () {
-          f.nombre = inNombre.value;
-          f.id = inId.value || slug(inNombre.value) || f.id;
-          f.descripcion = inDesc.value;
-          f.activo = swActivo.checked;
-          pintarFormularios();
-          toast('Cambios aplicados al formulario. Pulsa «Guardar cambios» para escribirlos.');
-        });
-      }
-
-      function pintarCatalogo() {
-        listaCat.innerHTML = '';
-        if (!estado.campos.length) {
-          listaCat.appendChild(el('p', 'set-vacio', 'El catálogo está vacío.'));
-        }
-        estado.campos.forEach(function (c, i) {
-          var item = el('div', 'set-item' + (estado.selCampo === i ? ' is-active' : ''));
-          var head = el('div', 'set-item-head');
-          head.appendChild(el('span', 'set-item-title', (c.etiqueta || c.id) + ' · ' + c.tipo));
-          var acc = el('div', 'set-item-acc');
-          boton(acc, '✏️', 'btn-outline btn-sm', function () { estado.selCampo = i; pintarCatalogo(); }).title = 'Editar';
-          boton(acc, '✕', 'btn-outline btn-sm', function () {
-            estado.campos.splice(i, 1);
-            estado.selCampo = null;
-            // El campo desaparece también de los formularios que lo usaban:
-            // si no, quedarían referencias colgadas a un id inexistente.
-            estado.formularios.forEach(function (f) {
-              if (!f.campos) return;
-              var pos = f.campos.indexOf(c.id);
-              if (pos !== -1) f.campos.splice(pos, 1);
-            });
-            pintarCatalogo();
-          }).title = 'Eliminar';
-          head.appendChild(acc);
-          item.appendChild(head);
-          listaCat.appendChild(item);
-        });
-        boton(listaCat, '➕ Nuevo campo', 'btn-outline btn-sm', function () {
-          estado.campos.push({ id: 'campo_' + Date.now(), etiqueta: 'Campo nuevo', tipo: 'texto', opciones: [], requerido: false });
-          estado.selCampo = estado.campos.length - 1;
-          pintarCatalogo();
-        });
-        pintarEditorCampo();
-      }
-
-      function pintarEditorCampo() {
-        editorCat.innerHTML = '';
-        var c = estado.campos[estado.selCampo];
-        if (!c) {
-          editorCat.appendChild(el('p', 'set-vacio', 'Elige un campo para editarlo.'));
-          return;
-        }
-        var grid = el('div', 'set-grid');
-        var inEtiqueta = campo(grid, 'Etiqueta', c.etiqueta);
-        var inId = campo(grid, 'Identificador', c.id);
-        var inTipo = selector(grid, 'Tipo', c.tipo, TIPOS_CAMPO);
-        var inReq = el('div', 'set-field');
-        inReq.appendChild(el('label', 'set-label', 'Obligatorio'));
-        var cbReq = document.createElement('input');
-        cbReq.type = 'checkbox';
-        cbReq.className = 'input';
-        cbReq.checked = !!c.requerido;
-        inReq.appendChild(cbReq);
-        grid.appendChild(inReq);
-        editorCat.appendChild(grid);
-        var inOpc = listaTexto(editorCat, 'Opciones (solo para "Lista de opciones")', c.opciones || [], 'Opción 1\nOpción 2', 'Una opción por línea.');
-        editorCat.appendChild(el('div', 'set-hint', 'Las opciones solo se usan cuando el tipo es "Lista de opciones".'));
-
-        boton(editorCat, '✔ Aplicar al campo', 'btn-outline btn-sm', function () {
-          c.etiqueta = inEtiqueta.value;
-          c.id = inId.value || slug(inEtiqueta.value) || c.id;
-          c.tipo = inTipo.value;
-          c.requerido = cbReq.checked;
-          c.opciones = inOpc.valor();
-          pintarCatalogo();
-          toast('Cambios aplicados al campo. Pulsa «Guardar cambios» para escribirlos.');
-        });
-      }
-
-      pintarFormularios();
-      pintarCatalogo();
-
-      botonGuardar(container, function () {
-        return guardarDoc('formularios', {
-          campos: estado.campos.map(function (c) {
-            return { id: c.id, etiqueta: c.etiqueta, tipo: c.tipo, opciones: c.opciones || [], requerido: !!c.requerido };
-          }),
-          formularios: estado.formularios.map(function (f) {
-            return { id: f.id, nombre: f.nombre, descripcion: f.descripcion || '', activo: f.activo !== false, campos: f.campos || [] };
-          })
-        }).then(function () {
-          toast('Formularios guardados ✓');
+      var porDefecto = (base.forms[destino] && base.forms[destino].campos) || [];
+      var lista = out.forms[destino] ? out.forms[destino].campos : porDefecto;
+      (f.campos || []).forEach(function (cid) {
+        var c = catalogo.filter(function (x) { return x.id === cid; })[0];
+        if (!c) return;
+        var dom = porDefecto.filter(function (x) { return x.id === c.id; })[0];
+        lista.push({
+          id: c.id,
+          etiqueta: c.etiqueta || c.id,
+          tipo: c.tipo || 'texto',
+          placeholder: '',
+          domId: dom ? dom.domId : '',
+          estado: c.requerido ? 'obligatorio' : 'visible',
+          opciones: c.opciones || []
         });
       });
+    });
+    Object.keys(base.forms).forEach(function (fid) {
+      if (!out.forms[fid]) out.forms[fid] = base.forms[fid];
+    });
+    return out;
+  }
+
+  function renderCampos(container) {
+    container.appendChild(el('p', 'set-loading', 'Cargando la estructura de formularios…'));
+    Promise.all([leerDoc('formulario'), leerDoc('formularios')]).then(function (r) {
+      var doc = r[0] || {};
+      var legacy = r[1] || {};
+      var migrada = false;
+
+      var esquema;
+      if (doc.forms && (V.formulario && typeof V.formulario.normalizar === 'function')) {
+        esquema = V.formulario.normalizar(doc);
+      } else if (doc.forms) {
+        esquema = doc.forms;
+      } else {
+        var desdeLegacy = migrarEsquemaLegacy(legacy);
+        if (desdeLegacy) { esquema = desdeLegacy; migrada = true; }
+        else if (V.formulario && typeof V.formulario.esquemaPorDefecto === 'function') esquema = V.formulario.esquemaPorDefecto();
+        else esquema = { version: 1, forms: {} };
+      }
+
+      container.innerHTML = '';
+      var notice = el('div', 'set-notice');
+      notice.appendChild(el('span', 'set-notice-ico', '📝'));
+      notice.appendChild(notaHTML('Cada campo del formulario de <strong>Registro</strong> y de <strong>Perfil</strong> tiene un estado: <strong>Obligatorio</strong>, <strong>Visible (opcional)</strong>, <strong>Oculto</strong> (no aparece, pero el dato guardado se conserva) o <strong>Eliminado</strong> (no aparece y además se borra el dato). Se guarda en <code>config/formulario</code> y la aplicación lo aplica al instante.'));
+      container.appendChild(notice);
+      if (migrada) {
+        var avMigr = el('div', 'set-notice');
+        avMigr.appendChild(el('span', 'set-notice-ico', '♻️'));
+        avMigr.appendChild(notaHTML('Se encontró una estructura anterior en <code>config/formularios</code>: se ha trasladado a <code>config/formulario</code> con los nuevos estados. Pulsa «Guardar cambios» para confirmar la migración.'));
+        container.appendChild(avMigr);
+      }
+
+      var refs = {};
+      Object.keys(esquema.forms || {}).forEach(function (fid) {
+        var f = esquema.forms[fid];
+        var body = grupo(container, f.nombre || fid, 'Campos de este formulario.', fid === 'registro' ? '📝' : (fid === 'perfil' ? '👤' : '📄'));
+        var lista = el('div', 'set-sublista');
+        body.appendChild(lista);
+        var resumen = el('p', 'set-help');
+        body.appendChild(resumen);
+
+        var campos = f.campos || [];
+        refs[fid] = campos;
+
+        function pintarResumen() {
+          var n = { obligatorio: 0, visible: 0, oculto: 0, eliminado: 0 };
+          campos.forEach(function (c) { if (n[c.estado] === undefined) n[c.estado] = 0; n[c.estado]++; });
+          resumen.textContent = n.obligatorio + ' obligatorios · ' + n.visible + ' opcionales · ' + n.oculto + ' ocultos · ' + n.eliminado + ' eliminados.';
+        }
+
+        function pintarCampos() {
+          lista.innerHTML = '';
+          if (!campos.length) {
+            lista.appendChild(el('p', 'set-vacio', 'Este formulario no tiene campos.'));
+          }
+          campos.forEach(function (c, i) {
+            var fila = el('div', 'set-campo-row' + (c.estado === 'eliminado' ? ' is-eliminado' : ''));
+            var selEstado = selector(fila, '', c.estado, ESTADOS_CAMPO);
+            selEstado.classList.add('set-campo-estado');
+            selEstado.addEventListener('change', function () { c.estado = selEstado.value; pintarResumen(); });
+
+            var inEtiqueta = campo(fila, '', c.etiqueta);
+            inEtiqueta.classList.add('set-campo-etiqueta');
+            inEtiqueta.addEventListener('input', function () { c.etiqueta = inEtiqueta.value; });
+
+            var selTipo = selector(fila, '', c.tipo, TIPOS_CAMPO);
+            selTipo.classList.add('set-campo-tipo');
+            selTipo.addEventListener('change', function () { c.tipo = selTipo.value; });
+
+            var inPh = campo(fila, '', c.placeholder);
+            inPh.classList.add('set-campo-ph');
+            inPh.addEventListener('input', function () { c.placeholder = inPh.value; });
+
+            var acc = el('div', 'set-item-acc');
+            boton(acc, '↑', 'btn-outline btn-sm', function () {
+              if (i === 0) return;
+              var t = campos[i - 1]; campos[i - 1] = campos[i]; campos[i] = t;
+              pintarCampos();
+            }).title = 'Subir';
+            boton(acc, '↓', 'btn-outline btn-sm', function () {
+              if (i >= campos.length - 1) return;
+              var t = campos[i + 1]; campos[i + 1] = campos[i]; campos[i] = t;
+              pintarCampos();
+            }).title = 'Bajar';
+            boton(acc, '✕', 'btn-outline btn-sm', function () {
+              // No se borra el campo del esquema: se marca como ELIMINADO.
+              // Así el control del formulario se oculta y su dato se borra
+              // al guardar (un campo quitado de la lista dejaría su
+              // control visible en el formulario y su dato guardado).
+              c.estado = 'eliminado';
+              pintarCampos();
+            }).title = 'Marcar como eliminado (oculta el campo y borra su dato)';
+            fila.appendChild(acc);
+            lista.appendChild(fila);
+          });
+          boton(lista, '➕ Añadir campo', 'btn-outline btn-sm', function () {
+            campos.push({ id: 'campo_' + Date.now(), etiqueta: 'Campo nuevo', tipo: 'texto', placeholder: '', domId: '', estado: 'visible', opciones: [] });
+            pintarCampos();
+          });
+          pintarResumen();
+        }
+
+        pintarCampos();
+      });
+
+      botonGuardar(container, function () {
+        var forms = {};
+        Object.keys(refs).forEach(function (fid) {
+          var f = (esquema.forms && esquema.forms[fid]) || { id: fid, nombre: fid };
+          forms[fid] = {
+            id: fid,
+            nombre: f.nombre || fid,
+            campos: (refs[fid] || []).map(function (c) {
+              return {
+                id: c.id,
+                etiqueta: c.etiqueta || c.id,
+                tipo: c.tipo || 'texto',
+                placeholder: c.placeholder || '',
+                domId: c.domId || '',
+                estado: c.estado || 'visible',
+                opciones: c.opciones || []
+              };
+            })
+          };
+        });
+        return guardarDoc('formulario', {
+          version: 1,
+          actualizado: new Date().toISOString(),
+          forms: forms
+        }).then(function () {
+          if (V.formulario && typeof V.formulario.cargar === 'function') return V.formulario.cargar();
+        }).then(function () {
+          toast('Estructura de formularios guardada ✓');
+        });
+      });
+    }).catch(function (e) {
+      container.innerHTML = '';
+      container.appendChild(el('p', 'set-error', 'No se pudo cargar la estructura de formularios: ' + (e && e.message ? e.message : e)));
     });
   }
 

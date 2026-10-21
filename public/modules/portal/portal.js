@@ -146,6 +146,101 @@
     });
   }
 
+  /* ════════════════════════════════════════════════════════════
+     FICHAS DEL HOME
+     ════════════════════════════════════════════════════════════
+     Las fichas las crea el superadmin en el panel de configuraciones
+     (pestaña «Fichas del Home») y viven en la colección `fichas`. La
+     lectura es pública, así que el visitante las ve sin iniciar sesión.
+
+     Solo se pintan las que están publicadas, ordenadas por el campo
+     `orden` (y a igual orden, por título, para que el orden sea
+     estable entre recargas). */
+  var FICHAS_COLLECTION = 'fichas';
+  var fichasUnsub = null;
+
+  function renderFichasGrid(fichas) {
+    var grid = $('portalFichasGrid');
+    var section = $('portalFichas');
+    if (!grid) return;
+
+    grid.innerHTML = '';
+    if (!fichas.length) {
+      // Sin fichas publicadas la sección no se muestra: es preferible un
+      // hueco limpio que un bloque de texto vacío en mitad de la portada.
+      if (section) section.style.display = 'none';
+      return;
+    }
+    if (section) section.style.display = '';
+
+    fichas.forEach(function (f) {
+      var card = el('article', 'portal-ficha');
+
+      // El medio se guarda en campos planos (mediaTipo/mediaUrl/mediaFuente),
+      // igual que en el resto del CMS: se reconstruye aquí con el mismo
+      // normalizador que usa el panel.
+      var medio = V.multimedia ? V.multimedia.normalizarMedio({
+        tipo: f.mediaTipo || (f.medio && f.medio.tipo) || 'ninguna',
+        url: f.mediaUrl || (f.medio && f.medio.url) || '',
+        fuente: f.mediaFuente || (f.medio && f.medio.fuente) || 'auto'
+      }) : { tipo: 'ninguna', url: '' };
+      if (medio.tipo !== 'ninguna') {
+        var marco = el('div', 'portal-ficha-media');
+        V.multimedia.montarMedio(marco, medio, { clase: 'portal-ficha-media-el', alt: f.titulo || '' });
+        card.appendChild(marco);
+      }
+
+      var body = el('div', 'portal-ficha-body');
+      if (f.icono) body.appendChild(el('span', 'portal-ficha-tag', f.icono));
+      if (f.titulo) body.appendChild(el('h3', 'portal-ficha-title', f.titulo));
+      if (f.subtitulo) body.appendChild(el('p', 'portal-ficha-sub', f.subtitulo));
+
+      // El texto viene enriquecido desde el panel y se guarda como HTML en
+      // Firestore: se sanea con la lista blanca antes de pintarlo.
+      if (f.texto) {
+        var txt = el('div', 'portal-ficha-text');
+        if (V.richtext && typeof V.richtext.sanitize === 'function') {
+          txt.innerHTML = V.richtext.sanitize(f.texto);
+        } else {
+          txt.textContent = String(f.texto).replace(/<[^>]*>/g, '');
+        }
+        body.appendChild(txt);
+      }
+
+      card.appendChild(body);
+      grid.appendChild(card);
+    });
+  }
+
+  function subscribeFichas() {
+    if (fichasUnsub || !V.db) return;
+    try {
+      // Se consulta SOLO lo publicado: la regla de Firestore apoya la
+      // lectura de `fichas` en el campo `publicado`, así que el motor puede
+      // probar la regla para la consulta (y un borrador nunca sale).
+      fichasUnsub = V.db.collection(FICHAS_COLLECTION).where('publicado', '==', true).onSnapshot(function (snap) {
+        var fichas = [];
+        snap.forEach(function (d) {
+          var f = d.data() || {};
+          f.id = d.id;
+          if (f.publicado !== true) return;
+          fichas.push(f);
+        });
+        fichas.sort(function (a, b) {
+          var oa = typeof a.orden === 'number' ? a.orden : 9999;
+          var ob = typeof b.orden === 'number' ? b.orden : 9999;
+          if (oa !== ob) return oa - ob;
+          return String(a.titulo || '').localeCompare(String(b.titulo || ''));
+        });
+        renderFichasGrid(fichas);
+      }, function (err) {
+        console.warn('No se pudieron leer las fichas:', err);
+      });
+    } catch (e) {
+      console.warn('No se pudieron leer las fichas:', e);
+    }
+  }
+
   function fillContactSelects(data) {
     var labels = (data.contact && data.contact.labels) || {};
     var placeholders = (data.contact && data.contact.placeholders) || {};
@@ -223,6 +318,11 @@
     setText('blocksEyebrow', blocksSec.eyebrow);
     setText('blocksTitle', blocksSec.title);
     setText('blocksSubtitle', blocksSec.subtitle);
+
+    var fichasSec = sections.fichas || {};
+    setText('fichasEyebrow', fichasSec.eyebrow || 'Fichas');
+    setText('fichasTitle', fichasSec.title || '');
+    setText('fichasSubtitle', fichasSec.subtitle || '');
 
     setText('contactEyebrow', contactSec.eyebrow);
     setText('contactTitle', contact.title || contactSec.title);
@@ -530,139 +630,28 @@
 
   /* ════════════════════════════════════════════════════════════
      VIDEO CORPORATIVO
-     ════════════════════════════════════════════════════════════ */
+     ════════════════════════════════════════════════════════════
+     La clasificación de la fuente (YouTube, Google Drive, Vimeo,
+     archivo directo o reproductor externo) y la construcción de la URL
+     de incrustación viven en core/multimedia.js: es la fuente ÚNICA y
+     la misma que consume el selector de medios del panel de
+     configuración. Aquí solo se usa. */
+  var VIDEO_EXT_RE = V.multimedia
+    ? V.multimedia.VIDEO_EXT_RE
+    : /\.(mp4|webm|ogv|ogg|m4v|mov|mkv|avi|flv|wmv|m3u8)(?:$|[?#])/i;
+  var SOURCE_LABELS = V.multimedia
+    ? V.multimedia.SOURCE_LABELS
+    : {
+      youtube: '🎬 YouTube',
+      drive: '📁 Google Drive',
+      vimeo: '🎥 Vimeo',
+      directo: '🎬 Archivo de video directo',
+      externo: '🔗 Reproductor externo'
+    };
 
-  // Extensiones que se entregan directamente como archivo de vídeo. Aunque
-  // .mkv/.avi/.flv no las reproduce cualquier navegador, se tratan como
-  // archivo (no como página) para que el <video> muestre su error con el
-  // enlace de "abrir en otra pestaña" en lugar de un iframe en blanco.
-  var VIDEO_EXT_RE = /\.(mp4|webm|ogv|ogg|m4v|mov|mkv|avi|flv|wmv|m3u8)(?:$|[?#])/i;
-
-  // Etiquetas legibles de cada fuente, reutilizadas por el reproductor y por
-  // el aviso de "fuente detectada" del panel de administración.
-  var SOURCE_LABELS = {
-    youtube: '🎬 YouTube',
-    drive: '📁 Google Drive',
-    vimeo: '🎥 Vimeo',
-    directo: '🎬 Archivo de video directo',
-    externo: '🔗 Reproductor externo'
-  };
-
-  function cleanUrl(raw) {
-    // Recorta espacios/caracteres de control que se cuelan al copiar y
-    // valida que sea http(s): cualquier otro esquema (javascript:, data:)
-    // se descarta en origen para no acabar en un atributo src.
-    if (typeof raw !== 'string') return '';
-    var url = raw.trim();
-    if (!url) return '';
-    if (!/^https?:\/\//i.test(url)) {
-      // Tolerancia operativa: un enlace pegado sin esquema se normaliza a
-      // https en vez de rechazarse, que es el error más común al copiar.
-      if (/^[\w.-]+\.[a-z]{2,}\//i.test(url)) url = 'https://' + url;
-      else return '';
-    }
-    return url;
-  }
-
-  function youtubeIdFrom(url) {
-    var m = url.match(/(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:[^#]*&)?v=|embed\/|shorts\/|live\/|v\/))([A-Za-z0-9_-]{11})/);
-    return m ? m[1] : null;
-  }
-
-  function vimeoIdFrom(url) {
-    var m = url.match(/vimeo\.com\/(?:video\/|channels\/[^\/?#]+\/|groups\/[^\/?#]+\/videos\/)?(\d+)/);
-    return m ? m[1] : null;
-  }
-
-  function driveIdFrom(url) {
-    var m = url.match(/(?:drive|docs)\.google\.com\/file\/d\/([A-Za-z0-9_-]{10,})/)
-      || url.match(/[?&]id=([A-Za-z0-9_-]{10,})/);
-    return m ? m[1] : null;
-  }
-
-  // Monta la fuente ya clasificada. Todas las ramas terminan aquí para que el
-  // destino de cada proveedor quede en un único sitio (y sea auditable: un
-  // enlace de página nunca acaba siendo el src de un iframe).
-  function buildSource(kind, id, original) {
-    if (kind === 'youtube') {
-      return { kind: 'youtube', src: 'https://www.youtube-nocookie.com/embed/' + id, original: original, label: SOURCE_LABELS.youtube };
-    }
-    if (kind === 'drive') {
-      // /preview es la única forma de incrustar un archivo de Drive: /view y
-      // /uc solo sirven para descargar o abrir la página de detalles.
-      return { kind: 'drive', src: 'https://drive.google.com/file/d/' + id + '/preview', original: original, label: SOURCE_LABELS.drive };
-    }
-    if (kind === 'vimeo') {
-      return { kind: 'vimeo', src: 'https://player.vimeo.com/video/' + id, original: original, label: SOURCE_LABELS.vimeo };
-    }
-    if (kind === 'directo') {
-      return { kind: 'directo', src: id, original: original, label: SOURCE_LABELS.directo };
-    }
-    return { kind: 'externo', src: id, original: original, label: SOURCE_LABELS.externo };
-  }
-
-  // Identificador suelto, sin URL: solo tiene sentido con el tipo marcado a mano
-  // (copiar el ID de YouTube/Vimeo/Drive de la barra del navegador es el error
-  // más común). En 'auto' un ID suelto NO se adivina: sería indistinguible de
-  // un texto cualquiera.
-  function idSuelto(raw, tipo) {
-    if (tipo === 'youtube') return /^[A-Za-z0-9_-]{11}$/.test(raw) ? raw : null;
-    if (tipo === 'vimeo') return /^\d{4,}$/.test(raw) ? raw : null;
-    if (tipo === 'drive') return /^[A-Za-z0-9_-]{10,}$/.test(raw) ? raw : null;
-    return null;
-  }
-
-  /* Traduce la URL guardada por el superadmin a una fuente reproducible.
-     `tipoForzado` permite saltarse la detección ('auto' por defecto) para
-     enlaces que no se pueden clasificar solos. Devuelve null si la URL está
-     vacía, no es válida o no encaja en el tipo elegido. */
   function resolveVideoSource(rawUrl, tipoForzado) {
-    var tipo = (tipoForzado || 'auto').toLowerCase();
-    var raw = typeof rawUrl === 'string' ? rawUrl.trim() : '';
-    if (!raw) return null;
-
-    // Identificador suelto: solo se acepta con tipo explícito. La URL de
-    // apertura pasa a ser el propio embed, porque no hay página de origen.
-    var suelto = idSuelto(raw, tipo);
-    if (suelto) {
-      var s = buildSource(tipo, suelto, raw);
-      s.original = s.src;
-      return s;
-    }
-
-    var url = cleanUrl(raw);
-    if (!url) return null;
-
-    // Tipo elegido a mano: se respeta y se exige que el enlace encaje. Si no,
-    // se rechaza (null) en lugar de montar un reproductor que no va a
-    // funcionar y dejar un recuadro negro en la portada.
-    if (tipo === 'youtube') {
-      var ytId = youtubeIdFrom(url);
-      return ytId ? buildSource('youtube', ytId, url) : null;
-    }
-    if (tipo === 'vimeo') {
-      var vimeoId = vimeoIdFrom(url);
-      return vimeoId ? buildSource('vimeo', vimeoId, url) : null;
-    }
-    if (tipo === 'drive') {
-      var driveId = driveIdFrom(url);
-      return driveId ? buildSource('drive', driveId, url) : null;
-    }
-    if (tipo === 'directo') return buildSource('directo', url, url);
-    if (tipo === 'externo') return buildSource('externo', url, url);
-
-    // Detección automática: primero los proveedores que exigen reescribir la
-    // URL a su forma de embed, después el archivo directo y, por último,
-    // cualquier otra web como reproductor genérico.
-    var a = youtubeIdFrom(url);
-    if (a) return buildSource('youtube', a, url);
-    var b = driveIdFrom(url);
-    if (b) return buildSource('drive', b, url);
-    var c = vimeoIdFrom(url);
-    if (c) return buildSource('vimeo', c, url);
-    if (VIDEO_EXT_RE.test(url)) return buildSource('directo', url, url);
-
-    return buildSource('externo', url, url);
+    if (!V.multimedia || typeof V.multimedia.detectarVideo !== 'function') return null;
+    return V.multimedia.detectarVideo(rawUrl, tipoForzado);
   }
 
   function buildVideoFrame(source, titulo) {
@@ -1360,6 +1349,7 @@
   var PortalModule = {
     onReady: function () {
       subscribeVideoConfig();
+      subscribeFichas();
       renderAdminPortalConfig();
       renderAdminVideoPreview();
       // El recuento de la ficha necesita V.db, que solo vale dentro de

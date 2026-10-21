@@ -645,6 +645,60 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    /* ── FICHAS DEL HOME ───────────────────────────────────────
+       Colección propia del módulo de Configuración: las fichas que el
+       superadmin crea para la portada (título, texto enriquecido, medio
+       —imagen o vídeo—, orden y estado de publicación).
+
+       LECTURA: el contenido PUBLICO se lee sin cuenta (esPublico()), igual
+       que el catálogo publicado de la tienda o los podcasts: lo que se
+       publica en la landing se lee sin cuenta. Se apoya en
+       esVisiblePublico() para que un borrador (publicado == false) NO sea
+       legible por el visitante: solo lo ve quien puede gestionarlo
+       (canManage()).
+
+       La regla se apoya en `publicado` a propósito: el motor de reglas
+       solo admite una consulta si puede PROBAR la regla para todos los
+       documentos que podrían salir. Por eso la portada consulta con
+       where('publicado','==',true) (y así solo llegan las publicadas) y
+       el panel de Configuración, que sí puede gestionar, consulta la
+       colección entera. Un usuario registrado que no gestiona NO puede
+       listar la colección completa: solo le llegan las fichas publicadas.
+
+       ESCRITURA: exclusiva del superadmin (isAdmin()), igual que el resto
+       del contenido del CMS. OJO: el comodín /{document=**} del final
+       deniega cualquier ruta no declarada, así que sin este bloque las
+       fichas NO existirían para nadie.
+
+       CONTRATO: solo puede vivir aquí lo que ya se pinta en la landing
+       (texto, medio y orden). NO se guarda el UID de quien lo editó: este
+       documento es legible por cualquiera y eso convertiría la escritura
+       del superadmin en una filtración. La trazabilidad va en
+       superadmin_auditoria. */
+    match /fichas/{id} {
+      allow read: if esVisiblePublico() || canManage();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /* ── CONFIG / ESTRUCTURA DE FORMULARIOS ────────────────────
+       config/formulario guarda la estructura de los formularios de
+       REGISTRO y de PERFIL: qué campos existen y en qué estado
+       (obligatorio / visible / oculto / eliminado).
+
+       LECTURA: se abre a esPublico() porque el formulario de REGISTRO lo
+       ve el visitante anónimo (puede registrarse sin cuenta previa) y
+       necesita saber qué campos se exigen ANTES de enviar el formulario.
+       Solo son etiquetas, tipos y estados: no hay ningún dato personal en
+       este documento.
+
+       ESCRITURA: exclusiva del superadmin (isAdmin()). El comodín
+       /config/{id} de arriba exige isAdmin() también, así que la
+       escritura queda cerrada al superadmin por los dos lados. */
+    match /config/formulario {
+      allow read: if esPublico() || signedIn();
+      allow write: if isAdmin();
+    }
+
     /* ── CONFIG PORTAL (ajustes de la landing pública) ───────
        Ajustes que la portada muestra SIN sesión: el video corporativo y los
        TRES TEXTOS de su sección (videoEtiqueta, videoTituloSeccion,

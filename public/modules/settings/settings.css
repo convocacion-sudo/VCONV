@@ -229,6 +229,164 @@
   background: linear-gradient(to top, var(--bg-primary) 60%, transparent);
 }
 
+/* ── MODAL (selector de medios) ─────────────────────────────
+   Diálogo secundario dentro del panel: el overlay y la tarjeta usan las
+   mismas variables del tema, con un z-index por encima del panel para
+   que nunca quede "por debajo" de la tarjeta que lo abrió. */
+.set-modal-overlay {
+  position: fixed; inset: 0; z-index: 1200;
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.25rem;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+}
+.set-modal {
+  width: min(560px, 100%);
+  max-height: 88vh; overflow: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+.set-modal-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 1rem 1.15rem; border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  position: sticky; top: 0; z-index: 1;
+}
+.set-modal-head h3 { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-primary); }
+.set-modal-x {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--bg-tertiary);
+  color: var(--text-secondary); cursor: pointer; font-size: 0.85rem;
+  transition: var(--transition);
+}
+.set-modal-x:hover { border-color: var(--border-hover); color: var(--text-primary); }
+.set-modal-body { padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; }
+.set-modal-foot {
+  display: flex; justify-content: flex-end; gap: 0.6rem;
+  padding: 0.9rem 1.15rem; border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  position: sticky; bottom: 0;
+}
+
+/* ── PESTAÑAS MINI (imagen / vídeo) ─────────────────────── */
+.set-tabs-mini { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.set-tab-mini {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--border); border-radius: 99px;
+  background: var(--bg-secondary); color: var(--text-secondary);
+  font-size: 0.78rem; font-weight: 600; cursor: pointer;
+  transition: var(--transition);
+}
+.set-tab-mini:hover { border-color: var(--border-hover); color: var(--text-primary); }
+.set-tab-mini.is-active { background: var(--gold-glow); border-color: var(--gold-soft); color: var(--gold); }
+
+/* ── MEDIOS (vista previa y galería) ───────────────────────
+   La vista previa usa el MISMO montaje que la portada (core/multimedia.js):
+   lo que ve el administrador es exactamente lo que verá el visitante. */
+.set-media-preview {
+  border: 1px dashed var(--border); border-radius: var(--radius);
+  background: var(--bg-secondary);
+  padding: 0.75rem; min-height: 3rem;
+  display: flex; align-items: center; justify-content: center;
+}
+.set-media-img, .set-media-video {
+  max-width: 100%; max-height: 260px;
+  border-radius: var(--radius); display: block;
+}
+.set-media-video { width: 100%; aspect-ratio: 16 / 9; background: #000; }
+.set-galeria { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.set-gal-item {
+  width: 62px; height: 62px; padding: 0; overflow: hidden;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-tertiary); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: var(--transition);
+}
+.set-gal-item:hover { border-color: var(--gold-soft); }
+.set-gal-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.set-gal-ico { font-size: 1.3rem; }
+
+/* ── FILA DE CAMPO (pestaña «Campos de formularios») ───────
+   Una fila por campo del formulario: estado, etiqueta, tipo, ayuda y
+   los botones de orden. En el móvil baja a dos líneas. */
+.set-campo-row {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr) 10rem minmax(0, 1fr) auto;
+  gap: 0.5rem; align-items: center;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+.set-campo-row .set-field { gap: 0.2rem; }
+.set-campo-estado { font-size: 0.78rem; }
+.set-campo-etiqueta { font-weight: 600; }
+.set-campo-tipo, .set-campo-ph { font-size: 0.78rem; }
+/* Un campo marcado como ELIMINADO sigue en la lista (para poder
+   deshacerlo), pero atenuado: no aparece en el formulario y su dato
+   se borra al guardar. */
+.set-campo-row.is-eliminado { opacity: 0.55; }
+.set-campo-row.is-eliminado .set-campo-etiqueta { text-decoration: line-through; }
+
+/* ── EDITOR DE TEXTO ENRIQUECIDO ──────────────────────────
+   core/richtext.js es autocontenido: trae su propia barra. */
+.rt-box {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-secondary); overflow: hidden;
+}
+.rt-bar {
+  display: flex; align-items: center; gap: 0.3rem; flex-wrap: wrap;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border); background: var(--bg-tertiary);
+}
+.rt-btn {
+  min-width: 28px; height: 28px; padding: 0 0.4rem;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-card); color: var(--text-secondary);
+  font-size: 0.78rem; font-weight: 700; cursor: pointer;
+  transition: var(--transition);
+}
+.rt-btn:hover { border-color: var(--border-hover); color: var(--text-primary); }
+.rt-b { font-weight: 800; }
+.rt-i { font-style: italic; }
+.rt-u { text-decoration: underline; }
+.rt-sel {
+  height: 28px; padding: 0 0.35rem;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-card); color: var(--text-secondary); font-size: 0.75rem;
+}
+.rt-color { position: relative; display: inline-flex; }
+.rt-color-btn { display: inline-flex; align-items: center; justify-content: center; }
+.rt-color-dot {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1px solid var(--border); display: block;
+}
+.rt-color-popup {
+  display: none; position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+  gap: 0.35rem; flex-wrap: wrap; max-width: 190px;
+  padding: 0.5rem; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-card); box-shadow: var(--shadow);
+}
+.rt-swatch {
+  width: 22px; height: 22px; border-radius: 6px;
+  border: 1px solid var(--border); cursor: pointer; padding: 0;
+}
+.rt-swatch:hover { border-color: var(--gold-soft); }
+.rt-editor {
+  min-height: 8rem; max-height: 22rem; overflow: auto;
+  padding: 0.75rem 0.9rem;
+  color: var(--text-primary); font-size: 0.88rem; line-height: 1.6;
+}
+.rt-editor:focus { outline: 2px solid var(--gold-soft); outline-offset: -2px; }
+.rt-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted); opacity: 0.7; pointer-events: none;
+}
+.rt-editor p { margin: 0 0 0.6rem; }
+.rt-editor p:last-child { margin-bottom: 0; }
+
 /* ── MÓVIL ─────────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .set-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.5rem; }
@@ -237,4 +395,7 @@
   .set-inline-form { grid-template-columns: 1fr; }
   .set-row { flex-wrap: wrap; }
   .set-row-sub { flex: 1 1 100%; order: 3; }
+  .set-campo-row { grid-template-columns: 1fr 1fr; }
+  .set-campo-row .set-campo-etiqueta { grid-column: 1 / -1; }
+  .set-campo-row .set-item-acc { grid-column: 1 / -1; justify-content: flex-end; }
 }
