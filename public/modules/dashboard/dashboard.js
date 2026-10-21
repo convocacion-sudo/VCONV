@@ -23,7 +23,11 @@
     // sobre su propia red (sin escrituras ni configuración).
     avanzado: { label: 'Avanzado', icon: '🔎' },
     gestor: { label: 'Gestor', icon: '🛠' },
-    superadmin: { label: 'Superadmin', icon: '🔐' }
+    superadmin: { label: 'Superadmin', icon: '🔐' },
+    // Roles de Fase A (se COMBINAN con los de arriba):
+    cursos_pago: { label: 'Cursos de pago', icon: '💎' },
+    coordinador_comunidad: { label: 'Coordinador de comunidad', icon: '🌐' },
+    comptable: { label: 'Contable', icon: '🧮' }
   };
 
   /* ─── CARGAR UBICACIÓN (config/ubicacion) ───────────────── */
@@ -131,34 +135,60 @@
     var rol = V.userRole || 'estudiante';
     var cards = [];
 
-    if (rol === 'gestor') {
+    // FASE A · multi-rol: las tarjetas se calculan sobre el CONJUNTO
+    // efectivo de roles (rol principal + roles[]), no sobre un único rol.
+    var tiene = function (r) {
+      return typeof V.tieneRol === 'function' ? V.tieneRol(r) : rol === r;
+    };
+    var esSuper = tiene('superadmin');
+    var esGestor = tiene('gestor');
+    var esCoord = tiene('coordinador_comunidad');
+    var esContable = tiene('contable');
+
+    if (esGestor) {
       cards.push({ icon: '📚', title: 'Mis Cursos', tag: 'Gestión', desc: 'Administra y edita tus cursos.', action: function () { V.setMode('gestor'); } });
       cards.push({ icon: '➕', title: 'Nuevo Curso', tag: 'Crear', desc: 'Crea un curso y añade lecciones.', action: function () { if (V.onNewCourse) V.onNewCourse(); } });
-    } else if (rol === 'estudiante') {
+    }
+    if (!esGestor) {
       cards.push({ icon: '📖', title: 'Catálogo de Cursos', tag: 'Explorar', desc: 'Explora y comienza tus cursos.', action: function () { V.setMode('estudiante'); } });
-    } else if (rol === 'avanzado') {
-      cards.push({ icon: '📖', title: 'Catálogo de Cursos', tag: 'Explorar', desc: 'Explora y comienza tus cursos.', action: function () { V.setMode('estudiante'); } });
-      // El módulo se abre en solo lectura y limitado a la red del usuario
-      // (regla esMiArbolFin en firestore.rules).
-      cards.push({ icon: '💰', title: 'Finanzas de mi red', tag: 'Solo lectura', desc: 'Consulta aportes, comisiones y pagos de tu red. Sin edición.', action: function () { if (V.showFinanzas) V.showFinanzas(); } });
+    }
+    // El coordinador de comunidad accede a su red jerárquica de 4 niveles
+    // (directos + niveles 2, 3 y 4) desde el dashboard.
+    // El contable administra el módulo de finanzas y sus reportes. El
+    // superadmin ya recibe esas tarjetas más abajo (no se duplican).
+    if (esContable && !esSuper) {
+      cards.push({ icon: '💰', title: 'Finanzas', tag: 'Contable', desc: 'Registra aportes, ofrendas y comisiones de la plataforma.', action: function () { if (V.showFinanzas) V.showFinanzas(); } });
+      cards.push({ icon: '📊', title: 'Reportes Financieros', tag: 'Contable', desc: 'Ingresos, bolsa de comisiones y Caja Mayor.', action: function () { if (V.showReportes) V.showReportes(); } });
     }
 
-    if (rol === 'superadmin') {
+    if (esSuper) {
       cards.push({ icon: '🔐', title: 'Gestión de Usuarios', tag: 'Admin', desc: 'Administra perfiles, roles y estados.', action: function () { V.setMode('admin'); } });
       cards.push({ icon: '💰', title: 'Finanzas', tag: 'Contable', desc: 'Registra aportes y ofrendas, configura porcentajes MLM.', action: function () { if (V.showFinanzas) V.showFinanzas(); } });
       cards.push({ icon: '📊', title: 'Reportes Financieros', tag: 'Contable', desc: 'Ingresos, bolsa de comisiones y Caja Mayor.', action: function () { if (V.showReportes) V.showReportes(); } });
-      // Ficha MLM exclusiva del administrador: abre la página independiente
-      // con el multinivel global (red + dinero) y la estructura de 5 niveles.
-      cards.push({ icon: '🌐', title: 'Red MLM Global', tag: 'MLM', desc: 'Multinivel y comisiones de toda la red, estructura de 5 niveles.', action: function () { if (V.showRedGlobal) V.showRedGlobal(); } });
       // Panel de ajustes reservados al superadmin. La tarjeta solo aparece
       // para este rol y showSuperadmin() vuelve a comprobarlo, pero el
       // candazo real está en firestore.rules.
       cards.push({ icon: '🛡️', title: 'Panel Super Admin', tag: 'Exclusivo', desc: 'Video corporativo de la portada y ajustes protegidos.', action: function () { if (V.showSuperadmin) V.showSuperadmin(); } });
     }
 
+    // RED MLM (vista unificada): una sola tarjeta para las dos caras de la
+    // red. El superadmin alterna dentro de la vista entre la red global y
+    // su árbol de 4 niveles; el coordinador ve solo su árbol.
+    if (esSuper || esCoord) {
+      cards.push({
+        icon: '🌐',
+        title: 'Red MLM',
+        tag: esSuper ? 'MLM' : 'Coordinador',
+        desc: esSuper
+          ? 'Red completa de la plataforma (multinivel y dinero) y tu propio árbol de 4 niveles.'
+          : 'Tu red de comunidad: directos, nivel 2, nivel 3 y nivel 4.',
+        action: function () { if (V.showRedMlm) V.showRedMlm(); }
+      });
+    }
+
     // Las comunidades requieren cuenta registrada.
     if (!V.isAnon) {
-      cards.push({ icon: '🤝', title: 'Comunidades', tag: 'Mi red', desc: rol === 'gestor' ? 'Administra tu grupo, miembros y asistencia.' : 'Tu comunidad, coordinador y asistencia.', action: function () { V.showComunidades(); } });
+      cards.push({ icon: '🤝', title: 'Comunidades', tag: 'Mi red', desc: esGestor ? 'Administra tu grupo, miembros y asistencia.' : 'Tu comunidad, coordinador y asistencia.', action: function () { V.showComunidades(); } });
     }
 
     // Podcasts: el catálogo es público (lo leen también visitantes sin sesión),
@@ -426,7 +456,12 @@
     sPersonal.body.appendChild(profileRow('Teléfono', user.telefono));
     sPersonal.body.appendChild(profileRow('Sexo', user.sexo === 'Otro' ? (user.sexoCustom || 'Otro') : user.sexo));
     sPersonal.body.appendChild(profileRow('Rango de edad', user.rangoEdad));
-    sPersonal.body.appendChild(profileRow('Rol', ROLES[user.rol] ? (ROLES[user.rol].icon + ' ' + ROLES[user.rol].label) : (user.rol || '—')));
+    // FASE A · multi-rol: se listan todos los roles efectivos del usuario.
+    var rolesUsuario = (typeof V.normalizarRoles === 'function') ? V.normalizarRoles(user) : [];
+    if (!rolesUsuario.length) rolesUsuario = [user.rol || '—'];
+    sPersonal.body.appendChild(profileRow('Rol', rolesUsuario.map(function (r) {
+      return ROLES[r] ? (ROLES[r].icon + ' ' + ROLES[r].label) : r;
+    }).join(' · ')));
     sPersonal.body.appendChild(profileRow('Fecha de suscripción', V.fmtDate(getFechaSuscripcion(user))));
     sPersonal.body.appendChild(profileRow('Registro', user.creado ? V.fmtDate(user.creado) : '—'));
     sPersonal.body.appendChild(profileRow('Profesión', user.profesion));
@@ -664,11 +699,18 @@
       V._lastUserDoc = user;
       $('dashName').textContent = ((user.nombre || '') + ' ' + (user.apellido || '')).trim() || (V.currentUser && V.currentUser.email ? V.currentUser.email.split('@')[0] : 'Usuario');
       var rol = user.rol || V.userRole || 'estudiante';
-      var rl = ROLES[rol];
-      $('dashRoleBadge').textContent = (rl ? rl.icon + ' ' : '') + (rl ? rl.label : rol);
-      $('dashRole').textContent = 'Bienvenido a tu centro de control como ' + (rl ? rl.label.toLowerCase() : rol) + '.';
+      // FASE A · multi-rol: la insignia muestra TODOS los roles efectivos
+      // (rol principal + roles[]), no solo el principal.
+      var lista = (typeof V.normalizarRoles === 'function') ? V.normalizarRoles(user) : [rol];
+      if (!lista.length) lista = [rol];
+      var etiquetas = lista.map(function (r) {
+        var x = ROLES[r];
+        return (x ? x.icon + ' ' : '') + (x ? x.label : r);
+      });
+      $('dashRoleBadge').textContent = etiquetas.join(' · ');
+      $('dashRole').textContent = 'Bienvenido a tu centro de control como ' + etiquetas.join(', ').toLowerCase() + '.';
       var pill = $('dashRolePill');
-      if (pill) { pill.textContent = (rl ? rl.icon + ' ' : '') + (rl ? rl.label : rol); pill.className = 'status-pill gold'; }
+      if (pill) { pill.textContent = etiquetas.join(' · '); pill.className = 'status-pill gold'; }
       renderProfileView(user);
       fillForm(user);
       goViewMode();

@@ -27,20 +27,123 @@ service cloud.firestore {
     function isRegistered() {
       return signedIn();
     }
+    /* ─── ROLES MÚLTIPLES (Fase A) ────────────────────────────────
+       El documento usuarios/{uid} guarda el rol PRINCIPAL en `rol`
+       (heredado: estudiante | avanzado | gestor | superadmin) y el
+       conjunto COMPLETO en `roles` (arreglo, que además admite los roles
+       nuevos: superadmin, cursos_pago, coordinador_comunidad, comptable).
+
+       El conjunto efectivo es la UNIÓN de ambos, y es lo que se consulta
+       aquí. Esa unión es lo que hace la migración segura: los documentos
+       antiguos (que solo tienen `rol`) siguen valiendo igual, y uno que
+       solo tenga `roles` también cuenta.
+
+       `exists()` + `get()` sobre el MISMO documento cuentan como un solo
+       acceso (el motor cachea la lectura dentro de la evaluación), así que
+       estas comprobaciones no gastan del presupuesto de 10 accesos.
+
+       OJO: un documento inexistente o sin `roles` NO concede ningún
+       permiso: `miUsuarioExiste()` lo corta antes de tocar `.data`, que
+       sobre null LANZARÍA error y denegaría la expresión entera. */
+    function miUsuarioExiste() {
+      return isRegistered()
+        && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));
+    }
+    function misRoles() {
+      // `roles` debe ser una LISTA: un documento editado a mano podría
+      // guardar otra cosa ahí, y llamar a hasAny() sobre un valor que no es
+      // lista LANZARÍA error (y un error en las reglas deniega). Se cae a
+      // lista vacía: un campo corrupto NO concede ningún rol.
+      return miUsuarioExiste()
+        && get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.get('roles', []) is list
+        ? get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.get('roles', [])
+        : [];
+    }
+    function miRol() {
+      return miUsuarioExiste()
+        ? get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.get('rol', '')
+        : '';
+    }
+    // ¿La sesión tiene ese rol? Vale tanto si viene del rol principal como
+    // si viene del arreglo `roles`.
+    function tieneRol(r) {
+      return miUsuarioExiste() && (miRol() == r || misRoles().hasAny([r]));
+    }
     function isAdmin() {
-      return isRegistered() &&
-        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'superadmin';
+      return tieneRol('superadmin');
     }
     function isGestor() {
-      return isRegistered() &&
-        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'gestor';
+      return tieneRol('gestor');
     }
     // Rol "avanzado": perfil de solo lectura sobre la propia red. NO gestiona
     // contenido (canManage() lo excluye a propósito) y NO tiene bypass: no
     // aparece en las reglas de escritura de finanzas.
     function esAvanzado() {
-      return isRegistered() &&
-        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.rol == 'avanzado';
+      return tieneRol('avanzado');
+    }
+    // Rol "contable" (Fase A): acceso al módulo de finanzas y a los reportes
+    // financieros. El superadmin lo cubre por bypass (isAdmin()).
+    function esContable() {
+      return tieneRol('contable');
+    }
+    // Rol "coordinador de comunidad" (Fase A): vista de la red MLM
+    // jerárquica de 4 niveles sobre SU propia red.
+    function esCoordinador() {
+      return tieneRol('coordinador_comunidad');
+    }
+    // Rol "cursos de pago" (Fase A): acceso al contenido y a los cursos
+    // prémium.
+    function esCursosPago() {
+      return tieneRol('cursos_pago');
+    }
+
+    /* ─── RED JERÁRQUICA: EL CAMPO `camino` (Fase A) ──────────────
+       Cada documento usuarios/{uid} guarda `camino`: el ARREGLO de sus
+       ancestros de patrocinio, DEL MÁS CERCANO AL MÁS LEJANO, con un
+       máximo de 4 entradas (los 4 niveles de la vista del coordinador).
+
+       El dato NO es declarativo del cliente: la escritura lo valida
+       contra la cadena REAL de patrocinio (caminoCoherente()), de modo que
+       nadie puede inventarse un árbol ni colarse en la red de otro
+       coordinador. Gracias a eso, un coordinador lee SU red con UNA sola
+       consulta: where('camino','array-contains',uid). */
+    // Patrocinador (sponsorId) de un usuario, o '' si el documento no
+    // existe o no tiene patrocinador. Una sola lectura por documento (el
+    // motor cachea el get() dentro de la misma evaluación).
+    function sponsorDe(uid) {
+      return uid is string && uid != ''
+        && get(/databases/$(database)/documents/usuarios/$(uid)) != null
+        ? get(/databases/$(database)/documents/usuarios/$(uid)).data.get('sponsorId', '')
+        : '';
+    }
+    // El `camino` que se escribe debe ser COHERENTE con la cadena real de
+    // patrocinio: camino[0] es el patrocinador directo del documento y cada
+    // eslabón siguiente es el patrocinador del anterior (hasta 4 niveles).
+    // Si el documento no trae `camino` (documentos heredados) no hay nada que
+    // validar: el índice se reconstruye desde el panel del superadmin.
+    //
+    // OJO: el lenguaje de reglas NO tiene sentencias `if`: solo expresiones
+    // booleanas (con && / || de CORTO CIRCUITO) y el operador ternario.
+    // Por eso todo se resuelve como una sola cadena de condiciones: los
+    // && cortan en falso, así que los get() de sponsorDe() solo se ejecutan
+    // cuando los eslabones anteriores ya son válidos.
+    function caminoCoherente() {
+      return !('camino' in request.resource.data)
+        || (request.resource.data.camino is list
+            && request.resource.data.camino.size() <= 4
+            && (request.resource.data.camino.size() == 0
+                || (request.resource.data.camino[0] is string
+                    && request.resource.data.camino[0] != ''
+                    && request.resource.data.get('sponsorId', '') == request.resource.data.camino[0]
+                    && (request.resource.data.camino.size() < 2
+                        || (request.resource.data.camino[1] is string
+                            && sponsorDe(request.resource.data.camino[0]) == request.resource.data.camino[1]))
+                    && (request.resource.data.camino.size() < 3
+                        || (request.resource.data.camino[2] is string
+                            && sponsorDe(request.resource.data.camino[1]) == request.resource.data.camino[2]))
+                    && (request.resource.data.camino.size() < 4
+                        || (request.resource.data.camino[3] is string
+                            && sponsorDe(request.resource.data.camino[2]) == request.resource.data.camino[3])))));
     }
     // Gestores y superadmin gestionan el contenido del CMS.
     // OJO con el ORDEN: la comprobación del correo va PRIMERO a propósito.
@@ -220,8 +323,28 @@ service cloud.firestore {
               || uid == m3()
               || uid == m4());
       }
+      // ─── RED JERÁRQUICA DEL COORDINADOR (Fase A) ────────────
+      // El rol 'coordinador_comunidad' consulta SU red (hasta 4 niveles)
+      // con UNA sola consulta: where('camino','array-contains',uid). El
+      // motor de reglas solo admite esa consulta si la regla se puede
+      // PROBAR para todos los documentos devueltos: por eso la rama se
+      // apoya en `camino`, un campo que la propia consulta restringe.
+      //
+      // OJO con el orden de las ramas del allow read: esta va ANTES de
+      // esMiArbol() a propósito. Al evaluar una consulta, el motor
+      // construye un documento "potencial" con los campos restringidos por
+      // la consulta y deja el resto sin valor; las ramas que suben por
+      // la cadena de patrocinio (a1–a4) no se pueden evaluar sobre ese
+      // documento. Como el `||` es CORTO-CIRCUITO, la rama del coordinador
+      // resuelve primero y las demás ni se miran.
+      function esMiRedCoordinador() {
+        return esCoordinador()
+          && resource.data.get('camino', []) is list
+          && request.auth.uid in resource.data.get('camino', []);
+      }
       allow read: if signedIn()
-        && (uid == request.auth.uid
+        && (esMiRedCoordinador()
+            || uid == request.auth.uid
             || esMiArbol()
             || esMiPatrocinador()
             || esMiSponsor()
@@ -235,8 +358,47 @@ service cloud.firestore {
           || (resource != null
               && request.resource.data.vendedorAutorizado == resource.data.get('vendedorAutorizado', false));
       }
+      // El CONJUNTO DE ROLES NUNCA lo concede el propio usuario: lo concede
+      // el CRM (administrador). Sin esta protección, cualquiera podría
+      // escribirse 'superadmin' en su propio documento y heredar el bypass
+      // total de todas las reglas de este archivo.
+      //   - en el ALTA solo se admite el conjunto por defecto ('estudiante');
+      //   - en la ACTUALIZACIÓN los roles no cambian (comparación por
+      //     conjunto, no por igualdad de listas del lenguaje de reglas).
+      //
+      // OJO: el lenguaje de reglas no tiene `if` ni `var`: se usa `let` para
+      // declarar y el operador ternario / && para las decisiones.
+      function rolesValidosEnAlta() {
+        let p = request.resource.data.get('rol', '');
+        let r = request.resource.data.get('roles', []);
+        return (p == '' || p == 'estudiante')
+          && (r is list)
+          && (r.size() == 0 || (r.size() == 1 && r[0] == 'estudiante'));
+      }
+      function rolesIntactosEnUpdate() {
+        let rolViejo = resource.data.get('rol', '');
+        let rolNuevo = request.resource.data.get('rol', '');
+        let viejos = resource.data.get('roles', []);
+        let nuevos = request.resource.data.get('roles', []);
+        return rolNuevo == rolViejo
+          && (viejos is list)
+          && (nuevos is list)
+          && ((viejos.size() == nuevos.size() && viejos.hasAll(nuevos) && nuevos.hasAll(viejos))
+              // Documento heredado (sin `roles`) que materializa su conjunto
+              // con el rol principal: se acepta, pero sin añadir roles nuevos.
+              || (!('roles' in resource.data)
+                  && nuevos.size() <= 1
+                  && (nuevos.size() == 0 || (nuevos[0] is string && nuevos[0] == rolViejo))));
+      }
+      function rolesIntactos() {
+        return resource == null ? rolesValidosEnAlta() : rolesIntactosEnUpdate();
+      }
       allow write: if signedIn()
-        && (isAdmin() || (uid == request.auth.uid && noCambiaVendedorAutorizado()));
+        && (isAdmin()
+            || (uid == request.auth.uid
+                && noCambiaVendedorAutorizado()
+                && rolesIntactos()
+                && caminoCoherente()));
     }
 
     /* ── MAPEO DE CÓDIGOS DE REFERIDO (MLM) ────────────────── */
@@ -300,7 +462,14 @@ service cloud.firestore {
           allow write: if canManage();
 
           match /lecciones/{lid} {
+            // FASE A · rol 'cursos_pago': la rama es ADITIVA. El contenido
+            // 'pago' que ya leían las cuentas registradas sigue igual (queda
+            // para la FASE B la restricción estricta, que exigirá que el
+            // cliente filtre por `acceso` en la consulta para que el motor
+            // pueda probarla). Con esta rama, el contenido de pago premium
+            // queda además disponible para quienes tienen el rol.
             allow read: if canManage()
+              || esCursosPago()
               || isRegistered()
               || (esPublico() && cursoPublicado()
                     && !accesoRestringido(resource.data.acceso));
@@ -342,7 +511,10 @@ service cloud.firestore {
         allow write: if canManage();
 
         match /lecciones/{lid} {
+          // Misma política que las lecciones anidadas: el rol 'cursos_pago'
+          // suma acceso al contenido premium (Fase A aditiva).
           allow read: if canManage()
+            || esCursosPago()
             || isRegistered()
             || (esPublico() && cursoPublicado()
                   && !accesoRestringido(resource.data.acceso));
@@ -590,10 +762,17 @@ service cloud.firestore {
     // en config/{id}: solo lectura para cualquier sesión, escritura del
     // superadmin. Reportes Financieros y Red MLM Global no viven en las reglas
     // (se derivan de estas colecciones), por lo que su filtro es de interfaz.
+    //
+    // ROL CONTABLE (Fase A): el módulo de finanzas pasa a ser territorio de
+    // 'contable' (y 'superadmin', que conserva su bypass). El contable lee
+    // TODAS las colecciones financieras —no solo las de su red— y lleva el
+    // CRUD de transacciones, comisiones, pagos y cuentas bancarias. Es el
+    // único rol nuevo con escritura financiera: el avanzado solo lee, y el
+    // coordinador y el resto no entran al módulo.
     // La configuración (config/finanzas: finanzasEnabled, porcentajes
     // N1–N5, porcentajeCaja, categorias) queda cubierta por el bloque
-    // config/{id}: lectura para cualquier sesión autenticada y escritura
-    // exclusiva del superadmin. Colecciones del módulo:
+    // config/{id}: lectura para cualquier sesión, escritura del
+    // superadmin. Colecciones del módulo:
     //   finanzas_transacciones — CRUD CENTRALIZADO del superadmin: puede
     //     crear/editar/eliminar transacciones de CUALQUIER usuario o
     //     comunidad sin restricciones de cadenas de patrocinio (bypass
@@ -619,10 +798,13 @@ service cloud.firestore {
       allow read: if signedIn()
         && (request.auth.uid == resource.data.userId
             || esMiArbolFin()   // rol avanzado: su propia red (≤5 niveles)
+            || esContable()     // rol contable: todas las transacciones
             || isAdmin());
       allow create: if isRegistered()
-        && (request.resource.data.userId == request.auth.uid || isAdmin());
-      allow update, delete: if isAdmin();
+        && (request.resource.data.userId == request.auth.uid
+            || esContable()
+            || isAdmin());
+      allow update, delete: if esContable() || isAdmin();
     }
     match /finanzas_comisiones/{id} {
       // Ancestros del autor, una generación por get() (path idénticos a
@@ -655,9 +837,11 @@ service cloud.firestore {
       allow read: if isRegistered()
         && (request.auth.uid == resource.data.userId
             || esMiArbolFin()   // rol avanzado: comisiones de su propia red
+            || esContable()     // rol contable: todas las comisiones
             || isAdmin());
       allow create: if isRegistered() && (
           isAdmin()
+          || esContable()
           || (request.resource.data.userId == request.auth.uid
               && request.resource.data.tipo == 'grupo'
               && request.resource.data.nivel == 1
@@ -667,7 +851,7 @@ service cloud.firestore {
               && esMiAncestro()
               && get(/databases/$(database)/documents/finanzas_transacciones/$(request.resource.data.origenId)).data.userId == request.auth.uid)
         );
-      allow update, delete: if isAdmin();
+      allow update, delete: if esContable() || isAdmin();
     }
     //   finanzas_pagos — pagos/desembolsos a usuarios desde la Bolsa de
     //     Comisiones (origen 'bolsa', tipo 'comision'). Los registra el
@@ -679,23 +863,42 @@ service cloud.firestore {
       allow read: if signedIn()
         && (request.auth.uid == resource.data.userId
             || esMiArbolFin()   // rol avanzado: pagos de su propia red
+            || esContable()     // rol contable: todos los pagos
             || isAdmin());
-      allow create, update, delete: if isAdmin();
+      allow create, update, delete: if esContable() || isAdmin();
     }
     //   finanzas_cuentas — catálogo de cuentas bancarias / billeteras del
     //     proyecto. Cada documento tiene SOLO dos campos de negocio:
     //       banco  → texto descriptivo con el tipo (ej. "Bancolombia
     //                Ahorros", "Nequi")
     //       numero → número de cuenta o de billetera
-    //     LECTURA: superadmin y gestor. El rol gestor la necesita para poder    //     seleccionar la "Cuenta de destino" al asociar movimientos; cualquier
-    //     otro rol (estudiante, avanzado, visitante) queda denegado por la
-    //     regla y por el comodín final.
-    //     ESCRITURA (crear, editar, eliminar): EXCLUSIVA del superadmin. Ni el
-    //     gestor ni ningún otro rol pueden modificarla; la comprobación del rol
-    //     vive en usuarios/{uid}.rol, no en nada que envíe el navegador.
+    //     LECTURA: contable y superadmin (Fase A · el módulo de finanzas es
+    //     EXCLUSIVO de estos dos roles: el gestor ya no entra al módulo y
+    //     tampoco necesita el catálogo; cualquier otro rol queda denegado
+    //     por la regla y por el comodín final).
+    //     ESCRITURA (crear, editar, eliminar): superadmin y contable. La
+    //     comprobación del rol vive en usuarios/{uid}.rol, no en nada que
+    //     envíe el navegador.
     match /finanzas_cuentas/{id} {
-      allow read: if isGestor() || isAdmin();
-      allow create, update, delete: if isAdmin();
+      allow read: if esContable() || isAdmin();
+      allow create, update, delete: if esContable() || isAdmin();
+    }
+
+    /* ── CONFIG DE FINANZAS (Fase A · rol contable) ───────────
+       config/finanzas guarda el interruptor del módulo (finanzasEnabled),
+       los porcentajes de comisión N1–N5, el porcentaje de caja y las
+       categorías de aporte.
+
+       LECTURA: cualquier sesión (la necesita el panel de aporte del
+       Escritorio, que sigue abierto para todos los miembros) y también el
+       contable, que prepara la liquidación.
+       ESCRITURA: superadmin y contable. El bloque comodín config/{id}
+       (que solo permite escribir al superadmin) también casa con esta
+       ruta y las reglas se combinan con OR: el resultado sigue siendo
+       "superadmin o contable", nunca más abierto. */
+    match /config/finanzas {
+      allow read: if signedIn() || esContable();
+      allow write: if esContable() || isAdmin();
     }
   }
 }

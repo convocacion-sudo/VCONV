@@ -1,0 +1,269 @@
+/* ═══════════════════════════════════════════════════════════════
+   MÓDULO DE ROLES (Fase A) · ESTILOS
+   Vista jerárquica del coordinador (4 niveles) y editor de roles.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── CONMUTADOR DE LA VISTA UNIFICADA "RED MLM" ───────────────
+   Alterna entre la pestaña global (superadmin) y la del árbol
+   jerárquico de 4 niveles (coordinador y superadmin). */
+.red-mlm-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.red-mlm-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+
+.red-mlm-tab.is-active {
+  background: var(--gold, #d97706);
+  border-color: var(--gold, #d97706);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* Botón de recarga de cada panel de la vista unificada. */
+.red-mlm-refresh {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+/* ─── VISTA JERÁRQUICA DEL COORDINADOR ─────────────────────── */
+.red-coord-metricas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 18px 0 10px;
+}
+
+.red-coord-metrica {
+  background: var(--card, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+
+.red-coord-metrica-valor {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--text, #0f172a);
+}
+
+.red-coord-metrica-label {
+  font-size: .78rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted, #64748b);
+}
+
+.red-coord-metrica.is-blue .red-coord-metrica-valor { color: #2563eb; }
+.red-coord-metrica.is-green .red-coord-metrica-valor { color: #16a34a; }
+.red-coord-metrica.is-gold .red-coord-metrica-valor { color: #d97706; }
+
+.red-coord-nota {
+  font-size: .82rem;
+  color: var(--muted, #64748b);
+  margin: 0 0 18px;
+}
+
+.red-coord-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.red-coord-nivel {
+  background: var(--card, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 16px;
+  padding: 16px 18px;
+}
+
+.red-coord-nivel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.red-coord-nivel-badge {
+  background: rgba(37, 99, 235, .1);
+  color: #2563eb;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.red-coord-nivel-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text, #0f172a);
+}
+
+.red-coord-nivel-count {
+  margin-left: auto;
+  font-size: .8rem;
+  color: var(--muted, #64748b);
+}
+
+.red-coord-tabla {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.red-coord-fila {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #eef2f7);
+  border-radius: 12px;
+  background: var(--bg-soft, #f8fafc);
+  flex-wrap: wrap;
+}
+
+.red-coord-fila-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.red-coord-fila-nombre {
+  font-weight: 600;
+  font-size: .92rem;
+  color: var(--text, #0f172a);
+}
+
+.red-coord-fila-email {
+  font-size: .78rem;
+  color: var(--muted, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.red-coord-fila-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.red-coord-tag {
+  font-size: .7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, .09);
+  color: #1d4ed8;
+}
+
+.red-coord-estado {
+  font-size: .7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.red-coord-estado.ok { background: rgba(22, 163, 74, .1); color: #15803d; }
+.red-coord-estado.off { background: rgba(148, 163, 184, .16); color: #475569; }
+
+.red-coord-vacio {
+  margin: 0;
+  font-size: .85rem;
+  color: var(--muted, #64748b);
+}
+
+.red-coord-cargando {
+  padding: 26px;
+  text-align: center;
+  color: var(--muted, #64748b);
+  font-size: .9rem;
+}
+
+/* ─── EDITOR DE ROLES (CRM) ─────────────────────────────────── */
+.crm-roles-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.crm-roles-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--bg-soft, #f8fafc);
+  cursor: pointer;
+}
+
+.crm-roles-item:hover { border-color: rgba(37, 99, 235, .45); }
+
+.crm-roles-item input { margin-top: 3px; }
+
+.crm-roles-item-body { display: flex; flex-direction: column; gap: 2px; }
+
+.crm-roles-item-title {
+  font-size: .88rem;
+  font-weight: 600;
+  color: var(--text, #0f172a);
+}
+
+.crm-roles-item-desc {
+  font-size: .74rem;
+  line-height: 1.35;
+  color: var(--muted, #64748b);
+}
+
+.crm-roles-item.is-on {
+  border-color: rgba(37, 99, 235, .5);
+  background: rgba(37, 99, 235, .06);
+}
+
+/* ─── PÍLDORAS DE ROLES EN LA TABLA DEL CRM ─────────────────── */
+.admin-roles-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.admin-role-pill {
+  font-size: .66rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, .09);
+  color: #1d4ed8;
+  white-space: nowrap;
+}
+
+.admin-role-pill.is-superadmin { background: rgba(217, 119, 6, .12); color: #b45309; }
+.admin-role-pill.is-gestor { background: rgba(14, 165, 233, .12); color: #0369a1; }
+.admin-role-pill.is-avanzado { background: rgba(22, 163, 74, .12); color: #15803d; }
+.admin-role-pill.is-contable { background: rgba(124, 58, 237, .12); color: #6d28d9; }
+.admin-role-pill.is-coordinador_comunidad { background: rgba(13, 148, 136, .12); color: #0f766e; }
+.admin-role-pill.is-cursos_pago { background: rgba(219, 39, 119, .12); color: #be185d; }

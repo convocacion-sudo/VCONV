@@ -83,15 +83,25 @@
     var v = Number(n) || 0;
     return '$' + v.toLocaleString('es-CO');
   }
-  function isAdminUser() { return V.userRole === 'superadmin'; }
-  // Lectura del catálogo de cuentas: superadmin (que además escribe) y
-  // gestor (solo lectura, para poder seleccionar la cuenta de destino).
-  function puedeLeerCuentas() { return isAdminUser() || V.userRole === 'gestor'; }
+  // FASE A · multi-rol: los permisos del módulo se calculan sobre el
+  // CONJUNTO efectivo de roles (rol principal + roles[]), no sobre un
+  // único rol principal.
+  function esSuper() { return typeof V.tieneRol === 'function' ? V.tieneRol('superadmin') : V.userRole === 'superadmin'; }
+  function esContable() { return typeof V.tieneRol === 'function' ? V.tieneRol('contable') : false; }
+  // El módulo de finanzas (CRUD completo de transacciones, cuentas,
+  // comisiones y configuración) es territorio de 'contable' y 'superadmin'.
+  // firestore.rules aplica el mismo criterio (esContable() || isAdmin()).
+  function isAdminUser() { return esSuper() || esContable(); }
+  // Lectura del catálogo de cuentas: SOLO quien administra finanzas
+  // (superadmin y contable). Fase A: el módulo de finanzas es exclusivo de
+  // esos dos roles, así que el gestor ya no lo entra y tampoco necesita el
+  // catálogo de cuentas (la regla de firestore.rules tampoco se lo permite).
+  function puedeLeerCuentas() { return isAdminUser(); }
   // Rol "avanzado": entra al módulo en modo SOLO LECTURA y limitado a su
   // propia red. Sus lecturas se resuelven contra esMiArbolFin() en
   // firestore.rules, así que el backend descarta cualquier documento ajeno
   // aunque el cliente lo solicite: el filtro del cliente es solo comodidad.
-  function esAvanzadoUser() { return V.userRole === 'avanzado'; }
+  function esAvanzadoUser() { return typeof V.tieneRol === 'function' ? V.tieneRol('avanzado') : V.userRole === 'avanzado'; }
   function nombreUsuario(u) {
     var n = ((u && (u.nombre || '')) + ' ' + (u && (u.apellido || ''))).trim();
     return n || (u && u.email ? u.email : '');

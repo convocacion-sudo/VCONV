@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="modules/comunidades/comunidades.css">
   <link rel="stylesheet" href="modules/finanzas/finanzas.css">
   <link rel="stylesheet" href="modules/mlm/mlm.css">
+<link rel="stylesheet" href="modules/roles/roles.css">
   <link rel="stylesheet" href="modules/podcasts/podcasts.css">
   <link rel="stylesheet" href="modules/tienda/tienda.css">
   <link rel="stylesheet" href="modules/portal/portal.css">
@@ -48,7 +49,7 @@
       <a href="#" class="sidebar-link" data-nav="admin" id="sidebarLinkAdmin" style="display:none;"><span class="sidebar-ico">🔐</span> Gestión de Usuarios</a>
       <a href="#" class="sidebar-link" data-nav="finanzas" id="sidebarLinkFinanzas" style="display:none;"><span class="sidebar-ico">💰</span> Finanzas</a>
       <a href="#" class="sidebar-link" data-nav="reportes" id="sidebarLinkReportes" style="display:none;"><span class="sidebar-ico">📊</span> Reportes Financieros</a>
-      <a href="#" class="sidebar-link" data-nav="redglobal" id="sidebarLinkRedGlobal" style="display:none;"><span class="sidebar-ico">🌐</span> Red MLM Global</a>
+      <a href="#" class="sidebar-link" data-nav="redmlm" id="sidebarLinkRedMlm" style="display:none;"><span class="sidebar-ico">🌐</span> Red MLM</a>
       <a href="#" class="sidebar-link" data-nav="superadmin" id="sidebarLinkSuperadmin" style="display:none;"><span class="sidebar-ico">🛡️</span> Panel Super Admin</a>
 
       <p class="sidebar-group" id="sidebarGroupProximamente" style="display:none;">Próximamente</p>
@@ -462,6 +463,9 @@
           <h2>Gestión de Usuarios</h2>
           <p>CRM — Administra perfiles, roles y estados de los usuarios.</p>
         </div>
+        <div class="section-header-acciones">
+          <button type="button" class="btn btn-outline" id="btnReindexRed">🗂️ Reconstruir índice de red</button>
+        </div>
       </div>
 
       <div class="admin-summary" id="adminSummaryStats"></div>
@@ -692,21 +696,53 @@
       <div id="reportesContent"></div>
     </div>
 
-    <!-- ═══ MÓDULO RED MLM GLOBAL (superadmin) ═══ -->
-    <div class="view" id="viewRedGlobal">
+    <!-- ═══ MÓDULO RED MLM (UNIFICADO) ═══
+         Un SOLO ítem de menú ("Red MLM") para las dos caras de la red:
+           · superadmin → alterna entre la RED GLOBAL completa (métricas de
+             toda la plataforma, multinivel y dinero) y SU propio árbol
+             jerárquico de 4 niveles;
+           · coordinador_comunidad → ve SU árbol jerárquico de 4 niveles
+             (Nivel 1 = referidos directos, hasta el Nivel 4; profundidad
+             fijada por MAX_NIVELES_COORDINADOR en modules/roles/roles.js).
+         Las dos pestañas se gestionan desde core/app.js (setRedMlmTab), que
+         además decide cuál se muestra según el rol: la global es exclusiva
+         del superadmin y la de árbol, de coordinadores y superadmin. -->
+    <div class="view" id="viewRedMlm">
       <div class="section-header">
         <div class="section-header-ttl">
           <span class="icon-chip gold">🌐</span>
           <div>
-            <h2>Red MLM Global</h2>
-            <p>Multinivel y dinero de toda la plataforma: métricas globales, comisiones MLM y estructura completa de los 5 niveles.</p>
+            <h2>Red MLM</h2>
+            <p id="redMlmSubtitle">Tu red de comunidad en 4 niveles: Nivel 1 (referidos directos), Nivel 2, Nivel 3 y Nivel 4.</p>
           </div>
         </div>
         <div class="section-header-acciones">
-          <button type="button" class="btn btn-outline" id="btnRedGlobalRefresh">🔄 Recargar</button>
+          <div class="red-mlm-tabs" id="redMlmTabs" style="display:none;">
+            <button type="button" class="btn btn-outline btn-sm red-mlm-tab" id="redMlmTabGlobal" data-red-tab="global">🌐 Red global</button>
+            <button type="button" class="btn btn-outline btn-sm red-mlm-tab" id="redMlmTabPropia" data-red-tab="propia">🗂️ Mi red (4 niveles)</button>
+          </div>
         </div>
       </div>
-      <div id="redGlobalContent"></div>
+
+      <!-- Panel 1 · RED GLOBAL (superadmin): multinivel y dinero de toda la
+           plataforma. El contenido lo pinta modules/mlm/mlm.js en
+           #redGlobalContent (id histórico, no se cambia). -->
+      <div id="redMlmPanelGlobal" style="display:none;">
+        <div class="red-mlm-refresh">
+          <button type="button" class="btn btn-outline" id="btnRedGlobalRefresh">🔄 Recargar</button>
+        </div>
+        <div id="redGlobalContent"></div>
+      </div>
+
+      <!-- Panel 2 · ÁRBOL JERÁRQUICO DE 4 NIVELES (coordinador y
+           superadmin). El contenido lo pinta modules/roles/roles.js. -->
+      <div id="redMlmPanelPropia">
+        <div class="red-mlm-refresh">
+          <button type="button" class="btn btn-outline" id="btnRedCoordinadorRefresh">🔄 Recargar</button>
+        </div>
+        <div id="redCoordinadorResumen"></div>
+        <div id="redCoordinadorBody"></div>
+      </div>
     </div>
 
     <!-- ═══ PANEL SUPER ADMIN (exclusivo · superadmin) ═══
@@ -1216,6 +1252,19 @@
               </label>
             </div>
           </div>
+          <!-- ROLES ADICIONALES (Fase A · multi-rol)
+               El select de arriba elige el ROL PRINCIPAL (el heredado) y
+               esta rejilla añade los roles de Fase A, que se COMBINAN con
+               él. Ambos campos se guardan sincronizados: `roles` es el
+               conjunto completo y `rol` es su rol principal, de modo que
+               el código antiguo y las reglas de Firestore nunca discrepen. -->
+          <div class="form-row">
+            <div class="field field-full">
+              <label>Roles adicionales del usuario</label>
+              <div class="crm-roles-grid" id="crmRolesGrid"></div>
+              <span class="field-hint" id="crmRolesHint">Un usuario puede tener varios roles a la vez. Al marcar «Superadmin» el rol principal pasa a ser superadmin automáticamente.</span>
+            </div>
+          </div>
           <div class="form-row">
             <div class="field">
               <label for="crmPerfil">Perfil organizacional</label>
@@ -1354,6 +1403,7 @@
   <script src="core/app.js"></script>
   <!-- Módulos -->
   <script src="modules/mlm/mlm.js"></script>
+  <script src="modules/roles/roles.js"></script>
   <script src="modules/dashboard/dashboard.js"></script>
   <script src="modules/cursos/cursos.js"></script>
   <script src="modules/crm/crm.js"></script>

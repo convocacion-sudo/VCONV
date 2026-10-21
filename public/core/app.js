@@ -55,18 +55,109 @@
   // generar registros fantasma en Auth.
   var isAnon = false;
   var userRole = 'estudiante';
+  // Conjunto EFECTIVO de roles de la sesión (Fase A · multi-rol). Es la
+  // unión del rol principal heredado (`rol`) y del arreglo `roles` que
+  // guarda el documento usuarios/{uid}. Ver normalizarRoles() y el catálogo
+  // ROLES_MULTI más abajo.
+  var userRoles = [];
   // Superadmin: control absoluto. esAdmin()/V.esAdmin marcan la sesión con
   // rol superadmin; los módulos (finanzas, MLM, CRM) y las reglas de
   // Firestore lo tratan como bypass total de validaciones de parentesco,
   // cadenas de patrocinio, límites de asignación y restricciones de edición.
-  function esAdmin() { return userRole === 'superadmin'; }
-  function canManage() { return userRole === 'superadmin' || userRole === 'gestor'; }
+  function esAdmin() { return userRoles.indexOf('superadmin') !== -1; }
+  function canManage() { return userRoles.indexOf('superadmin') !== -1 || userRoles.indexOf('gestor') !== -1; }
   // Rol "avanzado": hereda el modo estudiante y suma acceso de SOLO LECTURA a
   // Finanzas/MLM sobre su PROPIA red (él mismo y hasta 5 niveles por debajo,
   // según esMiArbolFin() en firestore.rules). No gestiona contenido del CMS
   // (canManage() lo excluye) ni escribe datos financieros: los paneles de
   // configuración (porcentajes, Red MLM Global) siguen siendo de superadmin.
-  function esAvanzado() { return userRole === 'avanzado'; }
+  function esAvanzado() { return userRoles.indexOf('avanzado') !== -1; }
+
+  /* ─── ROLES MULTIPLES (Fase A) ───────────────────────────────
+     El documento usuarios/{uid} admite DOS campos de rol:
+       - `rol`   → rol PRINCIPAL, heredado de la versión anterior de la
+                   plataforma: estudiante | avanzado | gestor | superadmin.
+                   Es el que leen los módulos antiguos y el que sigue
+                   siendo la fuente de la etiqueta en la interfaz.
+       - `roles` → ARREGLO con todos los roles del usuario, incluidos los
+                   nuevos de Fase A: superadmin, cursos_pago,
+                   coordinador_comunidad y comptable. Un usuario puede
+                   combinar CUALQUIERA de ellos a la vez.
+
+     El conjunto efectivo es la UNIÓN de ambos, y esa unión es la que
+     consultan esAdmin()/esContable()/esCoordinador()/esCursosPago().
+     La unión (y no el arreglo) es lo que hace la migración segura: los
+     documentos antiguos que solo tienen `rol` siguen funcionando tal cual,
+     y un documento que solo tenga `roles` (sin `rol`) también cuenta.
+
+     El panel de administración escribe los DOS campos siempre
+     sincronizados: `roles` es el conjunto completo y `rol` se deriva de él
+     (el rol principal). Así el código heredado que compara `rol` con
+     'superadmin' o 'gestor' nunca discrepa de las reglas de Firestore,
+     que ya leen el conjunto. */
+  var ROLES_MULTI = {
+    superadmin: {
+      label: 'Superadmin', icon: '🔐', color: 'gold',
+      desc: 'Acceso total: usuarios, contenido, finanzas, red global y configuración.'
+    },
+    cursos_pago: {
+      label: 'Cursos de pago', icon: '💎', color: 'blue',
+      desc: 'Acceso al contenido y a los cursos prémium de la plataforma.'
+    },
+    coordinador_comunidad: {
+      label: 'Coordinador de comunidad', icon: '🌐', color: 'green',
+      desc: 'Consulta la red MLM jerárquica (4 niveles) de los usuarios de su red.'
+    },
+    comptable: {
+      label: 'Contable', icon: '🧮', color: 'purple',
+      desc: 'Acceso exclusivo a los reportes financieros y al módulo de finanzas.'
+    }
+  };
+  // Roles heredados que NO son de Fase A, pero conviven en `roles` porque
+  // `rol` forma parte del conjunto. Sirven para derivar el rol principal.
+  var ROLES_BASE = ['superadmin', 'gestor', 'avanzado', 'estudiante'];
+
+  // Normaliza el documento de usuario a un arreglo de roles sin duplicados
+  // ni valores basura. Acepta tanto el documento completo como un par
+  // {rol, roles}. Tolera que `roles` no sea un arreglo (un documentoEdited a
+  // mano puede tener cualquier cosa ahí) y que falte el campo.
+  function normalizarRoles(data) {
+    var out = [];
+    if (!data) return out;
+    var arr = data.roles;
+    if (Object.prototype.toString.call(arr) === '[object Array]') {
+      for (var i = 0; i < arr.length; i++) {
+        var r = arr[i];
+        if (typeof r === 'string' && r && out.indexOf(r) === -1) out.push(r);
+      }
+    }
+    if (typeof data.rol === 'string' && data.rol && out.indexOf(data.rol) === -1) {
+      out.push(data.rol);
+    }
+    return out;
+  }
+  // ¿La sesión tiene este rol? Responde sobre el conjunto efectivo.
+  function tieneRol(r) { return userRoles.indexOf(r) !== -1; }
+  // Rol "contable": acceso exclusivo al módulo de finanzas y a los reportes
+  // financieros. El superadmin lo incluye por bypass.
+  function esContable() { return tieneRol('contable'); }
+  // Rol "coordinador de comunidad": vista de la red MLM jerárquica de 4
+  // niveles de su propia red. El superadmin lo incluye por bypass.
+  function esCoordinador() { return tieneRol('coordinador_comunidad'); }
+  // Rol "cursos de pago": acceso al contenido y a los cursos prémium.
+  function esCursosPago() { return tieneRol('cursos_pago'); }
+  // El módulo de finanzas/balances y sus reportes quedan restringidos a
+  // estos dos roles: ni estudiantes, ni gestores, ni coordinators.
+  function puedeVerFinanzas() { return esContable() || esAdmin(); }
+  // La vista jerárquica de la red la pueden abrir los coordinadores y el
+  // superadmin (que la ve completa).
+  function puedeVerRedCoordinador() { return esCoordinador() || esAdmin(); }
+  // Vista UNIFICADA "Red MLM": un solo ítem de menú para las dos caras de
+  // la red. La abre el superadmin (que alterna entre la red global completa
+  // y su propio árbol de 4 niveles) y el coordinador de comunidad (que ve
+  // su árbol de 4 niveles). El conjunto de roles es el mismo que el de la
+  // vista de árbol, porque el superadmin ya entra por bypass.
+  function puedeVerRedMlm() { return puedeVerRedCoordinador(); }
 
   /* ─── UID DE SESIÓN (FUENTE ÚNICA) ── Centralizado aquí.
      DEBE usarse en absolutamente TODAS las operaciones de lectura y
@@ -340,7 +431,12 @@
     var ref = db.collection(COL_USUARIOS).doc(user.uid);
     return ref.get()
       .then(function (doc) {
-        if (doc.exists) return { rol: doc.data().rol || 'estudiante' };
+        if (doc.exists) {
+          var data = doc.data() || {};
+          // Se devuelve el rol principal Y el arreglo de roles: el core los
+          // necesita para reconstruir el conjunto efectivo de la sesión.
+          return { rol: data.rol || 'estudiante', roles: data.roles || [] };
+        }
         return confirmarPerfilEliminado(user, intentos);
       })
       .catch(function (err) {
@@ -414,6 +510,11 @@
         nombre: datos.nombre || '',
         email: datos.email || user.email || '',
         rol: datos.rol || 'estudiante',
+        // El conjunto de roles nace completo y coherente con el rol
+        // principal: un usuario nuevo es 'estudiante' y no tiene todavía
+        // ningún rol de Fase A. El superadmin puede combinarlos después
+        // desde el panel de usuarios.
+        roles: [datos.rol || 'estudiante'],
         estado: 'Activo',
         creado: new Date().toISOString(),
         anonimo: false,
@@ -689,7 +790,7 @@
         }
         lastSessionKey = sessionKey;
         ensureUserDoc(user)
-          .then(function (r) { startApp(r.rol); })
+          .then(function (r) { startApp(r.rol, r.roles); })
           .catch(function () {
             if (forceLoginPending) return;
             showFbError('No se pudo inicializar tu perfil. Recarga la página.');
@@ -723,23 +824,44 @@
      en la función que abre el panel: showView es alcanzable también desde las
      migas de pan y desde cualquier módulo, así que un guard repartido en
      varios sitios dejaría la puerta abierta en cuanto se añadiera una ruta
-     nueva. viewRedGlobal y viewSuperadmin (el panel del super admin) quedan
-     cubiertos por la MISMA comprobación.
+     nueva. viewSuperadmin (el panel del super admin) queda cubierto por la
+     MISMA comprobación. La red global ya NO es una vista aparte: vive dentro
+     de la vista unificada "Red MLM", cuya pestaña global se oculta por rol y
+     la comprueba además el propio selector de pestaña.
 
      Cuando se deniega se cae al Escritorio. No hace falta tocar la pila: la
      vista solicitada se sustituye por viewDashboard ANTES de apilarla, así que
      "← Volver" nunca reencuentra una vista prohibida. */
-  var VISTAS_SOLO_SUPERADMIN = ['viewRedGlobal', 'viewSuperadmin'];
+  var VISTAS_SOLO_SUPERADMIN = ['viewSuperadmin'];
+
+  /* Vistas con ACCESO RESTRINGIDO POR ROL. Cada entrada trae su propia
+     condición, así que añadir un rol nuevo no obliga a reescribir este
+     bloque: se declara la vista y su predicado y el guard la aplica.
+     - viewFinanzas / viewReportes → solo 'contable' o 'superadmin'.
+     - viewRedMlm               → superadmin o 'coordinador_comunidad'. */
+  var VISTAS_POR_ROL = {
+    viewFinanzas: puedeVerFinanzas,
+    viewReportes: puedeVerFinanzas,
+    viewRedMlm: puedeVerRedMlm
+  };
 
   function showView(id) {
     if (VISTAS_SOLO_SUPERADMIN.indexOf(id) !== -1 && !esAdmin()) {
       toast('Acceso restringido al super administrador.', true);
       id = 'viewDashboard';
     }
+    // Guard por rol: la navegación lateral, las migas de pan y cualquier
+    // enlace interno pasan por aquí, así que la puerta queda cerrada en un
+    // solo punto (igual que el guard de superadmin de arriba).
+    var guardRol = VISTAS_POR_ROL[id];
+    if (guardRol && !guardRol()) {
+      toast('Acceso restringido: tu rol no incluye este módulo.', true);
+      id = 'viewDashboard';
+    }
     var top = _navHistory[_navHistory.length - 1];
     if (top !== id) _navHistory.push(id);
     if (_navHistory.length > 20) _navHistory.shift();
-    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewPodcasts', 'viewTienda', 'viewFinanzas', 'viewReportes', 'viewRedGlobal', 'viewSuperadmin'];
+    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewPodcasts', 'viewTienda', 'viewFinanzas', 'viewReportes', 'viewRedMlm', 'viewSuperadmin'];
     allViews.forEach(function (v) {
       var node = $(v);
       if (node) node.classList.toggle('active', v === id);
@@ -789,8 +911,8 @@
         return [dash, { label: 'Finanzas' }];
       case 'viewReportes':
         return [dash, { label: 'Reportes Financieros' }];
-      case 'viewRedGlobal':
-        return [dash, { label: 'Red MLM Global' }];
+      case 'viewRedMlm':
+        return [dash, { label: 'Red MLM' }];
       case 'viewSuperadmin':
         return [dash, { label: 'Panel Super Admin' }];
       default:
@@ -1055,7 +1177,18 @@
     }
   }
 
+  /* Módulo de finanzas y balances. A PARTIR DE LA FASE A el acceso queda
+     restringido a los roles 'contable' y 'superadmin': ni estudiantes, ni
+     gestores, ni coordinadores entran al módulo. El guard se repite aquí
+     (además del guard por rol de showView) porque showFinanzas() y
+     showReportes() son la frontera de UX: avisan y devuelven al Escritorio
+     en vez de dejar la vista a medio pintar. */
   function showFinanzas() {
+    if (!puedeVerFinanzas()) {
+      toast('Acceso restringido: se requiere el rol Contable.', true);
+      goDashboard();
+      return;
+    }
     showView('viewFinanzas');
     try {
       if (typeof V.onFinanzasShow === 'function') V.onFinanzasShow();
@@ -1065,6 +1198,11 @@
   }
 
   function showReportes() {
+    if (!puedeVerFinanzas()) {
+      toast('Acceso restringido: se requiere el rol Contable.', true);
+      goDashboard();
+      return;
+    }
     showView('viewReportes');
     try {
       if (typeof V.onReportesShow === 'function') V.onReportesShow();
@@ -1073,22 +1211,117 @@
     }
   }
 
+  /* ═══ VISTA UNIFICADA "RED MLM" ══════════════════════════════
+     Un único ítem de menú para las dos caras de la red:
+       · 'global' → la red completa de la plataforma (métricas, multinivel
+         y dinero). EXCLUSIVA del superadmin: el botón se oculta por rol y
+         la función la vuelve a denegar si alguien la fuerza.
+       · 'propia' → el árbol jerárquico de 4 niveles del usuario. La ven los
+         coordinadores de comunidad y el superadmin.
+     El superadmin puede ALTERNAR entre las dos; el coordinador solo ve la
+     suya, así que el conmutador se oculta cuando solo hay una opción.
+
+     RED_MLM_TAB recuerda la última pestaña usada: al volver a abrir la vista
+     desde el menú lateral, el superadmin aterriza donde se quedó. Vacío al
+     principio = todavía no ha abierto la vista (la primera vez se le abre la
+     global, que es lo que le interesa como administrador). */
+  var RED_MLM_TAB = '';
+
+  function setRedMlmTab(tab) {
+    // La pestaña global exige superadmin; si no lo es, se cae a la propia.
+    var esGlobal = tab === 'global' && esAdmin();
+    var esPropia = !esGlobal && puedeVerRedCoordinador();
+    if (!esGlobal && !esPropia) {
+      toast('Acceso restringido: tu rol no incluye la Red MLM.', true);
+      goDashboard();
+      return;
+    }
+    RED_MLM_TAB = esGlobal ? 'global' : 'propia';
+
+    var panelGlobal = $('redMlmPanelGlobal');
+    var panelPropia = $('redMlmPanelPropia');
+    if (panelGlobal) panelGlobal.style.display = esGlobal ? '' : 'none';
+    if (panelPropia) panelPropia.style.display = esGlobal ? 'none' : '';
+
+    // Estado visual del conmutador.
+    var tabGlobal = $('redMlmTabGlobal');
+    var tabPropia = $('redMlmTabPropia');
+    if (tabGlobal) {
+      tabGlobal.classList.toggle('is-active', esGlobal);
+      tabGlobal.style.display = esAdmin() ? '' : 'none';
+    }
+    if (tabPropia) {
+      tabPropia.classList.toggle('is-active', !esGlobal);
+      tabPropia.style.display = puedeVerRedCoordinador() ? '' : 'none';
+    }
+    var tabs = $('redMlmTabs');
+    // Con una sola pestaña disponible el conmutador sobra: se oculta.
+    if (tabs) tabs.style.display = (esAdmin() && puedeVerRedCoordinador()) ? '' : 'none';
+
+    var sub = $('redMlmSubtitle');
+    if (sub) {
+      sub.textContent = esGlobal
+        ? 'Multinivel y dinero de toda la plataforma: métricas globales, comisiones MLM y estructura completa.'
+        : 'Tu red de comunidad en 4 niveles: Nivel 1 (referidos directos), Nivel 2, Nivel 3 y Nivel 4.';
+    }
+
+    // Cada panel carga lo suyo: el global lo pinta el módulo MLM y el árbol
+    // jerárquico, el módulo de roles.
+    try {
+      if (esGlobal) {
+        if (typeof V.onRedGlobalShow === 'function') V.onRedGlobalShow();
+      } else {
+        if (typeof V.onRedCoordinadorShow === 'function') V.onRedCoordinadorShow();
+      }
+    } catch (e) {
+      toast('No se pudo cargar la Red MLM: ' + (e && e.message ? e.message : e), true);
+    }
+  }
+
+  /* Punto de entrada único de la vista "Red MLM". Sin `tab` se abre la
+     pestaña que le corresponde por rol: la global para el superadmin y la
+     propia para el coordinador. */
+  function showRedMlm(tab) {
+    if (!puedeVerRedMlm()) {
+      toast('Acceso restringido: se requiere el rol Coordinador de comunidad.', true);
+      goDashboard();
+      return;
+    }
+    showView('viewRedMlm');
+    // Sin destino explícito: se recuerda la última pestaña usada y, si no
+    // hay ninguna (o ya no le corresponde al rol), la que toca por rol.
+    var destino = tab;
+    if (!destino) {
+      destino = (RED_MLM_TAB === 'global' && esAdmin()) ? 'global'
+              : (RED_MLM_TAB === 'propia' && puedeVerRedCoordinador()) ? 'propia'
+              : (esAdmin() ? 'global' : 'propia');
+    }
+    setRedMlmTab(destino);
+  }
+
+  /* Vista jerárquica de la red MLM en 4 niveles (pestaña "Mi red"). La abren
+     los coordinadores de comunidad y el superadmin (que la ve completa); el
+     guard se repite aquí por la misma razón que en showFinanzas/showReportes. */
+  function showRedCoordinador() {
+    if (!puedeVerRedCoordinador()) {
+      toast('Acceso restringido: se requiere el rol Coordinador de comunidad.', true);
+      goDashboard();
+      return;
+    }
+    showRedMlm('propia');
+  }
+
   function showRedGlobal() {
     if (!esAdmin()) {
       toast('Acceso restringido a administradores.', true);
       goDashboard();
       return;
     }
-    showView('viewRedGlobal');
-    try {
-      if (typeof V.onRedGlobalShow === 'function') V.onRedGlobalShow();
-    } catch (e) {
-      toast('No se pudo cargar la Red Global: ' + (e && e.message ? e.message : e), true);
-    }
+    showRedMlm('global');
   }
 
   /* Panel exclusivo del super administrador. El guard se repite aquí a
-     propósito, aunque showView ya lo aplica: showRedGlobal y showSuperadmin son
+     propósito, aunque showView ya lo aplica: showRedMlm y showSuperadmin son
      la frontera de UX (avisan y devuelven al Escritorio) y showView la de
      navegación. Si alguien añadiera una entrada nueva y solo pasara por una de
      las dos, la otra sigue cerrada. */
@@ -1117,17 +1350,32 @@
     // su propia red para el rol avanzado. Reportes Financieros y Red MLM
     // Global siguen siendo exclusivos de superadmin (consolidan la base
     // completa y los porcentajes, que el avanzado no debe ver).
-    // Finanzas: visible para CUALQUIER usuario con sesión (estudiante, miembro,
-    // gestor, avanzado, superadmin) para que puedan realizar su aporte o
-    // donación. La gestión/CRUD interno sigue restringido dentro del módulo.
-    var veFinanzas = (!!uidSesion() || !!userId) && !isAnon;
+    // FASE A · multi-rol: el módulo de finanzas/balances y los reportes
+    // quedan restringidos a 'contable' y 'superadmin'. El resto de roles
+    // (estudiante, avanzado, gestor, coordinador, cursos de pago) ya NO
+    // ven el enlace: el acceso al módulo lo decide el rol, no la sesión.
+    // El panel de aporte del Escritorio sigue abierto para cualquier
+    // miembro (es el autoservicio de donación, no el módulo contable).
+    var veFinanzas = puedeVerFinanzas();
     var linkFinanzas = $('sidebarLinkFinanzas');
     if (linkFinanzas) linkFinanzas.style.display = veFinanzas ? '' : 'none';
     var linkReportes = $('sidebarLinkReportes');
-    if (linkReportes) linkReportes.style.display = isAdmin ? '' : 'none';
-    // Red MLM Global: página independiente del multinivel, solo superadmin.
-    var linkRedGlobal = $('sidebarLinkRedGlobal');
-    if (linkRedGlobal) linkRedGlobal.style.display = isAdmin ? '' : 'none';
+    if (linkReportes) linkReportes.style.display = veFinanzas ? '' : 'none';
+    // Red MLM (UNIFICADA): un solo ítem para las dos caras de la red.
+    //  · superadmin → red global completa + su propio árbol de 4 niveles;
+    //  · coordinador_comunidad → su árbol de 4 niveles.
+    var linkRedMlm = $('sidebarLinkRedMlm');
+    if (linkRedMlm) linkRedMlm.style.display = puedeVerRedMlm() ? '' : 'none';
+    // Las pestañas de la vista unificada también dependen del rol: la global
+    // es del superadmin y la de árbol, de coordinadores y superadmin. Si solo
+    // hay una disponible, el conmutador se oculta (se aplica en
+    // setRedMlmTab, que además marca la pestaña activa).
+    var tabGlobal = $('redMlmTabGlobal');
+    if (tabGlobal) tabGlobal.style.display = isAdmin ? '' : 'none';
+    var tabPropia = $('redMlmTabPropia');
+    if (tabPropia) tabPropia.style.display = puedeVerRedCoordinador() ? '' : 'none';
+    var tabsRed = $('redMlmTabs');
+    if (tabsRed) tabsRed.style.display = (isAdmin && puedeVerRedCoordinador()) ? '' : 'none';
     // Panel del Super Admin: reúne los ajustes que solo el superadmin puede
     // tocar (hoy, el video corporativo de la portada). Se oculta por rol, y
     // además showView lo vuelve a denegar a quien llegue por otra ruta.
@@ -1136,7 +1384,7 @@
     // El avanzado no administra cursos: se oculta el botón de modo Gestor y
     // solo queda el modo Estudiante (los controles de texto se conservan).
     var btnGestor = $('modeGestor');
-    if (btnGestor) btnGestor.style.display = esAvanzado() ? 'none' : '';
+    if (btnGestor) btnGestor.style.display = (esAvanzado() && !esAdmin() && !tieneRol('gestor')) ? 'none' : '';
     var settings = $('sidebarSettings');
     if (settings) settings.style.display = '';
     // Solo se oculta el selector de "Modo de vista", no todo el bloque: los
@@ -1167,7 +1415,7 @@
       viewAdmin: 'admin',
       viewFinanzas: 'finanzas',
       viewReportes: 'reportes',
-      viewRedGlobal: 'redglobal',
+      viewRedMlm: 'redmlm',
       viewSuperadmin: 'superadmin'
     };
     var key = navMap[current] || '';
@@ -1191,7 +1439,7 @@
       case 'viewTienda': label = 'Tienda'; break;
       case 'viewFinanzas': label = 'Finanzas'; break;
       case 'viewReportes': label = 'Reportes Financieros'; break;
-      case 'viewRedGlobal': label = 'Red MLM Global'; break;
+      case 'viewRedMlm': label = 'Red MLM'; break;
       case 'viewSuperadmin': label = 'Panel Super Admin'; break;
       case 'viewCatalog': label = ($('catalogTitle') && $('catalogTitle').textContent) || 'Cursos'; break;
       case 'viewCourse': label = ($('courseTitle') && $('courseTitle').textContent) || 'Curso'; break;
@@ -1250,7 +1498,7 @@
       case 'admin': setMode('admin'); break;
       case 'finanzas': showFinanzas(); break;
       case 'reportes': showReportes(); break;
-      case 'redglobal': showRedGlobal(); break;
+      case 'redmlm': showRedMlm(); break;
       case 'superadmin': showSuperadmin(); break;
       default: break;
     }
@@ -1370,11 +1618,11 @@
   /* ─── MODE SWITCH ─────────────────────────────────────────── */
   function setMode(m) {
     if (m !== 'gestor' && m !== 'estudiante' && m !== 'admin') return;
-    if (m === 'gestor' && userRole !== 'gestor' && userRole !== 'superadmin') {
+    if (m === 'gestor' && !tieneRol('gestor') && !esAdmin()) {
       toast('Tu rol no permite el modo Gestor.');
       return;
     }
-    if (m === 'admin' && userRole !== 'superadmin') return;
+    if (m === 'admin' && !esAdmin()) return;
     mode = m;
     V.mode = m;
     localStorage.setItem('vconv_mode', m === 'admin' ? 'gestor' : m);
@@ -1430,9 +1678,14 @@
     // y volver a llamarlo solo repetiría el pintado de todos los módulos.
     return true;
   }
-  function startApp(rol) {
-    userRole = rol;
-    V.userRole = rol;
+  function startApp(rol, roles) {
+    userRole = rol || 'estudiante';
+    // Conjunto efectivo de roles = unión del rol principal y del arreglo
+    // `roles` del documento. Se calcula AQUÍ, antes de cualquier esAdmin():
+    // todas las guardas de la interfaz leen el conjunto, no el rol suelto.
+    userRoles = normalizarRoles({ rol: userRole, roles: roles });
+    V.userRole = userRole;
+    V.userRoles = userRoles;
     V.userId = userId;
     V.currentUser = currentUser;
     V.db = db;
@@ -1449,11 +1702,12 @@
     if (isAnon) {
       // Visitantes: siempre modo estudiante y sin permisos de gestión.
       userRole = 'estudiante';
+      userRoles = [];
+      V.userRole = userRole;
+      V.userRoles = userRoles;
       mode = 'estudiante';
-    } else if (rol === 'gestor') mode = 'gestor';
-    else if (rol === 'estudiante') mode = 'estudiante';
-    else if (rol === 'avanzado') mode = 'estudiante';
-    else if (rol === 'superadmin') mode = 'gestor';
+    } else if (esAdmin() || tieneRol('gestor')) mode = 'gestor';
+    else mode = 'estudiante';
     localStorage.setItem('vconv_mode', mode);
 
     applyTheme();
@@ -1487,7 +1741,7 @@
     }
     appStarted = true;
     bindEvents();
-    $('modeAdmin').style.display = userRole === 'superadmin' ? '' : 'none';
+    $('modeAdmin').style.display = esAdmin() ? '' : 'none';
     setMode(mode);
 
     // Visitante sin sesión: se MANTIENE la landing page principal; NO hay
@@ -1537,7 +1791,7 @@
     if (isAnon) setupGuestChip(currentUser); else setupUserChip(currentUser);
     var logoutBtn = $('btnLogout');
     if (logoutBtn) logoutBtn.textContent = isAnon ? '🔐 Crear cuenta' : 'Salir';
-    $('modeAdmin').style.display = userRole === 'superadmin' ? '' : 'none';
+    $('modeAdmin').style.display = esAdmin() ? '' : 'none';
     updateSidebarAccess();
     setMode(mode);
     goDashboard();
@@ -1562,7 +1816,7 @@
       refreshAuthUi();
       return;
     }
-    ensureUserDoc(user).then(function (r) { startApp(r.rol); }).catch(function () {});
+    ensureUserDoc(user).then(function (r) { startApp(r.rol, r.roles); }).catch(function () {});
   }
 
   /* ─── EVENTS ──────────────────────────────────────────────── */
@@ -1604,6 +1858,18 @@
     }
     var sidebarLogoutBtn = $('btnLogout');
     if (sidebarLogoutBtn) sidebarLogoutBtn.addEventListener('click', handleLogout);
+    // Conmutador de pestañas de la vista unificada "Red MLM": el superadmin
+    // alterna entre la red global y su árbol de 4 niveles. Se delega con
+    // `data-red-tab` para que el marcado y la lógica no dependan uno del otro.
+    var tabsRed = $('redMlmTabs');
+    if (tabsRed) {
+      tabsRed.addEventListener('click', function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest('[data-red-tab]') : null;
+        if (!btn) return;
+        e.preventDefault();
+        setRedMlmTab(btn.getAttribute('data-red-tab'));
+      });
+    }
     updateSidebarAccess();
   }
 
@@ -1758,6 +2024,11 @@
   V.showFinanzas = showFinanzas;
   V.showReportes = showReportes;
   V.showRedGlobal = showRedGlobal;
+  V.showRedCoordinador = showRedCoordinador;
+  // Vista unificada "Red MLM": showRedMlm() abre la pestaña que le toca por
+  // rol y setRedMlmTab() alterna entre la global y la propia.
+  V.showRedMlm = showRedMlm;
+  V.setRedMlmTab = setRedMlmTab;
   V.showSuperadmin = showSuperadmin;
   V.showPortal = showPortal;
   V.showPublicPortal = showPublicPortal;
@@ -1796,6 +2067,22 @@
   V.esAdmin = esAdmin;
   V.canManage = canManage;
   V.esAvanzado = esAvanzado;
+  // ─── API DE ROLES (Fase A · multi-rol) ───────────────────────
+  // V.tieneRol('contable') → ¿la sesión tiene ese rol?
+  // V.userRoles            → conjunto efectivo de roles de la sesión.
+  // V.ROLES_MULTI          → catálogo de los roles de Fase A (etiqueta,
+  //                           icono y descripción) para pintar interfaces.
+  V.tieneRol = tieneRol;
+  V.esContable = esContable;
+  V.esCoordinador = esCoordinador;
+  V.esCursosPago = esCursosPago;
+  V.puedeVerFinanzas = puedeVerFinanzas;
+  V.puedeVerRedCoordinador = puedeVerRedCoordinador;
+  V.puedeVerRedMlm = puedeVerRedMlm;
+  V.normalizarRoles = normalizarRoles;
+  V.ROLES_MULTI = ROLES_MULTI;
+  V.ROLES_BASE = ROLES_BASE;
+  V.userRoles = userRoles;
   V.userRole = userRole;
   V.userId = userId;
   V.uidSesion = uidSesion;

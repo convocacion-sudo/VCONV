@@ -745,8 +745,20 @@ td.setAttribute('colspan', '13');
         selRol.appendChild(opt);
       });
       if (u.uid === V.userId) selRol.disabled = true;
-      selRol.addEventListener('change', function () { updateField(u.uid, 'rol', this.value); });
+      selRol.addEventListener('change', function () { actualizarRolPrincipal(u.uid, this.value); });
       tdRol.appendChild(selRol);
+      // Píldoras del CONJUNTO de roles (Fase A): el select de arriba cambia
+      // el rol principal, pero el usuario puede tener otros roles activos
+      // a la vez (contable, coordinador, cursos de pago…).
+      var rolesU = rolesEfectivos(u);
+      if (rolesU.length > 1) {
+        var celdaRoles = el('div', 'admin-roles-cell');
+        rolesU.forEach(function (r) {
+          var pill = el('span', 'admin-role-pill is-' + r, etiquetaDeRol(r));
+          celdaRoles.appendChild(pill);
+        });
+        tdRol.appendChild(celdaRoles);
+      }
       tr.appendChild(tdRol);
 
       // Estado
@@ -1169,6 +1181,164 @@ td.setAttribute('colspan', '13');
     $('crmViewOverlay').classList.remove('show');
   }
 
+  /* ─── ROLES (Fase A · multi-rol) ─────────────────────────────
+     El documento usuarios/{uid} guarda el rol PRINCIPAL en `rol` y el
+     CONJUNTO completo en `roles`. El panel escribe los dos siempre
+     sincronizados: si el administrador cambia el rol principal desde la
+     tabla, el conjunto se recalcula para que nadie conserve por error un
+     permiso que ya no corresponde (por ejemplo, seguir siendo
+     superadmin tras degradar a alguien). */
+  function rolesEfectivos(u) {
+    if (V.roles && V.roles.rolesDe) return V.roles.rolesDe(u || {});
+    var out = [];
+    var arr = u && u.roles;
+    if (Object.prototype.toString.call(arr) === '[object Array]') {
+      arr.forEach(function (r) {
+        if (typeof r === 'string' && r && out.indexOf(r) === -1) out.push(r);
+      });
+    }
+    if (u && typeof u.rol === 'string' && u.rol && out.indexOf(u.rol) === -1) out.push(u.rol);
+    return out;
+  }
+
+  function etiquetaDeRol(r) {
+    if (V.roles && V.roles.etiquetaRol) return V.roles.etiquetaRol(r);
+    return r;
+  }
+
+  // Catálogo de roles de Fase A que se ofrecen como casillas.
+  function rolesFaseA() {
+    if (V.roles && V.roles.ROLES_FASE_A) {
+      return Object.keys(V.roles.ROLES_FASE_A).map(function (k) {
+        return { id: k, meta: V.roles.ROLES_FASE_A[k] };
+      });
+    }
+    return [];
+  }
+
+  // Construye la rejilla de casillas de roles del formulario.
+  function construirGridRoles() {
+    var grid = $('crmRolesGrid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    rolesFaseA().forEach(function (r) {
+      var item = el('label', 'crm-roles-item');
+      item.setAttribute('data-rol', r.id);
+      var chk = document.createElement('input');
+      chk.type = 'checkbox';
+      chk.value = r.id;
+      chk.id = 'crmRolChk_' + r.id;
+      var body = el('div', 'crm-roles-item-body');
+      body.appendChild(el('span', 'crm-roles-item-title', (r.meta.icon ? r.meta.icon + ' ' : '') + r.meta.label));
+      body.appendChild(el('span', 'crm-roles-item-desc', r.meta.desc || ''));
+      item.appendChild(chk);
+      item.appendChild(body);
+      chk.addEventListener('change', function () {
+        item.classList.toggle('is-on', chk.checked);
+        if (chk.checked && chk.value === 'superadmin') {
+          // El superadmin debe ser también el ROL PRINCIPAL: el código
+          // heredado (y varias reglas) leen `rol`, no el conjunto.
+          var sel = $('crmRol');
+          if (sel) sel.value = 'superadmin';
+        }
+      });
+      grid.appendChild(item);
+    });
+  }
+
+  // Marca las casillas según los roles que ya tiene el usuario.
+  function pintarRolesFormulario(user) {
+    var grid = $('crmRolesGrid');
+    if (!grid) return;
+    var actuales = rolesEfectivos(user);
+    grid.querySelectorAll('input[type="checkbox"]').forEach(function (chk) {
+      var on = actuales.indexOf(chk.value) !== -1;
+      chk.checked = on;
+      var item = chk.closest ? chk.closest('.crm-roles-item') : null;
+      if (item) item.classList.toggle('is-on', on);
+    });
+    // El rol principal nunca se desmarca solo: si el usuario tiene
+    // superadmin, el select debe reflejarlo.
+    var sel = $('crmRol');
+    if (sel && actuales.indexOf('superadmin') !== -1) sel.value = 'superadmin';
+  }
+
+  // Conjunto que se guardará: el rol principal elegido + las casillas.
+  function rolesSeleccionadosFormulario() {
+    var set = [];
+    function push(r) {
+      if (r && set.indexOf(r) === -1) set.push(r);
+    }
+    var sel = $('crmRol');
+    var principal = sel ? sel.value : 'estudiante';
+    push(principal);
+    var grid = $('crmRolesGrid');
+    if (grid) {
+      grid.querySelectorAll('input[type="checkbox"]').forEach(function (chk) {
+        if (chk.checked) push(chk.value);
+      });
+    }
+    // Si el superadmin está marcado, deja de ser solo un rol adicional:
+    // pasa a ser el rol principal (el código heredado lee `rol`).
+    if (set.indexOf('superadmin') !== -1) {
+      var i = set.indexOf('superadmin');
+      if (i > 0) { set.splice(i, 1); set.unshift('superadmin'); }
+      if (sel) sel.value = 'superadmin';
+    }
+    return { roles: set, principal: set.indexOf('superadmin') !== -1 ? 'superadmin' : principal };
+  }
+
+  // Cambio del rol principal desde la tabla: recalcula el conjunto para
+  // que `rol` y `roles` no se contradigan.
+  function actualizarRolPrincipal(uid, nuevoRol) {
+    if (!V.db || !uid || !nuevoRol) return;
+    var ref = V.db.collection(V.COL_USUARIOS).doc(uid);
+    ref.get().then(function (doc) {
+      if (!doc.exists) { V.toast('El perfil ya no existe.', true); renderAll(); return; }
+      var data = doc.data() || {};
+      var actuales = rolesEfectivos(data);
+      var nuevo = [];
+      actuales.forEach(function (r) {
+        if (r === data.rol) return; // se sustituye por el nuevo principal
+        if (nuevo.indexOf(r) === -1) nuevo.push(r);
+      });
+      if (nuevo.indexOf(nuevoRol) === -1) nuevo.unshift(nuevoRol);
+      var payload = { rol: nuevoRol, roles: nuevo };
+      return ref.update(payload).then(function () {
+        V.toast('Rol actualizado ✓');
+        renderAll();
+      }).catch(function (e) {
+        V.toast('Error: ' + e.message, true);
+        renderAll();
+      });
+    }).catch(function (e) {
+      V.toast('Error: ' + e.message, true);
+    });
+  }
+
+  // Reconstruye el índice de red (`camino`) de todos los usuarios. Es el
+  // mantenimiento del índice que usa la vista jerárquica del coordinador.
+  function reconstruirIndiceRed() {
+    if (!V.roles || !V.roles.reconstruirIndice) {
+      V.toast('El módulo de roles no está disponible.', true);
+      return;
+    }
+    if (!confirm('Se recalculará la ruta de patrocinio (camino) de TODOS los usuarios.\n¿Continuar?')) return;
+    var btn = $('btnReindexRed');
+    var original = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Reconstruyendo…'; }
+    V.roles.reconstruirIndice(function (hechos, total) {
+      if (btn) btn.textContent = '⏳ ' + hechos + '/' + total;
+    }).then(function (cambios) {
+      if (btn) { btn.disabled = false; btn.textContent = original; }
+      V.toast('Índice de red reconstruido ✓ (' + cambios + ' actualizados)');
+      renderAll();
+    }).catch(function (e) {
+      if (btn) { btn.disabled = false; btn.textContent = original; }
+      V.toast('Error: ' + (e && e.message ? e.message : e), true);
+    });
+  }
+
   /* ─── EXTENDED FORM ───────────────────────────────────────── */
   function openForm(user) {
     editingUser = user;
@@ -1198,6 +1368,8 @@ td.setAttribute('colspan', '13');
     if (chkVendedor) chkVendedor.checked = !!user.vendedorAutorizado;
     $('crmRol').value = user.rol || 'estudiante';
     $('crmEstado').value = user.estado || 'Activo';
+    // Roles adicionales (Fase A): se pintan marcados los que ya tiene.
+    pintarRolesFormulario(user);
 
     // Perfil: carga en directo desde config/perfiles cada vez que se abre el modal.
     populatePerfilSelect(user.perfil);
@@ -1474,6 +1646,9 @@ td.setAttribute('colspan', '13');
       }
     }
     var sexoVal = $('crmSexo').value;
+    // Roles (Fase A): el conjunto completo se guarda en `roles` y el rol
+    // principal en `rol`, SIEMPRE sincronizados.
+    var selRoles = rolesSeleccionadosFormulario();
     var data = {
       apellido: $('crmApellido').value.trim(),
       documento: $('crmDocumento').value.trim(),
@@ -1485,7 +1660,8 @@ td.setAttribute('colspan', '13');
       departamento: $('crmDepartamento').value,
       ciudad: $('crmCiudad').value,
       barrio: barrioVal,
-      rol: $('crmRol').value,
+      rol: selRoles.principal,
+      roles: selRoles.roles,
       estado: $('crmEstado').value,
       perfil: $('crmPerfil').value,
       profesion: profesionVal,
@@ -1523,9 +1699,25 @@ td.setAttribute('colspan', '13');
         V.toast(patrocinio.error, true);
         return;
       }
-      if (patrocinio && patrocinio.aplicar) data.sponsorId = patrocinio.sponsorId;
+      var cambioPatrocinio = !!(patrocinio && patrocinio.aplicar);
+      if (cambioPatrocinio) data.sponsorId = patrocinio.sponsorId;
       return V.db.collection(V.COL_USUARIOS).doc(editingUser.uid).update(data)
-        .then(function () { V.toast('Perfil actualizado ✓'); closeForm(); })
+        .then(function () {
+          // Si cambió el patrocinador, o el usuario quedó como coordinador
+          // de comunidad, se recalcula su índice de red (`camino`): es lo
+          // que usa la vista jerárquica de 4 niveles y lo que las reglas
+          // de Firestore validan contra la cadena real de patrocinio.
+          var necesitaIndice = cambioPatrocinio
+            || selRoles.roles.indexOf('coordinador_comunidad') !== -1;
+          var cerrar = function () {
+            V.toast('Perfil actualizado ✓');
+            closeForm();
+          };
+          if (necesitaIndice && V.roles && V.roles.asegurarCamino) {
+            return V.roles.asegurarCamino(editingUser.uid, true).then(cerrar).catch(cerrar);
+          }
+          cerrar();
+        })
         .catch(function (e) { V.toast('Error: ' + e.message, true); });
     }).then(function () {
       btn.disabled = false;
@@ -2300,6 +2492,12 @@ td.setAttribute('colspan', '13');
       if (bulkDelete) bulkDelete.addEventListener('click', bulkDeleteUsers);
       var bulkCancel = $('adminBulkCancel');
       if (bulkCancel) bulkCancel.addEventListener('click', clearSelection);
+
+      // Roles (Fase A): rejilla de casillas del formulario + mantenimiento
+      // del índice de red.
+      construirGridRoles();
+      var btnReindex = $('btnReindexRed');
+      if (btnReindex) btnReindex.addEventListener('click', reconstruirIndiceRed);
 
       // Form events
       $('crmFormSave').addEventListener('click', saveForm);
