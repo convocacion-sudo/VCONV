@@ -506,9 +506,32 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    /* ── CONFIG WHATSAPP (número del widget flotante) ─────────
+       Un ÚNICO campo: `numero`, el teléfono al que abre la conversación el
+       botón verde de la portada. Su lectura se abre a esPublico() por el
+       mismo motivo que config/portal: el widget está en la landing y quien
+       lo usa es, casi siempre, un visitante SIN sesión. Sin esta rama el
+       enlace wa.me/ se quedaría sin número para todo el mundo menos para
+       las cuentas registradas, que es justo lo contrario de lo que se
+       pretende.
+
+       CONTRATO: solo puede vivir aquí lo que la landing ya pinta en claro
+       (un número de teléfono de contacto), y además va TEXTO PLANO que el
+       cliente convierte a dígitos antes de montar la URL: nada de HTML y
+       nada identificativo de quien lo editó, que sigue sin entrar en un
+       documento público (eso va a superadmin_auditoria).
+
+       La ESCRITURA no se relaja: sigue siendo exclusiva de isAdmin(),
+       igual que el resto de config y que el comodín /config/{id} de arriba. */
+    match /config/whatsapp {
+      allow read: if esPublico() || signedIn();
+      allow write: if isAdmin();
+    }
+
     /* ── AUDITORÍA DEL SUPER ADMIN ────────────────────────────
        Bitácora de los cambios que solo el superadmin puede hacer (hoy, el
-       video corporativo de la portada). Vive FUERA de `config` a propósito:
+       video corporativo de la portada y el número de WhatsApp de soporte).
+       Vive FUERA de `config` a propósito:
        cada bloque de config/{id} abre la lectura a cualquier sesión, y en
        config/portal incluso a visitantes sin cuenta, así que un registro de
        "quién cambió qué" dentro de esa colección sería público.

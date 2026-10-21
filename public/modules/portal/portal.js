@@ -460,6 +460,19 @@
     var tiendaCta = $('portalCtaTienda');
     if (tiendaCta) tiendaCta.addEventListener('click', goTienda);
 
+    // "Chat en Vivo / Soporte" (nav superior y menú lateral): abre la MISMA
+    // ventana flotante que el botón verde de la esquina. preventDefault
+    // porque el href es "#" y saltaría al principio de la página; el menú
+    // lateral se cierra antes, para que no quede tapando el panel.
+    [$('portalChatBtn'), $('portalSidebarChatBtn')].forEach(function (link) {
+      if (!link) return;
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        closeSidebar();
+        if (V.chat && typeof V.chat.open === 'function') V.chat.open();
+      });
+    });
+
     var form = $('contactForm');
     if (form) form.addEventListener('submit', handleContactSubmit);
     CONTACT_FIELDS.forEach(function (id) {

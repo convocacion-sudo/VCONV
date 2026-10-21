@@ -1440,6 +1440,12 @@
     V.storage = storage;
     V.isAnon = isAnon;
 
+    // Número de WhatsApp del widget flotante. Aquí y no en init() porque la
+    // lectura de config/whatsapp depende de la identidad: startApp corre
+    // también tras un login (appStarted), y ahí es donde se reintenta si la
+    // escucha murió por permisos mientras el visitante no tenía sesión.
+    subscribeWhatsApp();
+
     if (isAnon) {
       // Visitantes: siempre modo estudiante y sin permisos de gestión.
       userRole = 'estudiante';
@@ -1601,6 +1607,138 @@
     updateSidebarAccess();
   }
 
+  /* ─── WIDGET DE CHAT WHATSAPP ───────────────────────────────
+     Botón flotante verde + ventana de chat (#waFloatBtn / #waChatPanel en
+     index.html). El número al que se abre la conversación vive en
+     config/whatsapp y lo escribe el superadmin desde su panel: aquí solo se
+     lee, se muestra el panel y se construye el enlace wa.me. */
+  var WA_COLLECTION = 'config';
+  var WA_DOC = 'whatsapp';
+  var waNumero = '';
+  var waUnsub = null;
+
+  // onSnapshot (y no get) para que el número cambie en la portada abierta en
+  // cuanto el superadmin lo guarda, sin recargar. Se reintenta en cada cambio
+  // de identidad: con una sesión invitada la lectura de config/{id} está
+  // cerrada en firestore.rules y la escucha muere por permisos; al liberar el
+  // hueco aquí, startApp() (que corre en cada login) puede volver a abrirla.
+  function subscribeWhatsApp() {
+    if (!db || waUnsub) return;
+    try {
+      waUnsub = db.collection(WA_COLLECTION).doc(WA_DOC).onSnapshot(function (doc) {
+        var data = doc && doc.exists ? doc.data() : {};
+        waNumero = data && typeof data.numero === 'string' ? data.numero.trim() : '';
+      }, function (err) {
+        console.warn('[chat] no se pudo leer config/whatsapp:', err && err.message);
+        try { if (waUnsub) waUnsub(); } catch (e) { /* ya dada de baja */ }
+        waUnsub = null;
+      });
+    } catch (e) {
+      waUnsub = null;
+      console.warn('[chat] no se pudo suscribir a config/whatsapp:', e && e.message);
+    }
+  }
+
+  function chatAbierto() {
+    var panel = $('waChatPanel');
+    return !!(panel && panel.classList.contains('open'));
+  }
+
+  function openChat() {
+    var panel = $('waChatPanel');
+    if (!panel) return;
+    panel.classList.add('open');
+    subscribeWhatsApp();
+    var input = $('waChatInput');
+    if (input) input.focus();
+  }
+
+  function closeChat() {
+    var panel = $('waChatPanel');
+    if (panel) panel.classList.remove('open');
+  }
+
+  function toggleChat() { if (chatAbierto()) closeChat(); else openChat(); }
+
+  // El botón de envío abre WhatsApp con el mensaje escrito. Sin número
+  // guardado no se construye la URL: avisar es mejor que abrir una
+  // conversación a la nada.
+  function enviarChat() {
+    var numero = String(waNumero || '').replace(/\D/g, '');
+    if (!numero) {
+      toast('El canal de WhatsApp de soporte aún no está configurado.', true);
+      return;
+    }
+    var input = $('waChatInput');
+    var texto = input ? String(input.value || '').trim() : '';
+    var mensaje = texto || 'Hola 👋, escribo desde el portal de Vida en Convocación. ¿Me pueden ayudar?';
+    window.open('https://wa.me/' + numero + '?text=' + encodeURIComponent(mensaje), '_blank', 'noopener');
+    if (input) input.value = '';
+  }
+
+  /* Marcado del widget. La plantilla global (index.html) lo trae YA montado,
+     fuera de #appRoot y de #portalScreen, por eso se ve en todas las vistas
+     de la plataforma. Esta construcción es la red de seguridad: si el bloque
+     llegara a faltar en el HTML, se añade al <body> ANTES de enlazar los
+     eventos, de modo que el botón y la ventana existan siempre.
+
+     Los SVG son texto fijo (icono de WhatsApp): nada de datos de usuario ni
+     de contenido editado, así que su innerHTML no abre ninguna puerta. */
+  var WA_ICON_PATH = 'M12.04 2C6.58 2 2.13 6.45 2.13 11.91C2.13 13.66 2.59 15.36 3.45 16.86L2.05 22L7.3 20.62C8.75 21.41 10.38 21.83 12.04 21.83C17.5 21.83 21.95 17.38 21.95 11.92C21.95 9.27 20.92 6.78 19.05 4.91C17.18 3.03 14.69 2 12.04 2M12.05 3.67C14.25 3.67 16.31 4.53 17.87 6.09C19.42 7.65 20.28 9.72 20.28 11.92C20.28 16.46 16.58 20.15 12.04 20.15C10.56 20.15 9.11 19.76 7.85 19.03L7.55 18.83L4.43 19.65L5.26 16.61L5.06 16.29C4.24 14.99 3.8 13.47 3.8 11.91C3.81 7.37 7.5 3.67 12.05 3.67M8.53 7.33C8.37 7.33 8.1 7.39 7.87 7.64C7.65 7.89 7 8.5 7 9.71C7 10.93 7.89 12.1 8 12.27C8.14 12.44 9.76 14.94 12.25 16C12.84 16.25 13.3 16.42 13.66 16.53C14.25 16.72 14.79 16.69 15.22 16.63C15.7 16.56 16.68 16.03 16.89 15.45C17.1 14.87 17.1 14.38 17.04 14.27C16.97 14.17 16.81 14.11 16.56 13.99C16.31 13.87 15.09 13.27 14.87 13.18C14.64 13.1 14.48 13.06 14.31 13.3C14.15 13.55 13.67 14.11 13.53 14.27C13.38 14.44 13.24 14.46 12.99 14.34C12.74 14.21 11.94 13.95 11 13.11C10.26 12.45 9.77 11.64 9.62 11.39C9.48 11.14 9.6 11 9.73 10.88C9.84 10.78 9.98 10.6 10.1 10.45C10.23 10.31 10.27 10.2 10.36 10.04C10.45 9.87 10.41 9.73 10.35 9.61C10.29 9.5 9.77 8.26 9.56 7.77C9.36 7.29 9.16 7.35 9 7.34C8.86 7.34 8.7 7.33 8.53 7.33Z';
+
+  function waWidgetBtnHtml() {
+    return '<button class="wa-float-btn" id="waFloatBtn" aria-label="Chat de Soporte WhatsApp">' +
+      '<svg width="28" height="28" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">' +
+      '<path d="' + WA_ICON_PATH + '"/></svg></button>';
+  }
+
+  function waWidgetPanelHtml() {
+    return '<div class="wa-chat-panel" id="waChatPanel">' +
+      '<div class="wa-chat-header"><div class="wa-chat-header-info">' +
+      '<svg width="24" height="24" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">' +
+      '<path d="' + WA_ICON_PATH + '"/></svg><span>Soporte WhatsApp</span></div>' +
+      '<button class="wa-chat-close" id="waChatClose" aria-label="Cerrar">✕</button></div>' +
+      '<div class="wa-chat-body">' +
+      '<div class="wa-chat-msg">¡Hola! 👋<br>¿En qué podemos ayudarte?</div>' +
+      '<textarea class="wa-chat-input" id="waChatInput" placeholder="Escribe tu mensaje..." rows="3"></textarea>' +
+      '<button class="wa-chat-send" id="waChatSend">Enviar</button>' +
+      '</div></div>';
+  }
+
+  // Idempotente y por partes: solo añade lo que falte, nunca duplica ids. Se
+  // engancha al <body> para que el widget quede por fuera de #appRoot y
+  // #portalScreen y se vea igual en Escritorio, Cursos, Tienda, Pilares o la
+  // portada pública.
+  function mountChatWidget() {
+    if (!document.body) return;
+    var faltan = '';
+    if (!$('waFloatBtn')) faltan += waWidgetBtnHtml();
+    if (!$('waChatPanel')) faltan += waWidgetPanelHtml();
+    if (faltan) document.body.insertAdjacentHTML('beforeend', faltan);
+  }
+
+  // Enlazado en init(), con independencia de la sesión: el widget es un
+  // control estático de la plantilla y debe responder aunque el arranque de
+  // Firebase falle.
+  function bindChatWidget() {
+    mountChatWidget();
+    var floatBtn = $('waFloatBtn');
+    if (floatBtn) floatBtn.addEventListener('click', toggleChat);
+    var closeBtn = $('waChatClose');
+    if (closeBtn) closeBtn.addEventListener('click', closeChat);
+    var sendBtn = $('waChatSend');
+    if (sendBtn) sendBtn.addEventListener('click', enviarChat);
+    var input = $('waChatInput');
+    if (input) {
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); enviarChat(); }
+      });
+    }
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && chatAbierto()) closeChat();
+    });
+  }
+
   /* ─── MODULE REGISTRY ─────────────────────────────────────── */
   V._modules = [];
   V.registerModule = function (mod) { V._modules.push(mod); };
@@ -1639,6 +1777,16 @@
   };
   V.openAuth = openAuth;
   V.closeAuth = closeAuth;
+  // Ventana de chat flotante: la usan los enlaces "Chat en Vivo / Soporte"
+  // de la navegación del portal (portal.js), que abren el mismo panel que el
+  // botón flotante.
+  V.chat = {
+    open: openChat,
+    close: closeChat,
+    toggle: toggleChat,
+    send: enviarChat,
+    mount: mountChatWidget
+  };
   V.setMode = setMode;
   V.toggleTheme = toggleTheme;
   V.changeFont = changeFont;
@@ -1672,6 +1820,9 @@
     // no necesitan sesión, y así funcionan aunque el arranque con la cuenta
     // falle antes de llegar a bindEvents().
     bindReaderControls();
+    // Botón flotante y ventana de chat de WhatsApp: controles estáticos del
+    // HTML de la landing, igual que los del lector, sin depender de sesión.
+    bindChatWidget();
     initFirebase();
     bindAuthEvents();
     if (auth) { initAuth(); }

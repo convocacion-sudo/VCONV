@@ -2,7 +2,7 @@
    VCONV · Panel del Super Admin
    Contenedor de los ajustes que solo el super administrador puede
    cambiar. Hoy, el video corporativo de la portada y los tres textos
-   de su sección.
+   de su sección, y el número de WhatsApp del widget flotante.
 
    Este archivo NO protege nada por sí mismo: la frontera real está en
    firestore.rules (config/portal y superadmin_auditoria solo admiten
@@ -39,13 +39,21 @@
     ubicacion: { label: 'Ubicaciones (departamentos, ciudades, barrios)', lectura: 'Sesión iniciada' },
     perfiles: { label: 'Perfiles organizacionales', lectura: 'Sesión iniciada' },
     profesiones: { label: 'Profesiones', lectura: 'Sesión iniciada' },
-    oficios: { label: 'Oficios', lectura: 'Sesión iniciada' }
+    oficios: { label: 'Oficios', lectura: 'Sesión iniciada' },
+    whatsapp: { label: 'Número de WhatsApp de Soporte/Atención', lectura: 'Público (lectura)' }
   };
 
   var configCache = null;
   var auditCache = null;
   var configUnsub = null;
   var auditUnsub = null;
+
+  // Número que usa el widget flotante de la portada. Vive en
+  // config/whatsapp y llega de la MISMA suscripción de la colección config
+  // que alimenta la tabla de estado: un solo oyente para toda la colección y
+  // el valor en el formulario en la misma instantánea.
+  var WHATSAPP_DOC = 'whatsapp';
+  var whatsappCfg = { numero: '' };
 
   /* ════════════════════════════════════════════════════════════
      SUSCRIPCIONES
@@ -77,6 +85,10 @@
     auditUnsub = null;
     configCache = null;
     auditCache = null;
+    // El número de WhatsApp se cacheó junto al resto de config: al cerrar el
+    // panel por pérdida de rol se olvida, para no dejar un dato de ajustes
+    // en memoria de una sesión que ya no puede leerlo.
+    whatsappCfg = { numero: '' };
   }
 
   function subscribeConfig() {
@@ -84,9 +96,11 @@
     try {
       configUnsub = V.db.collection(CONFIG_COLLECTION).onSnapshot(function (snap) {
         var seen = {};
+        var waData = null;
         configCache = [];
         snap.forEach(function (d) {
           seen[d.id] = true;
+          if (d.id === WHATSAPP_DOC) waData = d.data();
           configCache.push({ id: d.id, data: d.data() });
         });
         // Documentos conocidos que todavía no existen se listan igual, con
@@ -95,7 +109,9 @@
         Object.keys(CONFIG_DOCS).forEach(function (id) {
           if (!seen[id]) configCache.push({ id: id, data: null });
         });
+        whatsappCfg = normalizeWhatsAppConfig(waData);
         renderStatus();
+        renderWhatsAppForm();
       }, function (err) {
         // Sin desplegar las reglas, o con la identidad a medio resolver: el
         // panel sigue siendo utilizable, solo sin la tabla de estado. Se
@@ -156,6 +172,10 @@
       if (!data.videoUrl) return ['Sin video', 'sa-pill-none'];
       if (data.videoActivo === false) return ['Guardado, sin publicar', 'sa-pill-off'];
       return ['Publicado en la portada', 'sa-pill-on'];
+    }
+    if (id === WHATSAPP_DOC) {
+      if (!data.numero) return ['Sin número', 'sa-pill-none'];
+      return ['Número guardado', 'sa-pill-on'];
     }
     // Las listas de opciones (perfiles, profesiones, oficios, ubicaciones)
     // guardan sus entradas en un array `categorias`: se muestra cuántas hay,
@@ -249,14 +269,14 @@
       var vacio = el('div', 'sa-log-empty');
       vacio.appendChild(el('span', 'sa-log-empty-ico', '🧾'));
       vacio.appendChild(el('p', '', 'Todavía no hay cambios registrados.'));
-      vacio.appendChild(el('p', '', 'En cuanto guardes el video o sus textos, aparecerá aquí.'));
+      vacio.appendChild(el('p', '', 'En cuanto guardes el video, sus textos o el número de WhatsApp, aparecerá aquí.'));
       host.appendChild(vacio);
       return;
     }
 
     auditCache.forEach(function (a) {
       var item = el('div', 'sa-log-item');
-      item.appendChild(el('span', 'sa-log-ico', a.activo === false ? '⏸️' : '🎬'));
+      item.appendChild(el('span', 'sa-log-ico', a.activo === false ? '⏸️' : (a.accion === 'WhatsApp de soporte' ? '💬' : '🎬')));
 
       var body = el('div', 'sa-log-body');
       body.appendChild(el('div', 'sa-log-title', (a.accion || 'Ajuste') + ' · ' + (a.resumen || '')));
@@ -265,6 +285,145 @@
       item.appendChild(body);
       host.appendChild(item);
     });
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     WHATSAPP DE SOPORTE · config/whatsapp
+     ════════════════════════════════════════════════════════════ */
+
+  function normalizeWhatsAppConfig(raw) {
+    var numero = raw && typeof raw.numero === 'string' ? raw.numero : '';
+    return { numero: numero.trim() };
+  }
+
+  // El superadmin puede estar tecleando en el campo: una instantánea de
+  // config/whatsapp llegando justo entonces le vaciaría lo que lleva
+  // escrito. Mismo criterio que adminEscribiendo() en portal.js.
+  function whatsappEnEdicion() {
+    var body = $('saWhatsappForm');
+    return !!(body && document.activeElement && body.contains(document.activeElement));
+  }
+
+  // Dibuja el campo de texto y el botón de guardado dentro de la tarjeta
+  // "WhatsApp de Soporte" (#saWhatsappForm, index.html). El valor que se
+  // muestra es SIEMPRE lo que hay guardado en Firestore: cada instantánea
+  // de la colección config vuelve a pintarlo (salvo que haya alguien
+  // escribiendo, ver whatsappEnEdicion).
+  function renderWhatsAppForm() {
+    var body = $('saWhatsappForm');
+    if (!body) return;
+    if (!V.esAdmin()) { body.innerHTML = ''; return; }
+    if (whatsappEnEdicion()) return;
+
+    body.innerHTML = '';
+    var form = el('div', 'sa-form');
+
+    var row = el('div', 'form-row');
+    var field = el('div', 'field field-full');
+
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.id = 'whatsappNumberInput';
+    input.className = 'input';
+    input.value = whatsappCfg.numero;
+    input.placeholder = '+57 300 123 4567';
+    input.autocomplete = 'off';
+    input.inputMode = 'tel';
+    input.maxLength = 30;
+
+    var label = el('label', '', 'Número de WhatsApp de soporte (con código de país)');
+    label.htmlFor = input.id;
+    field.appendChild(label);
+    field.appendChild(input);
+    field.appendChild(el('p', 'field-hint',
+      'Se guarda en config/whatsapp y lo usa el botón flotante del portal: el visitante escribe su mensaje y se abre wa.me/<número>. Formato internacional, por ejemplo +57 300 123 4567 (solo dígitos también vale). Dejarlo vacío desactiva el chat.'));
+    row.appendChild(field);
+    form.appendChild(row);
+
+    var btn = el('button', 'btn btn-primary btn-sm', '💾 Guardar WhatsApp');
+    btn.type = 'button';
+    btn.id = 'whatsappSaveBtn';
+    var actions = el('div', 'form-actions');
+    actions.appendChild(btn);
+    form.appendChild(actions);
+
+    body.appendChild(form);
+
+    btn.addEventListener('click', function () { saveWhatsAppConfig(btn); });
+    // Enter guarda: es lo que se espera de un campo de una sola línea.
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); saveWhatsAppConfig(btn); }
+    });
+  }
+
+  function saveWhatsAppConfig(btn) {
+    // Mismo aviso que el video: la frontera de verdad es firestore.rules
+    // (config/* solo admite escritura de isAdmin()); esto evita el intento.
+    if (!V.esAdmin()) {
+      V.toast('Solo el superadmin puede cambiar el número de WhatsApp.', true);
+      return;
+    }
+    if (!V.db) { V.toast('Firestore no disponible.', true); return; }
+
+    var input = $('whatsappNumberInput');
+    var numero = input ? String(input.value || '').trim() : '';
+    var digitos = numero.replace(/\D/g, '');
+
+    // Vacío permitido: es la forma de quitar el número y dejar el widget
+    // sin canal (el envío avisa en lugar de abrir una conversación rota).
+    if (numero && (digitos.length < 7 || digitos.length > 15 || /[^\d\s()+.-]/.test(numero))) {
+      V.toast('Escribe un número de teléfono válido, con código de país (entre 7 y 15 dígitos).', true);
+      if (input) input.focus();
+      return;
+    }
+
+    var anterior = whatsappCfg.numero;
+    var data = { numero: numero, actualizado: new Date().toISOString() };
+
+    btn.disabled = true;
+    var original = btn.textContent;
+    btn.textContent = '⏳ Guardando…';
+
+    return V.db.collection(CONFIG_COLLECTION).doc(WHATSAPP_DOC).set(data, { merge: true })
+      .then(function () {
+        whatsappCfg.numero = numero;
+        // El campo ya muestra este valor; repintar solo tendría que cambiar
+        // el botón, que es lo que acabamos de deshabilitar. La instantánea
+        // del propio guardado se encarga del resto.
+        V.toast(numero ? 'Número de WhatsApp guardado ✓' : 'Número de WhatsApp quitado ✓');
+        registrarCambioWhatsApp(anterior, numero);
+      })
+      .catch(function (e) {
+        V.toast('No se pudo guardar el número: ' + (e && e.message ? e.message : e), true);
+      })
+      .then(function () {
+        if (!document.body.contains(btn)) return;
+        btn.disabled = false;
+        btn.textContent = original;
+      });
+  }
+
+  // Bitácora del cambio. Fire-and-forget: como en el video, un fallo aquí no
+  // invalida el guardado (son dos escrituras independientes), así que nunca
+  // se propaga ni se muestra como error.
+  function registrarCambioWhatsApp(anterior, nuevo) {
+    try {
+      if (!V.db || !V.esAdmin()) return;
+      var resumen;
+      if (anterior === nuevo) resumen = 'Se guardó el número sin cambios';
+      else if (!nuevo) resumen = 'Se quitó el número de WhatsApp';
+      else if (!anterior) resumen = 'Se publicó el número de WhatsApp';
+      else resumen = 'Cambió el número de WhatsApp';
+      var user = V.currentUser;
+      V.db.collection(AUDIT_COLLECTION).add({
+        accion: 'WhatsApp de soporte',
+        resumen: resumen,
+        url: nuevo ? 'https://wa.me/' + nuevo.replace(/\D/g, '') : '',
+        autorUid: V.uidSesion(),
+        autorEmail: (user && user.email) || 'desconocido',
+        fecha: new Date().toISOString()
+      }).then(function () { /* escrito */ }).catch(function () { /* sin bitácora */ });
+    } catch (e) { /* sin bitácora */ }
   }
 
   /* ════════════════════════════════════════════════════════════
@@ -297,6 +456,11 @@
     }
     renderStatus();
     renderLog();
+    // El formulario de WhatsApp también: la instantánea de la colección lo
+    // repinta en cuanto llega, pero si la suscripción ya estaba abierta (el
+    // panel se reabre sin cambiar de identidad) no habrá instantánea nueva,
+    // y el campo tendría que pintarse con lo que ya está cacheado.
+    renderWhatsAppForm();
   }
 
   /* ════════════════════════════════════════════════════════════
@@ -329,11 +493,15 @@
     } else {
       closeSubscriptions();
     }
+    // Pintado (o vaciado, si dejó de ser superadmin) del campo de WhatsApp:
+    // se llama siempre, igual que hace portal.js con el formulario del video.
+    renderWhatsAppForm();
   };
 
   V.superadmin = {
     showPanel: showPanel,
     renderStatus: renderStatus,
-    renderLog: renderLog
+    renderLog: renderLog,
+    renderWhatsAppForm: renderWhatsAppForm
   };
 })();
