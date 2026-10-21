@@ -1,0 +1,262 @@
+/* ════════════════════════════════════════════════════════════════
+   VCONV · CAPA GLOBAL DE RESPONSIVE
+   ════════════════════════════════════════════════════════════════
+   Este CSS se carga DESPUÉS de todos los CSS de los módulos
+   (último <link> del <head> en public/index.html). Gracias a ese
+   orden, sus reglas mandan sobre las de cada módulo cuando
+   compiten por la misma propiedad y no hay que tocar los 12 CSS
+   de módulos uno por uno.
+
+   Qué resuelve
+     · Ningún contenedor, formulario, modal o tarjeta con ancho fijo:
+       todo ocupa el 100% del ancho disponible.
+     · Tablas: se meten en un contenedor con scroll horizontal (o se
+       convierten en tarjetas apiladas cuando son pequeñas) para que
+       nunca se salgan de la pantalla.
+     · Modales: cabecera y acciones siempre visibles; en móvil se
+       comportan como una hoja inferior con el botón de guardar
+       anclado abajo.
+     · Menú lateral: cajón oculto por defecto en móvil, se abre con
+       la hamburguesa y se cierra al pulsar cualquier opción.
+
+   Índice
+     1. Base (cualquier ancho)
+     2. Móvil (≤ 768 px)
+     3. Tablet (769 px – 1023 px)
+   ════════════════════════════════════════════════════════════════ */
+
+:root {
+  --rs-movil: 768px;   /* breakpoint móvil de la plataforma */
+  --rs-escritorio: 1024px; /* a partir de aquí el menú es fijo */
+}
+
+/* ═══ 1. BASE (cualquier ancho) ═══════════════════════════════ */
+
+/* 1.1 · Los medios nunca se salen de su caja */
+img, video, canvas, iframe, embed, object {
+  max-width: 100%;
+}
+
+/* 1.2 · La página no se desplaza de lado a lado: si algún elemento
+       se pasa de ancho, se recorta en vez de romper el diseño. */
+body {
+  overflow-x: hidden;
+}
+
+/* 1.3 · Contenedor de tabla con desplazamiento horizontal.
+       Lo crea core/responsive.js, también para las tablas que el
+       código inserta en caliente (resúmenes, reportes, CRUD). */
+.rs-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+.rs-table-scroll > table { margin: 0; }
+.rs-table-scroll table th,
+.rs-table-scroll table td { overflow-wrap: anywhere; }
+
+/* 1.4 · Las tablas pequeñas llevan la clase .rs-cards y cada celda
+       trae en data-rs-label el texto de su columna. El formato de
+       tarjeta SOLO se aplica en móvil (ver 2.10): en escritorio la
+       tabla se ve como una tabla. */
+
+/* 1.5 · Textos largos (correos, URLs, descripciones) se parten
+       en lugar de ensanchar su contenedor. */
+.app-body, .main-wrap, .modal-card, .set-modal, .auth-card,
+.maint-card, .portal-section, .rs-table-scroll {
+  overflow-wrap: break-word;
+}
+
+/* ═══ 2. MÓVIL (≤ 768 px) ════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* 2.1 · El contenido ocupa el ancho completo */
+  .app-body, .main-wrap, .view { max-width: 100%; }
+  .main-wrap { padding: 0.9rem 0.75rem 2.5rem; }
+
+  /* 2.2 · Formularios a una columna: dos columnas en 360 px dejan
+         los campos inservibles. */
+  .form-row,
+  .com-form-grid,
+  .com-form-grid.two {
+    grid-template-columns: 1fr;
+  }
+  .field-full { grid-column: span 1; }
+
+  /* 2.3 · Los campos con ancho mínimo declarado estiran la fila y
+         Provocan scroll horizontal: en móvil ceden el mínimo. */
+  .admin-stat-card,
+  .admin-analytics-card,
+  .admin-search,
+  .fin-filtro,
+  .cms-bloque-title,
+  .cms-form-row .field,
+  .podcast-player audio,
+  .podcast-cat-admin .input,
+  .com-next-actions .btn,
+  .mlm-config-input-field {
+    min-width: 0;
+  }
+
+  /* 2.4 · Acciones: apiladas y a ancho completo, para que el botón
+         principal se pulse sin acertar y siempre se vea. */
+  .modal-card .form-actions,
+  .modal-card .fin-modal-acciones,
+  .form-actions,
+  .fin-modal-acciones,
+  .set-modal-foot,
+  .cms-form-actions {
+    flex-direction: column-reverse;
+    gap: 0.5rem;
+  }
+  .modal-card .form-actions .btn,
+  .modal-card .fin-modal-acciones .btn,
+  .form-actions .btn,
+  .fin-modal-acciones .btn,
+  .set-modal-foot .btn,
+  .cms-form-actions .btn {
+    width: 100%;
+  }
+
+  /* 2.5 · Modales: hoja inferior a pantalla completa. La cabecera se
+         queda pegada arriba y las acciones pegadas abajo, así el
+         guardado nunca queda fuera de la vista.
+         Los márgenes negativos (-1rem) hacen que cabecera y acciones
+         lleguen al borde de la tarjeta y tapen el contenido que pasa
+         por debajo; sin ellos se transparentaría una franja. */
+  .modal-overlay {
+    padding: 0.5rem;
+    align-items: flex-end;
+  }
+  .modal-card,
+  .fin-modal,
+  .crm-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 1rem);
+    padding: 1rem;
+    /* La cabecera y las acciones se salen 1rem a cada lado para llegar
+       al borde: sin recortar, ese excedente abriría una barra de
+       scroll horizontal. */
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+  }
+  .modal-card > h3,
+  .modal-card > .crm-modal-head,
+  .modal-card > .fin-modal-head {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    margin: -1rem -1rem 0;
+    padding: 0.9rem 1rem 0.7rem;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-card .form-actions,
+  .modal-card .fin-modal-acciones {
+    position: sticky;
+    bottom: -1rem;
+    z-index: 3;
+    margin: 1rem -1rem -1rem;
+    padding: 0.7rem 1rem;
+    background: var(--bg-card);
+    border-top: 1px solid var(--border);
+  }
+
+  /* 2.6 · El diálogo secundario de ajustes también a hoja inferior */
+  .set-modal-overlay { padding: 0.5rem; align-items: flex-end; }
+  .set-modal { width: 100%; max-height: calc(100vh - 1rem); }
+  .set-modal-foot { flex-direction: column-reverse; }
+  .set-modal-foot .btn { width: 100%; }
+
+  /* 2.7 · Acceso: la tarjeta se puede desplazar si no cabe */
+  .auth-overlay { padding: 0.75rem; align-items: flex-start; }
+  .auth-card {
+    max-width: 100%;
+    max-height: 100vh;
+    overflow-y: auto;
+    padding: 1.35rem 1.1rem;
+  }
+
+  /* 2.8 · Aviso de mantenimiento */
+  .maint-screen { padding: 1rem; }
+  .maint-card { max-width: 100%; padding: 1.75rem 1.25rem; }
+
+  /* 2.9 · Tablas: scroll horizontal dentro del contenedor */
+  .rs-table-scroll { -webkit-overflow-scrolling: touch; }
+  .rs-table-scroll table th,
+  .rs-table-scroll table td { white-space: normal; }
+
+  /* 2.10 · Tablas pequeñas → tarjetas apiladas: cada fila se vuelve
+         una tarjeta y cada celda muestra el nombre de su columna. */
+  .rs-cards thead { display: none; }
+  .rs-cards,
+  .rs-cards tbody,
+  .rs-cards tbody tr,
+  .rs-cards tbody td { display: block; width: 100%; }
+  .rs-cards tbody tr {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-secondary);
+    margin-bottom: 0.6rem;
+    padding: 0.35rem 0.75rem;
+  }
+  .rs-cards tbody tr:last-child { margin-bottom: 0; }
+  .rs-cards tbody td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.85rem;
+    padding: 0.45rem 0;
+    border-bottom: 1px solid var(--border);
+    text-align: right;
+  }
+  .rs-cards tbody td:last-child { border-bottom: none; }
+  .rs-cards tbody td::before {
+    content: attr(data-rs-label);
+    flex: 0 0 auto;
+    text-align: left;
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+  }
+  .rs-cards tbody td[data-rs-label=""]::before { content: none; }
+
+  /* 2.11 · Cabecera de sección: título y acciones en dos filas */
+  .section-header { align-items: stretch; }
+  .section-header-acciones { width: 100%; }
+  .section-header-acciones .btn { flex: 1 1 auto; }
+
+  /* 2.12 · Aviso flotante a ancho de pantalla */
+  .toast {
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 5.5rem;
+    max-width: none;
+    text-align: center;
+  }
+
+  /* 2.13 · Widget de WhatsApp: más pequeño y sin tapar el pie */
+  .wa-float-btn { width: 52px; height: 52px; bottom: 16px; right: 16px; }
+  .wa-chat-panel {
+    width: auto;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 78px;
+    max-width: none;
+    max-height: 65vh;
+  }
+}
+
+/* ═══ 3. TABLET (769 px – 1023 px) ════════════════════════════ */
+@media (min-width: 769px) and (max-width: 1023px) {
+  /* El menú lateral ya es cajón en este rango (lo abre la
+     hamburguesa); el contenido aprovecha todo el ancho. */
+  .main-wrap { max-width: 100%; }
+  .modal-card { max-height: 92vh; }
+}

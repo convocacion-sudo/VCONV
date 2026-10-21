@@ -1649,7 +1649,11 @@
 
   function sidebarClose() {
     var sb = $('appSidebar');
-    if (sb) { sb.classList.remove('show'); sb.setAttribute('aria-hidden', 'true'); }
+    /* En escritorio el menú sigue visible (lo único que se recoge es
+       el modo colapsado), así que no se marca como oculto para los
+       lectores de pantalla. En móvil, el cajón sí desaparece. */
+    var visibleEnEscritorio = window.innerWidth >= 1024;
+    if (sb) { sb.classList.remove('show'); sb.setAttribute('aria-hidden', visibleEnEscritorio ? 'false' : 'true'); }
     var ov = $('sidebarOverlay');
     if (ov) ov.classList.remove('show');
     document.body.classList.remove('sidebar-open');
@@ -2255,6 +2259,11 @@
   };
   V.openAuth = openAuth;
   V.closeAuth = closeAuth;
+  // Menú lateral: core/responsive.js lo usa para recoger el cajón
+  // cuando se pulsa cualquier opción, se pulsa Escape o se pasa a
+  // escritorio.
+  V.openSidebar = sidebarOpen;
+  V.closeSidebar = sidebarClose;
   // Ventana de chat flotante: la usan los enlaces "Chat en Vivo / Soporte"
   // de la navegación del portal (portal.js), que abren el mismo panel que el
   // botón flotante.
