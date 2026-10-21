@@ -63,6 +63,23 @@
   };
   var videoUnsub = null;
 
+  /* COPY DE LA PORTADA (config/portal.copy).
+     El archivo public/data/content.json sigue siendo la BASE; lo que el
+     superadmin guarda en config/portal.copy se fusiona ENCIMA con
+     V.mergeProfundo (mismas reglas que el módulo de Configuración usa
+     para componer lo guardado). Así:
+       · el contenido se edita sin desplegar nada;
+       · si el documento no existe o se borra, la portada vuelve al
+         contenido local sin romperse;
+       · un texto vacío en el copy NO borra el texto de base (vacío
+         significa "usa el valor por defecto").
+     La forma del copy es la MISMA que la de content.json, para que la
+     fusión sea un 'merge' y no una traducción de claves. */
+  var copyCfg = null;
+  // Contenido local (public/data/content.json): la BASE. El copy de
+  // Firestore se fusiona encima en cada repintado.
+  var baseContent = null;
+
   function $(id) { return V.$(id); }
   function el(tag, cls, text) { return V.el(tag, cls, text); }
 
@@ -94,6 +111,16 @@
           footer: {}
         };
       });
+  }
+
+  /* Aplica el copy guardado sobre el contenido local. Se hace aquí, en un
+     solo punto, para que ninguna otra parte de la portada tenga que
+     combinar las dos fuentes por su cuenta (y para que la vista previa
+     del panel y la portadaSeen miren exactamente lo mismo). */
+  function aplicarCopy(data) {
+    if (!copyCfg) return data;
+    if (typeof V.mergeProfundo === 'function') return V.mergeProfundo(data || {}, copyCfg);
+    return data;
   }
 
   function renderBlocks(data) {
@@ -146,7 +173,13 @@
     });
   }
 
-  function renderContent(data) {
+  function renderContent() {
+    // El contenido local se guarda aparte (baseContent): es la BASE sobre
+    // la que se aplica el copy guardado en Firestore. A partir de aquí,
+    // contentData es el contenido EFECTIVO (lo que ve el visitante). Si
+    // el copy se borra de Firestore, la portada vuelve al contenido
+    // local en vez de quedarse con el copy viejo congelado.
+    var data = aplicarCopy(baseContent || {});
     contentData = data;
     var p = data.portal || {};
     var hero = p.hero || {};
@@ -777,7 +810,16 @@
     if (!V.db || videoUnsub) return;
     try {
       videoUnsub = V.db.collection(CONFIG_COLLECTION).doc(PORTAL_DOC).onSnapshot(function (doc) {
-        videoCfg = normalizeVideoConfig(doc && doc.exists ? doc.data() : {});
+        var raw = doc && doc.exists ? (doc.data() || {}) : {};
+        videoCfg = normalizeVideoConfig(raw);
+        // El copy de la portada viaja en el MISMO documento (config/portal
+        // → campo `copy`). Se lee aquí y se aplica sobre content.json.
+        copyCfg = (raw.copy && typeof raw.copy === 'object' && !Array.isArray(raw.copy)) ? raw.copy : null;
+        // Si el contenido local ya llegó, se repinta con el copy aplicado;
+        // si no, arrive después y se aplicará allí (renderContent llama a
+        // aplicarCopy). Así ninguna de las dos fuentes gana por arriving
+        // antes que la otra.
+        if (contentData) renderContent();
         renderVideoSection();
         // Los dos renders del panel solo hacen algo si el superadmin está
         // dentro: para el resto de visitantes no encuentran nada que dibujar.
@@ -1303,7 +1345,8 @@
     setThemeButton(currentIsDark());
     bindPortalEvents();
     loadContent().then(function (data) {
-      renderContent(data);
+      baseContent = data;
+      renderContent();
     });
   }
 

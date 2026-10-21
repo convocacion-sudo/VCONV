@@ -17,12 +17,16 @@
   function $(id) { return V.$(id); }
   function el(tag, cls, text) { return V.el(tag, cls, text); }
 
-  var ROLES = {
+  /* Catálogo de roles: la FUENTE CANÓNICA es core/app.js
+     (V.ROLES_CATALOG), que ya reúne los roles base y los de Fase A.
+     La copia local es un simple respaldo por si este archivo se
+     cargara antes que el núcleo. */
+  var ROLES = (typeof V !== 'undefined' && V.ROLES_CATALOG) ? V.ROLES_CATALOG : {
     estudiante: { label: 'Estudiante', icon: '🎓' },
     // "avanzado" hereda el modo estudiante y suma lectura de Finanzas/MLM
     // sobre su propia red (sin escrituras ni configuración).
-    avanzado: { label: 'Avanzado', icon: '🔎' },
-    gestor: { label: 'Gestor', icon: '🛠' },
+    avanzado: { label: 'Avanzado', icon: '📈' },
+    gestor: { label: 'Gestor', icon: '🛠️' },
     superadmin: { label: 'Superadmin', icon: '🔐' },
     // Roles de Fase A (se COMBINAN con los de arriba):
     cursos_pago: { label: 'Cursos de pago', icon: '💎' },

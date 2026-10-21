@@ -54,9 +54,12 @@
   var DEFAULT_CONFIG = {
     finanzasEnabled: true,
     porcentajeCoordinador: 30,
-    // Red MLM 5 niveles: 30% (N1) + 10% (N2) + 5% (N3–N5) = 55% de bolsa;
-    // el 45% restante se destina a la Caja Mayor / Fondo Estructura General.
-    porcentajes: { 1: 30, 2: 10, 3: 5, 4: 5, 5: 5 },
+    // Porcentajes de la red MLM N1-N5. El valor inicial vive ÚNICAMENTE
+    // en core/app.js (V.DEFAULT_MLM_PORCENTAJES), que lo comparte con el
+    // motor MLM: antes cada módulo llevaba su propia copia y podían
+    // divergir. Red de 5 niveles: 30% (N1) + 10% (N2) + 5% (N3–N5) =
+    // 55% de bolsa; el 45% restante va a la Caja Mayor / Fondo General.
+    porcentajes: V.DEFAULT_MLM_PORCENTAJES,
     porcentajeCaja: 45,
     categorias: [
       { id: 'diezmo', nombre: 'Diezmo', tipo: 'personal', activa: true },
@@ -413,10 +416,11 @@
        banco  → texto descriptivo que incluye el tipo (ej. "Bancolombia
                 Ahorros", "Nequi").
        numero → número de cuenta o de billetera.
-     Seguridad (firestore.rules): lectura para superadmin y gestor;
-     creación, edición y eliminación EXCLUSIVAS del superadmin. La UI de
-     gestión se monta solo si isAdminUser(); el backend rechaza cualquier
-     escritura de otro rol aunque se manipule el cliente.                 */
+      Seguridad (firestore.rules): lectura, creación, edición y borrado
+      para 'contable' y 'superadmin' (los dos roles que administran
+      finanzas). La UI de gestión se monta solo si isAdminUser(); el
+      backend rechaza cualquier escritura de otro rol aunque se
+      manipule el cliente. */
   function loadCuentas(forzar) {
     if (!V.db) return Promise.resolve([]);
     // El control de rol va ANTES de servir la caché: si no, una sesión que
@@ -463,7 +467,7 @@
     return { banco: banco, numero: numero };
   }
   function crearCuentaBanco(datos) {
-    if (!isAdminUser()) return Promise.reject(new Error('Solo el superadmin puede crear cuentas.'));
+    if (!isAdminUser()) return Promise.reject(new Error('Solo el superadmin o el contable pueden crear cuentas.'));
     if (!V.db) return Promise.reject(new Error('Firestore no disponible.'));
     var cuenta;
     try { cuenta = normalizarCuenta(datos); } catch (e) { return Promise.reject(e); }
@@ -475,7 +479,7 @@
     });
   }
   function editarCuentaBanco(id, datos) {
-    if (!isAdminUser()) return Promise.reject(new Error('Solo el superadmin puede editar cuentas.'));
+    if (!isAdminUser()) return Promise.reject(new Error('Solo el superadmin o el contable pueden editar cuentas.'));
     if (!V.db || !id) return Promise.reject(new Error('Cuenta no válida.'));
     var cuenta;
     try { cuenta = normalizarCuenta(datos); } catch (e) { return Promise.reject(e); }
@@ -490,7 +494,7 @@
     });
   }
   function eliminarCuentaBanco(id) {
-    if (!isAdminUser()) return Promise.reject(new Error('Solo el superadmin puede eliminar cuentas.'));
+    if (!isAdminUser()) return Promise.reject(new Error('Solo el superadmin o el contable pueden eliminar cuentas.'));
     if (!V.db || !id) return Promise.reject(new Error('Cuenta no válida.'));
     return V.db.collection(COL_CUENTAS).doc(id).delete().then(function () {
       cuentasCache = [];
@@ -3255,6 +3259,17 @@
     panel.style.display = '';
     panel.innerHTML = '';
 
+    // El CONTABLE no edita la configuración (interruptor maestro,
+    // porcentajes de la red, Caja Mayor ni categorías): su ámbito son
+    // los DATOS OPERATIVOS. El backend aplica la misma regla
+    // (firestore.rules escribe config/finanzas solo con isAdmin()).
+    if (!esSuper()) {
+      panel.appendChild(el('h3', '', '💰 Datos operativos (cuentas y transacciones)'));
+      panel.appendChild(el('p', 'field-hint', 'Administra las cuentas bancarias y las transacciones del módulo. Los interruptores y los porcentajes de la red los edita únicamente el superadmin, en Configuración → Finanzas y MLM.'));
+      renderDatosOperativos(panel);
+      return;
+    }
+
     var h3 = el('h3', '', '💰 Finanzas (Aportes, Ofrendas y Comisiones MLM)');
     var hint = el('p', 'field-hint', 'Interruptor maestro, porcentajes de la red, Caja Mayor, categorías y liquidación de ofrendas de grupo.');
     panel.appendChild(h3);
@@ -3279,12 +3294,9 @@
 
     renderCategoriasAdmin(panel);
 
-    // Catálogo de cuentas bancarias / billeteras (solo lectura para gestor):
-    // la sección de gestión se monta únicamente en el panel del superadmin.
-    renderCuentasAdmin(panel);
-
-    panel.appendChild(renderLiquidacion(panel));
-    panel.appendChild(renderAsignacionComision(panel));
+    // Datos operativos: catálogo de cuentas bancarias/billeteras,
+    // liquidación de ofrendas de grupo y asignación de comisión.
+    renderDatosOperativos(panel);
     panel.appendChild(el('p', 'fin-reg-note', 'Las ofrendas de grupo se registran a nombre del coordinador de la comunidad, que recibe el ' + cfg.porcentajes[1] + '% como comisión nivel 1; los niveles 2–5 se liquidan a su red ascendente. El superadmin puede registrar, editar o eliminar transacciones de cualquier usuario o comunidad (bypass total).'));
 
     var btnSave = el('button', 'btn btn-primary btn-sm', 'Guardar configuración');
@@ -3310,6 +3322,16 @@
       });
     });
     panel.appendChild(btnSave);
+  }
+
+  /* Datos operativos del módulo de finanzas: catálogo de cuentas
+     bancarias/billeteras, liquidación de ofrendas de grupo y
+     asignación manual de comisión. Los administra el superadmin y el
+     contable (las tres funciones ya exigen isAdminUser()). */
+  function renderDatosOperativos(container) {
+    renderCuentasAdmin(container);
+    container.appendChild(renderLiquidacion(container));
+    container.appendChild(renderAsignacionComision(container));
   }
 
   function leerPorcentajesInputs() {

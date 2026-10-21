@@ -42,22 +42,31 @@
   var MAX_CAMINO = MAX_NIVELES_COORDINADOR;
 
   /* ─── CATÁLOGO DE ROLES ─────────────────────────────────────
-     Los roles heredados (estudiante, avanzado, gestor, superadmin)
-     son el "rol principal" y siguen siendo los que lee el código
-     antiguo. Los de Fase A son adicionales y se combinan entre sí. */
-  var ROLES_BASE = {
-    estudiante: { label: 'Estudiante', icon: '🎓', color: 'blue', grupo: 'base', desc: 'Acceso al contenido de la plataforma.' },
-    avanzado: { label: 'Avanzado', icon: '📈', color: 'green', grupo: 'base', desc: 'Solo lectura sobre los datos financieros de su propia red.' },
-    gestor: { label: 'Gestor', icon: '🛠️', color: 'gold', grupo: 'base', desc: 'Gestiona el contenido del CMS (cursos, podcasts, tienda).' },
-    superadmin: { label: 'Superadmin', icon: '🔐', color: 'gold', grupo: 'base', desc: 'Acceso total: usuarios, contenido, finanzas, red global y configuración.' }
+     El catálogo de roles vive ÚNICAMENTE en core/app.js
+     (V.ROLES_CATALOG). Aquí solo se derivan los dos subconjuntos
+     que usa este módulo:
+       - ROLES_BASE   → roles principales heredados (grupo 'base').
+       - ROLES_FASE_A → roles combinables (superadmin + Fase A).
+     La copia local es un simple RESPALDO por si este archivo se
+     cargara antes que el núcleo; en la app real siempre gana el
+     catálogo canónico. */
+  var ROLES_CATALOG_LOCAL = {
+    estudiante: { label: 'Estudiante', icon: '🎓', color: 'blue', grupo: 'base', combinable: false, desc: 'Acceso al contenido de la plataforma.' },
+    avanzado: { label: 'Avanzado', icon: '📈', color: 'green', grupo: 'base', combinable: false, desc: 'Solo lectura sobre los datos financieros de su propia red.' },
+    gestor: { label: 'Gestor', icon: '🛠️', color: 'gold', grupo: 'base', combinable: false, desc: 'Gestiona el contenido del CMS (cursos, podcasts, tienda).' },
+    superadmin: { label: 'Superadmin', icon: '🔐', color: 'gold', grupo: 'base', combinable: true, desc: 'Acceso total: usuarios, contenido, finanzas, red global y configuración.' },
+    cursos_pago: { label: 'Cursos de pago', icon: '💎', color: 'blue', grupo: 'faseA', combinable: true, desc: 'Acceso al contenido y a los cursos prémium de la plataforma.' },
+    coordinador_comunidad: { label: 'Coordinador de comunidad', icon: '🌐', color: 'green', grupo: 'faseA', combinable: true, desc: 'Consulta la red MLM jerárquica (4 niveles) de los usuarios de su red.' },
+    comptable: { label: 'Contable', icon: '🧮', color: 'purple', grupo: 'faseA', combinable: true, desc: 'Acceso exclusivo a los reportes financieros y al módulo de finanzas.' }
   };
-  // Roles de Fase A (los que se combinan con los heredados).
-  var ROLES_FASE_A = {
-    superadmin: { label: 'Superadmin', icon: '🔐', color: 'gold', desc: 'Acceso total: usuarios, contenido, finanzas, red global y configuración.' },
-    cursos_pago: { label: 'Cursos de pago', icon: '💎', color: 'blue', desc: 'Acceso al contenido y a los cursos prémium de la plataforma.' },
-    coordinador_comunidad: { label: 'Coordinador de comunidad', icon: '🌐', color: 'green', desc: 'Consulta la red MLM jerárquica (4 niveles) de los usuarios de su red.' },
-    comptable: { label: 'Contable', icon: '🧮', color: 'purple', desc: 'Acceso exclusivo a los reportes financieros y al módulo de finanzas.' }
-  };
+  var CATALOGO = (typeof V !== 'undefined' && V.ROLES_CATALOG) ? V.ROLES_CATALOG : ROLES_CATALOG_LOCAL;
+  var ROLES_BASE = {};
+  var ROLES_FASE_A = {};
+  Object.keys(CATALOGO).forEach(function (k) {
+    var meta = CATALOGO[k];
+    if (meta.grupo === 'base') ROLES_BASE[k] = meta;
+    if (meta.combinable) ROLES_FASE_A[k] = meta;
+  });
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -414,6 +423,7 @@
 
   /* ═══ EXPORTACIÓN ═════════════════════════════════════════════ */
   V.roles = {
+    ROLES_CATALOG: CATALOGO,
     ROLES_BASE: ROLES_BASE,
     ROLES_FASE_A: ROLES_FASE_A,
     MAX_NIVELES_COORDINADOR: MAX_NIVELES_COORDINADOR,

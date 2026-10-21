@@ -17,10 +17,11 @@
 
   var DEFAULT_CONFIG = {
     mlmEnabled: true,
-    // Red 5 niveles: 30% (N1) + 10% (N2) + 5% (N3–N5) = 55% de bolsa;
-    // el 45% restante se destina a la Caja Mayor / Fondo Estructura
-    // General. Editable desde el panel de configuración del módulo.
-    porcentajes: { 1: 30, 2: 10, 3: 5, 4: 5, 5: 5 }
+    // Porcentajes de la red N1-N5. El valor inicial vive ÚNICAMENTE en
+    // core/app.js (V.DEFAULT_MLM_PORCENTAJES), que lo comparte con el
+    // módulo de Finanzas: antes cada uno llevaba su propia copia y
+    // podían divergir.
+    porcentajes: V.DEFAULT_MLM_PORCENTAJES
   };
 
   var cfg = null;

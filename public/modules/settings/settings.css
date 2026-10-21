@@ -1,0 +1,240 @@
+/* ════════════════════════════════════════════════════════════════
+   VCONV · Módulo de Configuración
+   Estilos del panel central de ajustes. Reutiliza las variables y las
+   clases del tema (core/styles.css) para no inventar un segundo
+   lenguaje visual: si el tema cambia, estas reglas cambian con él.
+   ════════════════════════════════════════════════════════════════ */
+
+/* ── PESTAÑAS ────────────────────────────────────────────────
+   Barra de pestañas del panel. En móvil baja a una sola línea
+   desplazable: las pestañas son un argumento de navegación, no
+   botones que puedan comprimirse hasta ser ilegibles. */
+.set-tabs {
+  display: flex; gap: 0.4rem; flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.6rem;
+}
+.set-tab {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 0.82rem; font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+.set-tab:hover { border-color: var(--border-hover); color: var(--text-primary); }
+.set-tab.is-active {
+  background: var(--gold-glow);
+  border-color: var(--gold-soft);
+  color: var(--gold);
+}
+
+/* ── AVISO DE CONTENIDO ──────────────────────────────────────
+   Explica de dónde sale lo que se edita y de dónde sale lo que se
+   guarda. Sin esto, el panel parece guardar en el vacío. */
+.set-notice {
+  display: flex; gap: 0.75rem; align-items: flex-start;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.85rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.8rem; line-height: 1.55;
+  color: var(--text-secondary);
+}
+.set-notice-ico { font-size: 1.05rem; line-height: 1.35; }
+.set-notice code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em; background: var(--bg-tertiary);
+  padding: 0.05rem 0.3rem; border-radius: 4px;
+  color: var(--text-primary);
+}
+
+/* ── TARJETAS ────────────────────────────────────────────────
+   Misma forma que las del Panel del Super Admin, para que el panel
+   de configuración se lea como parte de la misma familia. */
+.set-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  margin-bottom: 1.25rem;
+  overflow: hidden;
+}
+.set-card-head {
+  display: flex; gap: 0.85rem; align-items: flex-start;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+.set-card-head h3 { font-size: 1rem; font-weight: 700; margin-bottom: 0.15rem; color: var(--text-primary); }
+.set-card-head p { margin: 0; font-size: 0.78rem; color: var(--text-muted); line-height: 1.5; }
+.set-card-title { font-size: 1rem; font-weight: 700; margin: 0; padding: 1rem 1.15rem 0; color: var(--text-primary); }
+.set-card-desc { margin: 0.2rem 0 0; padding: 0 1.15rem; font-size: 0.78rem; color: var(--text-muted); }
+.set-card-body { padding: 1.15rem; }
+
+/* ── CAMPOS ────────────────────────────────────────────────── */
+.set-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+}
+.set-field { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.set-field.full { grid-column: 1 / -1; }
+.set-label {
+  font-size: 0.78rem; font-weight: 600;
+  color: var(--text-secondary);
+}
+.set-help { margin: 0; font-size: 0.73rem; color: var(--text-muted); line-height: 1.5; }
+.set-help.es-error { color: var(--danger); }
+.set-hint { margin: 0.5rem 0 0; font-size: 0.73rem; color: var(--text-muted); font-style: italic; }
+.set-textarea { resize: vertical; min-height: 4.5rem; line-height: 1.5; }
+.set-color { padding: 0.2rem; height: 2.5rem; cursor: pointer; }
+.set-subhead {
+  margin: 1.1rem 0 0.5rem;
+  font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+/* ── INTERRUPTOR ─────────────────────────────────────────────
+   Mismo lenguaje que el interruptor del módulo MLM: la pista se
+   sliding y la etiqueta va al lado, no encima. */
+.set-switch {
+  display: flex; align-items: center; gap: 0.6rem;
+  margin-bottom: 1rem; cursor: pointer;
+  font-size: 0.85rem; font-weight: 600; color: var(--text-primary);
+}
+.set-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.set-switch-slider {
+  position: relative; width: 40px; height: 22px; flex-shrink: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  transition: var(--transition);
+}
+.set-switch-slider::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--text-muted);
+  transition: var(--transition);
+}
+.set-switch input:checked + .set-switch-slider { background: var(--gold-glow); border-color: var(--gold-soft); }
+.set-switch input:checked + .set-switch-slider::after { transform: translateX(18px); background: var(--gold); }
+.set-switch-text { display: inline-flex; flex-direction: column; gap: 0.15rem; }
+.set-switch .set-help { font-weight: 400; }
+
+/* ── LISTAS DE ELEMENTOS ─────────────────────────────────────
+   Pilares, categorías, cuentas, campos y formularios: todos son
+   "listas de cosas editables" y comparten la misma forma. */
+.set-sublista { display: flex; flex-direction: column; gap: 0.6rem; }
+.set-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  padding: 0.75rem 0.85rem;
+}
+.set-item.is-active { border-color: var(--gold-soft); background: var(--gold-glow); }
+.set-item-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+}
+.set-item-title {
+  font-size: 0.86rem; font-weight: 600; color: var(--text-primary);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.set-item-sub { margin: 0.35rem 0 0; font-size: 0.75rem; color: var(--text-muted); }
+.set-item-acc { display: flex; gap: 0.3rem; flex-shrink: 0; }
+.set-item .set-grid { margin-top: 0.75rem; }
+.set-vacio {
+  margin: 0; padding: 0.9rem 0.75rem;
+  text-align: center; font-size: 0.8rem; color: var(--text-muted);
+  border: 1px dashed var(--border); border-radius: var(--radius);
+}
+.set-inline-form {
+  display: grid; grid-template-columns: 1fr 1fr auto;
+  gap: 0.75rem; align-items: end;
+  margin-top: 1rem; padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.set-editor { margin-top: 0.85rem; }
+.set-editor .set-grid { margin-bottom: 0.5rem; }
+
+/* ── LISTA DE COMPROBACIÓN ───────────────────────────────────
+   Los campos asignados a un formulario: casillas con la etiqueta del
+   campo del catálogo. */
+.set-checklist { display: flex; flex-direction: column; gap: 0.4rem; }
+.set-check {
+  display: flex; align-items: center; gap: 0.55rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-secondary);
+  font-size: 0.8rem; color: var(--text-secondary);
+  cursor: pointer;
+}
+.set-check:hover { border-color: var(--border-hover); }
+.set-check input { accent-color: var(--gold); width: 16px; height: 16px; }
+.set-check-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── TABLA DE ESTADO ─────────────────────────────────────────
+   Roles y acceso por módulo: filas con un distintivo de estado al
+   final, no una tabla de cinco columnas que no cabe en el móvil. */
+.set-table { display: flex; flex-direction: column; }
+.set-row {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.set-row:last-child { border-bottom: none; }
+.set-row-title { font-size: 0.84rem; font-weight: 600; color: var(--text-primary); flex: 1; min-width: 0; }
+.set-row-sub { font-size: 0.75rem; color: var(--text-muted); flex: 2; min-width: 0; }
+.set-badge {
+  display: inline-block; padding: 0.15rem 0.55rem;
+  border-radius: 99px; font-size: 0.7rem; font-weight: 700;
+  border: 1px solid transparent; white-space: nowrap; flex-shrink: 0;
+}
+.set-badge.ok { background: var(--success-bg); color: var(--success); border-color: var(--success); }
+.set-badge.no { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
+.set-badge.base { background: var(--bg-tertiary); color: var(--text-muted); border-color: var(--border); }
+.set-badge.fasea { background: var(--accent-glow); color: var(--accent); border-color: var(--accent-soft); }
+
+/* ── ESTADÍSTICAS ──────────────────────────────────────────── */
+.set-stat {
+  display: flex; flex-direction: column; gap: 0.2rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+.set-stat-value { font-size: 1.35rem; font-weight: 800; color: var(--text-primary); }
+.set-stat-label { font-size: 0.75rem; color: var(--text-muted); }
+
+/* ── ESTADOS DE CARGA Y ERROR ──────────────────────────────── */
+.set-loading { padding: 1.5rem 0; font-size: 0.85rem; color: var(--text-muted); }
+.set-error {
+  padding: 0.9rem 1rem; border-radius: var(--radius);
+  background: var(--danger-bg); color: var(--danger);
+  border: 1px solid var(--danger); font-size: 0.82rem;
+}
+
+/* ── ACCIONES ────────────────────────────────────────────────
+   El botón de guardar vive al final del formulario, en su propia
+   franja: es la acción que cierra la pestaña, no un control más. */
+.set-actions {
+  position: sticky; bottom: 0;
+  display: flex; justify-content: flex-end;
+  padding: 0.85rem 0 0.25rem;
+  background: linear-gradient(to top, var(--bg-primary) 60%, transparent);
+}
+
+/* ── MÓVIL ─────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .set-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 0.5rem; }
+  .set-tab { flex-shrink: 0; }
+  .set-card-body { padding: 1rem; }
+  .set-inline-form { grid-template-columns: 1fr; }
+  .set-row { flex-wrap: wrap; }
+  .set-row-sub { flex: 1 1 100%; order: 3; }
+}

@@ -95,27 +95,106 @@
      (el rol principal). Así el código heredado que compara `rol` con
      'superadmin' o 'gestor' nunca discrepa de las reglas de Firestore,
      que ya leen el conjunto. */
-  var ROLES_MULTI = {
+  /* ─── CATÁLOGO ÚNICO DE ROLES (Fase A) ──────────────────────────
+     Este es el ÚNICO lugar donde se declaran los roles de la
+     plataforma. Antes vivían en tres archivos (core/app.js,
+     modules/roles/roles.js y modules/dashboard/dashboard.js) y
+     cambiar una etiqueta obligaba a editar tres sitios.
+
+     Cada rol tiene:
+       - grupo:    'base'  → es un ROL PRINCIPAL heredado (se guarda en
+                             `rol` y sirve para derivar el principal);
+                  'faseA' → rol NUEVO, que solo existe dentro de `roles`.
+       - combinable: si puede añadirse ENCIMA del rol principal. Los
+                      cuatro combinables son los que el CRM ofrece en su
+                      rejilla de casillas.
+
+     Los módulos que necesiten los metadatos (etiqueta, icono, color,
+     descripción) los leen de aquí: V.ROLES_CATALOG. */
+  var ROLES_CATALOG = {
+    estudiante: {
+      label: 'Estudiante', icon: '🎓', color: 'blue', grupo: 'base', combinable: false,
+      desc: 'Acceso al contenido de la plataforma.'
+    },
+    avanzado: {
+      label: 'Avanzado', icon: '📈', color: 'green', grupo: 'base', combinable: false,
+      desc: 'Solo lectura sobre los datos financieros de su propia red.'
+    },
+    gestor: {
+      label: 'Gestor', icon: '🛠️', color: 'gold', grupo: 'base', combinable: false,
+      desc: 'Gestiona el contenido del CMS (cursos, podcasts, tienda).'
+    },
     superadmin: {
-      label: 'Superadmin', icon: '🔐', color: 'gold',
+      label: 'Superadmin', icon: '🔐', color: 'gold', grupo: 'base', combinable: true,
       desc: 'Acceso total: usuarios, contenido, finanzas, red global y configuración.'
     },
     cursos_pago: {
-      label: 'Cursos de pago', icon: '💎', color: 'blue',
+      label: 'Cursos de pago', icon: '💎', color: 'blue', grupo: 'faseA', combinable: true,
       desc: 'Acceso al contenido y a los cursos prémium de la plataforma.'
     },
     coordinador_comunidad: {
-      label: 'Coordinador de comunidad', icon: '🌐', color: 'green',
+      label: 'Coordinador de comunidad', icon: '🌐', color: 'green', grupo: 'faseA', combinable: true,
       desc: 'Consulta la red MLM jerárquica (4 niveles) de los usuarios de su red.'
     },
     comptable: {
-      label: 'Contable', icon: '🧮', color: 'purple',
+      label: 'Contable', icon: '🧮', color: 'purple', grupo: 'faseA', combinable: true,
       desc: 'Acceso exclusivo a los reportes financieros y al módulo de finanzas.'
     }
   };
   // Roles heredados que NO son de Fase A, pero conviven en `roles` porque
   // `rol` forma parte del conjunto. Sirven para derivar el rol principal.
   var ROLES_BASE = ['superadmin', 'gestor', 'avanzado', 'estudiante'];
+  // Los roles COMBINABLES (los que el CRM ofrece en su rejilla). Se
+  // derivan del catálogo para que no haya dos listas que puedan divergir.
+  var ROLES_MULTI = (function () {
+    var out = {};
+    Object.keys(ROLES_CATALOG).forEach(function (k) {
+      if (ROLES_CATALOG[k].combinable) out[k] = ROLES_CATALOG[k];
+    });
+    return out;
+  })();
+
+  /* ─── PARÁMETROS POR DEFECTO COMPARTIDOS ──────────────────────
+     Los porcentajes de la red MLM (N1–N5) son el MISMO dato en dos
+     documentos (config/mlm y config/finanzas). Antes cada módulo
+     llevaba su propia copia del valor inicial y podían divergir sin
+     que nadie se enterara. Aquí vive el valor inicial ÚNICO: lo
+     consumen el motor MLM y el módulo de Finanzas.
+
+     Red de 5 niveles: 30% (N1) + 10% (N2) + 5% (N3–N5) = 55% de
+     bolsa; el 45% restante se destina a la Caja Mayor / Fondo
+     Estructura General. Editable desde Configuración → Finanzas y MLM. */
+  var DEFAULT_MLM_PORCENTAJES = { 1: 30, 2: 10, 3: 5, 4: 5, 5: 5 };
+
+  /* ─── FUSIÓN DE OBJETOS (compartida) ───────────────────────────
+     Fusiona `sobre` encima de `base`. La usan el Módulo de
+     Configuración (para componer el copy guardado con la base local)
+     y la portada (para aplicar config/portal.copy sobre
+     data/content.json).
+
+     Reglas:
+       · Los objetos se fusionan campo a campo (recursivo).
+       · Los ARREGLOS se reemplazan completos: la lista guardada es la
+         lista buena, no una mezcla de las dos.
+       · Una cadena vacía en `sobre` NO borra el valor de `base`: vacío
+         significa "usa el valor por defecto", igual que en los campos
+         de texto del panel del superadmin. */
+  function mergeProfundo(base, sobre) {
+    if (sobre === undefined || sobre === null) return base;
+    if (base === undefined || base === null) return sobre;
+    var esObj = function (v) { return v && typeof v === 'object' && !Array.isArray(v); };
+    if (!esObj(base) || !esObj(sobre)) {
+      if (typeof sobre === 'string' && !sobre.trim() && typeof base === 'string') return base;
+      return sobre;
+    }
+    var out = {};
+    Object.keys(base).forEach(function (k) { out[k] = base[k]; });
+    Object.keys(sobre).forEach(function (k) {
+      if (typeof sobre[k] === 'string' && !sobre[k].trim() && typeof out[k] === 'string') return;
+      out[k] = esObj(out[k]) ? mergeProfundo(out[k], sobre[k]) : sobre[k];
+    });
+    return out;
+  }
 
   // Normaliza el documento de usuario a un arreglo de roles sin duplicados
   // ni valores basura. Acepta tanto el documento completo como un par
@@ -158,6 +237,12 @@
   // su árbol de 4 niveles). El conjunto de roles es el mismo que el de la
   // vista de árbol, porque el superadmin ya entra por bypass.
   function puedeVerRedMlm() { return puedeVerRedCoordinador(); }
+  // MÓDULO DE CONFIGURACIÓN: lo abre el superadmin (edita todas las
+  // secciones) y el contable (que solo ve la pestaña de datos
+  // operativos: cuentas bancarias y transacciones). El resto de roles
+  // no entran: ni por el menú, ni por una ruta interna (showView lo
+  // deniega), ni por las reglas (config/* solo lo escribe isAdmin()).
+  function puedeVerConfiguraciones() { return esContable() || esAdmin(); }
 
   /* ─── UID DE SESIÓN (FUENTE ÚNICA) ── Centralizado aquí.
      DEBE usarse en absolutamente TODAS las operaciones de lectura y
@@ -842,7 +927,8 @@
   var VISTAS_POR_ROL = {
     viewFinanzas: puedeVerFinanzas,
     viewReportes: puedeVerFinanzas,
-    viewRedMlm: puedeVerRedMlm
+    viewRedMlm: puedeVerRedMlm,
+    viewConfiguraciones: puedeVerConfiguraciones
   };
 
   function showView(id) {
@@ -861,7 +947,7 @@
     var top = _navHistory[_navHistory.length - 1];
     if (top !== id) _navHistory.push(id);
     if (_navHistory.length > 20) _navHistory.shift();
-    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewPodcasts', 'viewTienda', 'viewFinanzas', 'viewReportes', 'viewRedMlm', 'viewSuperadmin'];
+    var allViews = ['viewDashboard', 'viewCatalog', 'viewEditor', 'viewCourse', 'viewLesson', 'viewAdmin', 'viewComunidades', 'viewPodcasts', 'viewTienda', 'viewFinanzas', 'viewReportes', 'viewRedMlm', 'viewSuperadmin', 'viewConfiguraciones'];
     allViews.forEach(function (v) {
       var node = $(v);
       if (node) node.classList.toggle('active', v === id);
@@ -915,6 +1001,8 @@
         return [dash, { label: 'Red MLM' }];
       case 'viewSuperadmin':
         return [dash, { label: 'Panel Super Admin' }];
+      case 'viewConfiguraciones':
+        return [dash, { label: 'Configuración' }];
       default:
         return [dash, { label: id }];
     }
@@ -1320,6 +1408,25 @@
     showRedMlm('global');
   }
 
+  /* Panel de configuración. El guard se repite aquí por la misma razón
+     que en showSuperadmin: showView es la frontera de navegación y
+     esta función la de experiencia (avisa y devuelve al Escritorio).
+     Dentro, el módulo de configuración decide qué pestañas ve cada rol:
+     el superadmin todas, el contable solo "Datos operativos". */
+  function showConfiguraciones() {
+    if (!puedeVerConfiguraciones()) {
+      toast('Acceso restringido: se requiere el rol Superadmin o Contable.', true);
+      goDashboard();
+      return;
+    }
+    showView('viewConfiguraciones');
+    try {
+      if (typeof V.onConfiguracionesShow === 'function') V.onConfiguracionesShow();
+    } catch (e) {
+      toast('No se pudo cargar la configuración: ' + (e && e.message ? e.message : e), true);
+    }
+  }
+
   /* Panel exclusivo del super administrador. El guard se repite aquí a
      propósito, aunque showView ya lo aplica: showRedMlm y showSuperadmin son
      la frontera de UX (avisan y devuelven al Escritorio) y showView la de
@@ -1394,12 +1501,11 @@
     // quienes más leen.
     var modeBlock = $('modeSwitchBlock');
     if (modeBlock) modeBlock.style.display = canManage() ? '' : 'none';
-    // Configuración: pendiente; visible como "Próximamente" para gestores
-    // y superadmin, oculto para visitantes y estudiantes.
+    // Configuración: la abre el superadmin (todas las secciones) y el
+    // contable (solo "Datos operativos"). Se oculta por rol y, además,
+    // showView la vuelve a denegar a quien llegue por otra ruta.
     var linkConfig = $('sidebarLinkConfig');
-    var grpProx = $('sidebarGroupProximamente');
-    if (linkConfig) linkConfig.style.display = canManage() ? '' : 'none';
-    if (grpProx) grpProx.style.display = canManage() ? '' : 'none';
+    if (linkConfig) linkConfig.style.display = puedeVerConfiguraciones() ? '' : 'none';
   }
 
   function updateSidebarActive() {
@@ -1416,7 +1522,8 @@
       viewFinanzas: 'finanzas',
       viewReportes: 'reportes',
       viewRedMlm: 'redmlm',
-      viewSuperadmin: 'superadmin'
+      viewSuperadmin: 'superadmin',
+      viewConfiguraciones: 'config'
     };
     var key = navMap[current] || '';
     var links = document.querySelectorAll('.sidebar-link[data-nav]');
@@ -1441,6 +1548,7 @@
       case 'viewReportes': label = 'Reportes Financieros'; break;
       case 'viewRedMlm': label = 'Red MLM'; break;
       case 'viewSuperadmin': label = 'Panel Super Admin'; break;
+      case 'viewConfiguraciones': label = 'Configuración'; break;
       case 'viewCatalog': label = ($('catalogTitle') && $('catalogTitle').textContent) || 'Cursos'; break;
       case 'viewCourse': label = ($('courseTitle') && $('courseTitle').textContent) || 'Curso'; break;
       case 'viewLesson': label = ($('readerTitle') && $('readerTitle').textContent) || 'Lección'; break;
@@ -1500,6 +1608,7 @@
       case 'reportes': showReportes(); break;
       case 'redmlm': showRedMlm(); break;
       case 'superadmin': showSuperadmin(); break;
+      case 'config': showConfiguraciones(); break;
       default: break;
     }
   }
@@ -2030,6 +2139,7 @@
   V.showRedMlm = showRedMlm;
   V.setRedMlmTab = setRedMlmTab;
   V.showSuperadmin = showSuperadmin;
+  V.showConfiguraciones = showConfiguraciones;
   V.showPortal = showPortal;
   V.showPublicPortal = showPublicPortal;
   V.showGuestCatalog = showGuestCatalog;
@@ -2070,8 +2180,11 @@
   // ─── API DE ROLES (Fase A · multi-rol) ───────────────────────
   // V.tieneRol('contable') → ¿la sesión tiene ese rol?
   // V.userRoles            → conjunto efectivo de roles de la sesión.
-  // V.ROLES_MULTI          → catálogo de los roles de Fase A (etiqueta,
-  //                           icono y descripción) para pintar interfaces.
+  // V.ROLES_MULTI          → roles COMBINABLES (Fase A + superadmin).
+  // V.ROLES_BASE           → arreglo con los roles principales heredados.
+  // V.ROLES_CATALOG        → CATÁLOGO ÚNICO de la plataforma: todos los
+  //                           roles con etiqueta, icono, color, grupo
+  //                           (base|faseA), combinable y descripción.
   V.tieneRol = tieneRol;
   V.esContable = esContable;
   V.esCoordinador = esCoordinador;
@@ -2079,9 +2192,17 @@
   V.puedeVerFinanzas = puedeVerFinanzas;
   V.puedeVerRedCoordinador = puedeVerRedCoordinador;
   V.puedeVerRedMlm = puedeVerRedMlm;
+  V.puedeVerConfiguraciones = puedeVerConfiguraciones;
   V.normalizarRoles = normalizarRoles;
   V.ROLES_MULTI = ROLES_MULTI;
   V.ROLES_BASE = ROLES_BASE;
+  V.ROLES_CATALOG = ROLES_CATALOG;
+  // Valor inicial ÚNICO de los porcentajes de la red MLM (N1–N5).
+  V.DEFAULT_MLM_PORCENTAJES = DEFAULT_MLM_PORCENTAJES;
+  // Fusión de objetos profunda, compartida por el módulo de
+  // Configuración y por la portada (config/portal.copy sobre
+  // data/content.json).
+  V.mergeProfundo = mergeProfundo;
   V.userRoles = userRoles;
   V.userRole = userRole;
   V.userId = userId;

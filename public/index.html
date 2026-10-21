@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="modules/tienda/tienda.css">
   <link rel="stylesheet" href="modules/portal/portal.css">
   <link rel="stylesheet" href="modules/superadmin/superadmin.css">
+  <link rel="stylesheet" href="modules/settings/settings.css">
 </head>
 <body>
 
@@ -51,9 +52,7 @@
       <a href="#" class="sidebar-link" data-nav="reportes" id="sidebarLinkReportes" style="display:none;"><span class="sidebar-ico">📊</span> Reportes Financieros</a>
       <a href="#" class="sidebar-link" data-nav="redmlm" id="sidebarLinkRedMlm" style="display:none;"><span class="sidebar-ico">🌐</span> Red MLM</a>
       <a href="#" class="sidebar-link" data-nav="superadmin" id="sidebarLinkSuperadmin" style="display:none;"><span class="sidebar-ico">🛡️</span> Panel Super Admin</a>
-
-      <p class="sidebar-group" id="sidebarGroupProximamente" style="display:none;">Próximamente</p>
-      <a href="#" class="sidebar-link is-disabled" tabindex="-1" id="sidebarLinkConfig"><span class="sidebar-ico">⚙️</span> Configuración <span class="sidebar-tag">Pronto</span></a>
+      <a href="#" class="sidebar-link" data-nav="config" id="sidebarLinkConfig" style="display:none;"><span class="sidebar-ico">⚙️</span> Configuración</a>
     </nav>
 
     <div class="sidebar-settings" id="sidebarSettings">
@@ -864,6 +863,38 @@
       </div>
     </div>
 
+    <!-- ═══ MÓDULO DE CONFIGURACIÓN ═══
+         Panel único de los ajustes de la plataforma. Las pestañas y su
+         contenido los construye modules/settings/settings.js dentro de
+         #settingsTabs y #settingsPanel, porque cada pestaña decide qué
+         documento de `config` edita y qué campos tiene.
+
+         El acceso lo decide el ROL, y en tres capas: el enlace del menú
+         se oculta por rol, showView() rechaza a quien no tenga
+         superadmin ni contable, y firestore.rules solo deja escribir
+         config/* al superadmin (el contable solo entra a "Datos
+         operativos", que escribe en finanzas_cuentas). -->
+    <div class="view" id="viewConfiguraciones">
+      <div class="section-header">
+        <div class="section-header-ttl">
+          <span class="icon-chip gold">⚙️</span>
+          <div>
+            <h2>Configuración</h2>
+            <p id="settingsSubtitle">Todos los ajustes de la plataforma, en un solo lugar.</p>
+          </div>
+        </div>
+        <div class="section-header-acciones">
+          <span class="status-pill gold" id="settingsRolPill">Superadmin</span>
+        </div>
+      </div>
+
+      <div class="set-notice" id="settingsBanner"></div>
+
+      <nav class="set-tabs" id="settingsTabs"></nav>
+
+      <div id="settingsPanel"></div>
+    </div>
+
   </main>
   </div><!-- /.app-body -->
 
@@ -1414,5 +1445,6 @@
   <script src="modules/podcasts/podcasts.js"></script>
   <script src="modules/tienda/tienda.js"></script>
 <script src="modules/superadmin/superadmin.js"></script>
+<script src="modules/settings/settings.js"></script>
 </body>
 </html>

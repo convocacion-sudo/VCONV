@@ -892,13 +892,15 @@ service cloud.firestore {
        LECTURA: cualquier sesión (la necesita el panel de aporte del
        Escritorio, que sigue abierto para todos los miembros) y también el
        contable, que prepara la liquidación.
-       ESCRITURA: superadmin y contable. El bloque comodín config/{id}
-       (que solo permite escribir al superadmin) también casa con esta
-       ruta y las reglas se combinan con OR: el resultado sigue siendo
-       "superadmin o contable", nunca más abierto. */
+       ESCRITURA: SOLO el superadmin. Los porcentajes y los interruptores
+       son parámetros de la plataforma, no datos contables: el contable
+       administra los DATOS OPERATIVOS (finanzas_cuentas y
+       finanzas_transacciones), pero no decide la distribución del dinero.
+       El bloque comodín config/{id} exige isAdmin() también, así que
+       aquí la escritura queda cerrada al superadmin por los dos lados. */
     match /config/finanzas {
       allow read: if signedIn() || esContable();
-      allow write: if esContable() || isAdmin();
+      allow write: if isAdmin();
     }
   }
 }
