@@ -86,6 +86,43 @@ service cloud.firestore {
     function esContable() {
       return tieneRol('contable');
     }
+    /* ═══ POLÍTICA DE LA CONFIGURACIÓN GLOBAL ═══════════════════
+       Toda la configuración de la plataforma cuelga de la colección
+       `config`. Se divide en DOS niveles, y ambos se expresan aquí para
+       que la política se pueda auditar de un vistazo:
+
+       1. esConfigGlobal() → el SUPERADMIN. Escribe los documentos que
+          gobiernan la plataforma entera:
+            · config/portal       → copy de la portada + interruptor de
+                                     mantenimiento (dejaría la web caída)
+            · config/whatsapp     → número de soporte
+            · config/formulario   → qué campos se piden al registrarse
+            · config/finanzas     → porcentajes de comisión y de caja
+            · config/mlm          → interruptor y porcentajes de la red
+            · fichas/*            → las tarjetas de la portada
+          El contable NO entra aquí: aunque la interfaz le oculte estos
+          controles, un cliente manipulado podría escribir en ellos. Un
+          cambio en los porcentajes reparte el dinero y un cambio en
+          config/portal apaga la web para todo el mundo: son decisiones
+          de plataforma, no de administración contable.
+
+       2. esConfigOperativa() → el SUPERADMIN o el CONTABLE. El contable
+          administra los datos con los que se opera (cuentas bancarias,
+          transacciones, comisiones y pagos: finanzas_cuentas,
+          finanzas_transacciones, finanzas_comisiones, finanzas_pagos) y
+          las listas maestras de referencia del CRM (config/ubicacion,
+          config/perfiles, config/profesiones, config/oficios), que no
+          contienen ni datos personales ni dinero.
+
+       El resto de roles (estudiante, gestor, avanzado, coordinador,
+       cursos_pago) y los visitantes sin sesión NUNCA escriben en
+       config/: solo leen lo que su propia vista necesita. */
+    function esConfigGlobal() {
+      return isAdmin();
+    }
+    function esConfigOperativa() {
+      return esContable() || isAdmin();
+    }
     // Rol "coordinador de comunidad" (Fase A): vista de la red MLM
     // jerárquica de 4 niveles sobre SU propia red.
     function esCoordinador() {
@@ -640,9 +677,33 @@ service cloud.firestore {
 
     /* ── CONFIG (perfiles organizacionales) ────────────────── */
     // Listas de opciones del CRM (departamentos, ciudades, etc.).
+    //
+    // LECTURA: cualquier sesión (signedIn()). Los documentos que la landing
+    // necesita sin cuenta tienen su propio bloque explícito más abajo
+    // (config/formulario, config/portal, config/whatsapp) y su lectura se
+    // abre a esPublico() sin tocar este comodín.
+    //
+    // ESCRITURA: dos niveles (ver esConfigGlobal()/esConfigOperativa()).
+    //   · Superadmin: puede escribir cualquier documento de config/.
+    //   · Contable: SOLO las listas maestras operativas del CRM
+    //     (ubicacion, perfiles, profesiones, oficios). Son catálogos sin
+    //     datos personales ni dinero, y el panel de Configuración ya los
+    //     ofrece al contable (modules/settings/settings.js → tabsPermitidas).
+    //     La allow-list es explícita a propósito: si el contable pudiera
+    //     escribir cualquier id, también escribiría config/finanzas
+    //     (porcentajes de comisión y de caja) o config/portal (interruptor
+    //     de mantenimiento), y eso sería escalada de privilegios.
+    //
+    // OJO: las reglas de Firestore se combinan con OR entre los bloques que
+    // CASAN. Por eso config/portal, config/formulario, config/whatsapp,
+    // config/finanzas y config/mlm evalúan TAMBIÉN esta regla: como ninguno
+    // está en la allow-list del contable, para ellos el resultado sigue
+    // siendo "solo superadmin" por los dos lados.
     match /config/{id} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow write: if esConfigGlobal()
+        || (esContable()
+            && id in ['ubicacion', 'perfiles', 'profesiones', 'oficios']);
     }
 
     /* ── FICHAS DEL HOME ───────────────────────────────────────
@@ -665,8 +726,8 @@ service cloud.firestore {
        colección entera. Un usuario registrado que no gestiona NO puede
        listar la colección completa: solo le llegan las fichas publicadas.
 
-       ESCRITURA: exclusiva del superadmin (isAdmin()), igual que el resto
-       del contenido del CMS. OJO: el comodín /{document=**} del final
+       ESCRITURA: exclusiva del superadmin (esConfigGlobal()), igual que el
+       resto del contenido del CMS. OJO: el comodín /{document=**} del final
        deniega cualquier ruta no declarada, así que sin este bloque las
        fichas NO existirían para nadie.
 
@@ -677,7 +738,7 @@ service cloud.firestore {
        superadmin_auditoria. */
     match /fichas/{id} {
       allow read: if esVisiblePublico() || canManage();
-      allow create, update, delete: if isAdmin();
+      allow create, update, delete: if esConfigGlobal();
     }
 
     /* ── CONFIG / ESTRUCTURA DE FORMULARIOS ────────────────────
@@ -691,12 +752,14 @@ service cloud.firestore {
        Solo son etiquetas, tipos y estados: no hay ningún dato personal en
        este documento.
 
-       ESCRITURA: exclusiva del superadmin (isAdmin()). El comodín
-       /config/{id} de arriba exige isAdmin() también, así que la
-       escritura queda cerrada al superadmin por los dos lados. */
+       ESCRITURA: exclusiva del superadmin (esConfigGlobal()). El comodín
+       /config/{id} de arriba solo abre al contable las listas maestras
+       operativas (ubicacion, perfiles, profesiones, oficios), entre las que
+       NO está `formulario`: la escritura queda cerrada al superadmin por los
+       dos lados. */
     match /config/formulario {
       allow read: if esPublico() || signedIn();
-      allow write: if isAdmin();
+      allow write: if esConfigGlobal();
     }
 
     /* ── CONFIG PORTAL (ajustes de la landing pública) ───────
@@ -707,7 +770,7 @@ service cloud.firestore {
        quedaría vacía para todo visitante que no tenga cuenta.
 
        La ESCRITURA NO se relaja en absoluto: sigue siendo exclusiva del
-       superadmin (isAdmin()), igual que el resto de config y que el
+       superadmin (esConfigGlobal()), igual que el resto de config y que el
        comodín /config/{id} de arriba. Cualquier intento de(student,
        gestor, avanzado, visitante) se deniega en el servidor, aunque se
        manipule el cliente; la comprobación del rol vive en el documento
@@ -715,8 +778,9 @@ service cloud.firestore {
 
        OJO: las reglas de Firestore se combinan con OR entre los bloques
        que CASAN, así que este bloque y /config/{id} se evalúan ambos para
-       config/portal. Como los dos exigen isAdmin() para escribir, el
-       resultado sigue siendo superadmin-only.
+       config/portal. Como `portal` no está en la allow-list del contable y
+       los dos exigen superadmin para escribir, el resultado sigue siendo
+       superadmin-only.
 
        CONTRATO DE ESTE DOCUMENTO: es PÚBLICO, luego aquí dentro solo puede
        vivir lo que un visitante sin cuenta ya puede ver en pantalla (la URL,
@@ -729,7 +793,29 @@ service cloud.firestore {
        del superadmin. Esa trazabilidad va en superadmin_auditoria, de abajo. */
     match /config/portal {
       allow read: if esPublico() || signedIn();
-      allow write: if isAdmin();
+      allow write: if esConfigGlobal();
+    }
+
+    /* ── CONFIG MANTENIMIENTO ─────────────────────────────────
+       El interruptor de mantenimiento vive HOY dentro de config/portal
+       (clave `mantenimiento`), que ya está bloqueado arriba para
+       escritura exclusiva del superadmin. Este bloque reserva el camino
+       por si algún día el estado se separa en su propio documento:
+
+       · LECTURA abierta a esPublico() porque el estado de mantenimiento
+         debe poder consultarse SIN sesión (la landing decide si muestra
+         la pantalla de mantenimiento antes de autenticar a nadie).
+       · ESCRITURA exclusiva del superadmin (esConfigGlobal()): apagar o
+         encender la plataforma es una decisión de plataforma, no una
+         tarea operativa del contable.
+
+       El comodín /config/{id} también casa con esta ruta, pero ninguno de
+       sus ids está en la allow-list del contable, así que para
+       config/mantenimiento el resultado es superadmin-only por los dos
+       lados. */
+    match /config/mantenimiento {
+      allow read: if esPublico() || signedIn();
+      allow write: if esConfigGlobal();
     }
 
     /* ── CONFIG WHATSAPP (número del widget flotante) ─────────
@@ -747,11 +833,13 @@ service cloud.firestore {
        nada identificativo de quien lo editó, que sigue sin entrar en un
        documento público (eso va a superadmin_auditoria).
 
-       La ESCRITURA no se relaja: sigue siendo exclusiva de isAdmin(),
-       igual que el resto de config y que el comodín /config/{id} de arriba. */
+       La ESCRITURA no se relaja: sigue siendo exclusiva de esConfigGlobal()
+       (superadmin), igual que el resto de config y que el comodín
+       /config/{id} de arriba, donde `whatsapp` no está en la allow-list del
+       contable. */
     match /config/whatsapp {
       allow read: if esPublico() || signedIn();
-      allow write: if isAdmin();
+      allow write: if esConfigGlobal();
     }
 
     /* ── AUDITORÍA DEL SUPER ADMIN ────────────────────────────
@@ -858,7 +946,7 @@ service cloud.firestore {
         && (request.resource.data.userId == request.auth.uid
             || esContable()
             || isAdmin());
-      allow update, delete: if esContable() || isAdmin();
+      allow update, delete: if esConfigOperativa();
     }
     match /finanzas_comisiones/{id} {
       // Ancestros del autor, una generación por get() (path idénticos a
@@ -905,7 +993,7 @@ service cloud.firestore {
               && esMiAncestro()
               && get(/databases/$(database)/documents/finanzas_transacciones/$(request.resource.data.origenId)).data.userId == request.auth.uid)
         );
-      allow update, delete: if esContable() || isAdmin();
+      allow update, delete: if esConfigOperativa();
     }
     //   finanzas_pagos — pagos/desembolsos a usuarios desde la Bolsa de
     //     Comisiones (origen 'bolsa', tipo 'comision'). Los registra el
@@ -919,7 +1007,7 @@ service cloud.firestore {
             || esMiArbolFin()   // rol avanzado: pagos de su propia red
             || esContable()     // rol contable: todos los pagos
             || isAdmin());
-      allow create, update, delete: if esContable() || isAdmin();
+      allow create, update, delete: if esConfigOperativa();
     }
     //   finanzas_cuentas — catálogo de cuentas bancarias / billeteras del
     //     proyecto. Cada documento tiene SOLO dos campos de negocio:
@@ -934,8 +1022,8 @@ service cloud.firestore {
     //     comprobación del rol vive en usuarios/{uid}.rol, no en nada que
     //     envíe el navegador.
     match /finanzas_cuentas/{id} {
-      allow read: if esContable() || isAdmin();
-      allow create, update, delete: if esContable() || isAdmin();
+      allow read: if esConfigOperativa();
+      allow create, update, delete: if esConfigOperativa();
     }
 
     /* ── CONFIG DE FINANZAS (Fase A · rol contable) ───────────
@@ -950,11 +1038,12 @@ service cloud.firestore {
        son parámetros de la plataforma, no datos contables: el contable
        administra los DATOS OPERATIVOS (finanzas_cuentas y
        finanzas_transacciones), pero no decide la distribución del dinero.
-       El bloque comodín config/{id} exige isAdmin() también, así que
-       aquí la escritura queda cerrada al superadmin por los dos lados. */
+       El bloque comodín config/{id} también evalúa esta ruta, pero `finanzas`
+       no está en la allow-list del contable, así que aquí la escritura queda
+       cerrada al superadmin por los dos lados. */
     match /config/finanzas {
       allow read: if signedIn() || esContable();
-      allow write: if isAdmin();
+      allow write: if esConfigGlobal();
     }
   }
 }
