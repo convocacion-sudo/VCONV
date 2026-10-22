@@ -485,6 +485,7 @@
       img.src = url;
       img.alt = '';
       img.loading = 'lazy';
+      img.decoding = 'async';
       img.addEventListener('error', function () {
         if (img.parentNode) img.parentNode.replaceChild(el('div', 'tienda-store-avatar tienda-store-avatar-initials', iniciales(nombreTienda(t))), img);
       });
@@ -504,6 +505,7 @@
     img.src = url;
     img.alt = '';
     img.loading = 'lazy';
+    img.decoding = 'async';
     img.addEventListener('error', function () {
       var card = wrap.parentNode;
       if (card) card.classList.remove('has-cover');

@@ -209,6 +209,7 @@
       img.src = m.url;
       img.alt = opts.alt || '';
       img.loading = 'lazy';
+      img.decoding = 'async';
       img.addEventListener('error', function () {
         contenedor.innerHTML = '';
         var aviso = document.createElement('p');

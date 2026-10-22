@@ -492,7 +492,21 @@
   }
 
   /* ─── RENDER ALL ──────────────────────────────────────────── */
-  function renderAll() {
+  // Los cinco listeners de Firestore (usuarios, perfiles, profesiones,
+  // oficios y ubicacion) re-emiten con CADA cambio de la colección. Con el
+  // panel de administración oculto, ese repintado se tira a la basura:
+  // es trabajo de DOM (cientos de filas de la tabla + los cuatro
+  // editores de listas maestras) que no ve nadie y que en móvil se nota
+  // como tirones al navegar por otras vistas.
+  //
+  // Aquí el repintado se APLAZA: si la vista de administración no está
+  // visible se marca como pendiente y se dibuja UNA sola vez, en el
+  // instante en que el superadmin vuelve a ella (flushPendingAdminRender).
+  // Ninguna acción depende del DOM del panel para completarse: las
+  // escrituras van a Firestore y el listener vuelve a emitir.
+  var _adminRenderPending = false;
+
+  function paintAdminView() {
     renderStats();
     renderAnalytics();
     renderActiveFiltersBar();
@@ -503,14 +517,33 @@
     renderUbicacion();
   }
 
+  function renderAll() {
+    if (!isAdminViewVisible()) {
+      _adminRenderPending = true;
+      return;
+    }
+    _adminRenderPending = false;
+    paintAdminView();
+  }
+
+  // Vuelca el repintado aplazado cuando la vista vuelve a estar visible.
+  function flushPendingAdminRender() {
+    if (!_adminRenderPending) return;
+    var view = $('viewAdmin');
+    if (!view || !view.classList.contains('active')) return;
+    _adminRenderPending = false;
+    paintAdminView();
+  }
+
   /* ─── RECÁLCULO DE LAYOUT DE LA TABLA ────────────────────── */
-  // La primera vez se entra al módulo, la tabla se pinta mientras
-  // #viewAdmin está oculto (display:none). En ese estado el navegador
-  // fija un grid de columnas comprimido/desalineado que no se corrige
-  // al mostrar la vista; solo un refresh manual lo recompone. Al
-  // volver visible la sección (o tras cargar los datos), se reinserta
-  // la tabla dentro de su contenedor usando requestAnimationFrame +
-  // setTimeout para forzar una nueva medición de los anchos de columna.
+  // La tabla se pinta cuando el panel ya está visible, pero el navegador
+  // fija el grid de columnas en el momento en que se inserta el nodo y, si
+  // eso ocurre con #viewAdmin oculto (display:none), las columnas salen
+  // comprimidas/desalineadas que no se corrigen al mostrar la vista: solo
+  // un refresh manual lo recompone. Al volver visible la sección (o tras
+  // cargar los datos), se reinserta la tabla dentro de su contenedor usando
+  // requestAnimationFrame + setTimeout para forzar una nueva medición de
+  // los anchos de columna.
   var _adminRelayoutScheduled = false;
 
   function isAdminViewVisible() {
@@ -540,14 +573,22 @@
 
   // Cada vez que el view pasa a mostrarse se re-mide la tabla para
   // que las columnas ajusten su ancho sin necesidad de refrescar.
+  // De paso se vuelca el repintado que quedó aplazado mientras la vista
+  // estaba oculta (ver renderAll).
   function watchAdminSectionLayout() {
     var view = $('viewAdmin');
     if (!view || typeof MutationObserver === 'undefined') return;
     var observer = new MutationObserver(function () {
-      if (view.classList.contains('active')) scheduleAdminTableRelayout();
+      if (view.classList.contains('active')) {
+        flushPendingAdminRender();
+        scheduleAdminTableRelayout();
+      }
     });
     observer.observe(view, { attributes: true, attributeFilter: ['class'] });
-    if (isAdminViewVisible()) scheduleAdminTableRelayout();
+    if (isAdminViewVisible()) {
+      flushPendingAdminRender();
+      scheduleAdminTableRelayout();
+    }
   }
 
   /* ─── STATS (row 1: summary — clickable to filter) ───────── */

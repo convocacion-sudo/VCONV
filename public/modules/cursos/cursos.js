@@ -1264,6 +1264,7 @@
       img.src = leccion.media_url;
       img.alt = 'Imagen de la lección';
       img.loading = 'lazy';
+      img.decoding = 'async';
       wrap.appendChild(img);
       return wrap;
     }
@@ -1326,9 +1327,9 @@
     wrap.appendChild(box);
   }
 
-  // Vigila la carga/reproducción de la media: registra en consola cada evento
-  // relevante (sobre todo los errores) y muestra un aviso visible si la media
-  // no carga. Diagnostica el caso típico del reproductor colgado en 0:00 / 0:00.
+  // Vigila la carga/reproducción de la media: registra en consola el fallo
+  // real y muestra un aviso visible si la media no carga. Diagnostica el caso
+  // típico del reproductor colgado en 0:00 / 0:00.
   function wireMediaLoad(m, wrap) {
     // preload 'auto' en audio evita que la duración se quede en NaN cuando el
     // servidor no soporta peticiones Range y la metadata nunca llega.
@@ -1336,14 +1337,16 @@
     var errCodes = { 1: 'MEDIA_ERR_ABORTED', 2: 'MEDIA_ERR_NETWORK', 3: 'MEDIA_ERR_DECODE', 4: 'MEDIA_ERR_SRC_NOT_SUPPORTED' };
 
     function step(evt) {
-      var dur = isNaN(m.duration) ? 'NaN' : m.duration.toFixed(2) + 's';
-      var base = '[media:' + m.tagName.toLowerCase() + '] ' + evt;
-      if (evt === 'loadedmetadata' || evt === 'durationchange') console.warn(base + ' duración=' + dur);
-      else if (evt === 'error') console.warn(base + ' code=' + (m.error ? m.error.code : 0) +
-        ' (' + (m.error ? (errCodes[m.error.code] || 'desconocido') : 'sin detalle') + ')' +
-        ' networkState=' + m.networkState + ' readyState=' + m.readyState +
-        ' src=' + (m.currentSrc || m.src));
-      else console.warn(base);
+      // En consola SOLO se registra el error: el resto de eventos
+      // (loadstart, canplay, playing, ended...) son ruido de depuración y
+      // llenaban la consola en cada reproducción.
+      if (evt === 'error') {
+        var base = '[media:' + m.tagName.toLowerCase() + '] error';
+        console.warn(base + ' code=' + (m.error ? m.error.code : 0) +
+          ' (' + (m.error ? (errCodes[m.error.code] || 'desconocido') : 'sin detalle') + ')' +
+          ' networkState=' + m.networkState + ' readyState=' + m.readyState +
+          ' src=' + (m.currentSrc || m.src));
+      }
       if (evt === 'error') showError(true);
       else if (evt === 'loadedmetadata' || evt === 'durationchange' || evt === 'canplay' || evt === 'playing') showError(false);
     }

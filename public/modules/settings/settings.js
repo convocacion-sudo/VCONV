@@ -620,6 +620,7 @@
           img.src = m.url;
           img.alt = '';
           img.loading = 'lazy';
+          img.decoding = 'async';
           b.appendChild(img);
         } else {
           b.appendChild(el('span', 'set-gal-ico', '🎬'));
