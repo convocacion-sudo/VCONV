@@ -967,7 +967,7 @@
         curso.bloques = bloques;
         curso.bloquesLoaded = true;
         syncContenido();
-      }, function (e) { V.toast('Error de conexión a Firestore: ' + e.message, true); });
+      }, function (e) { V.toast('Error de conexión a Firestore: ' + e.message, 'critico'); });
 
     unsubs.push(unsubBloques);
     unsubs.push(stopLessonSubs);
@@ -1504,7 +1504,7 @@
     cursoCatSubs[catId] = q.onSnapshot(function (snap) {
       syncCoursesFromSnap(snap, catId);
     }, function (e) {
-      V.toast('Error de conexión a Firestore: ' + e.message, true);
+      V.toast('Error de conexión a Firestore: ' + e.message, 'critico');
     });
   }
 
@@ -1522,7 +1522,7 @@
     legacyCursoSub = q.onSnapshot(function (snap) {
       syncCoursesFromSnap(snap, null);
     }, function (e) {
-      V.toast('Error de conexión a Firestore: ' + e.message, true);
+      V.toast('Error de conexión a Firestore: ' + e.message, 'critico');
     });
   }
 
@@ -1558,7 +1558,7 @@
       renderCatalog();
       renderEditorCategoriaSelect();
     }, function (e) {
-      V.toast('Error de conexión a Firestore: ' + e.message, true);
+      V.toast('Error de conexión a Firestore: ' + e.message, 'critico');
     });
   }
 

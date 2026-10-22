@@ -716,7 +716,7 @@
   }
 
   function confirmarAsistencia(reu, btn) {
-    if (!V.db) { V.toast('La base de datos no está disponible.', true); return; }
+    if (!V.db) { V.toast('La base de datos no está disponible.', 'critico'); return; }
     if (!reu || !reu.id) { V.toast('La reunión ya no está disponible.', true); return; }
     if (!V.userId) { V.toast('Inicia sesión para confirmar tu asistencia.', true); return; }
 
@@ -1242,7 +1242,7 @@
     card.appendChild(actions);
 
     btn.addEventListener('click', function () {
-      if (!V.db) { V.toast('Firestore no está disponible.', true); return; }
+      if (!V.db) { V.toast('Firestore no está disponible.', 'critico'); return; }
       var titulo = (inputTitulo.value || '').trim();
       var fecha = inputFecha.value;
       var hora = inputHora.value;
@@ -1450,7 +1450,7 @@
     }
 
     btn.addEventListener('click', function () {
-      if (!moduloOk) { V.toast('El módulo de Finanzas no está disponible.', true); return; }
+      if (!moduloOk) { V.toast('El módulo de Finanzas no está disponible.', 'critico'); return; }
       if (!com || !com.id) { V.toast('Selecciona una comunidad válida.', true); return; }
       var catId = selCat.value;
       var monto = inputMonto.value;

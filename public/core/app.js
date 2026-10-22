@@ -298,14 +298,60 @@
     return es;
   }
 
-  /* ─── TOAST ───────────────────────────────────────────────── */
-  function toast(msg, isError) {
+  /* ─── TOAST ───────────────────────────────────────────────────
+     Aviso flotante (notificación emergente) con TRES niveles:
+       · sin tipo     → éxito: verde, se oculta solo a los 3 s
+       · true/'error' → error: rojo, permanece 8 s (da tiempo a leerlo)
+       · 'critico'    → error crítico: rojo, NO se oculta solo; lleva un
+                        ✕ y espera a que el usuario lo cierre
+     El segundo argumento conserva el booleano de siempre (true = error),
+     de modo que los avisos ya escritos en los módulos siguen valiendo. */
+  var TOAST_MS = { exito: 3000, error: 8000 };
+
+  function ocultarToast() {
     var t = $('toast');
     if (!t) return;
-    t.textContent = msg;
-    t.className = 'toast' + (isError ? ' error' : '') + ' show';
     clearTimeout(toast._t);
-    toast._t = setTimeout(function () { t.className = 'toast' + (isError ? ' error' : ''); }, 2600);
+    t.classList.remove('show');
+  }
+
+  function toast(msg, tipo) {
+    var t = $('toast');
+    if (!t) return;
+    var clase = 'toast';
+    var ms = TOAST_MS.exito;
+    var critico = false;
+    if (tipo === true || tipo === 'error') {
+      clase += ' error';
+      ms = TOAST_MS.error;
+    } else if (tipo === 'critico' || tipo === 'critical' || tipo === 'fatal') {
+      clase += ' error critico';
+      ms = 0;
+      critico = true;
+    }
+    /* El contenido se rehace en cada aviso: el texto va en su propio <span>
+       para que el ✕ no se mezcle con el mensaje ni lo desplace. */
+    t.innerHTML = '';
+    var texto = document.createElement('span');
+    texto.className = 'toast-texto';
+    texto.textContent = (msg === null || msg === undefined) ? '' : String(msg);
+    t.appendChild(texto);
+    if (critico) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'toast-x';
+      btn.setAttribute('aria-label', 'Cerrar aviso');
+      btn.innerHTML = '&times;';
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        ocultarToast();
+      });
+      t.appendChild(btn);
+    }
+    t.className = clase + ' show';
+    clearTimeout(toast._t);
+    if (ms > 0) toast._t = setTimeout(ocultarToast, ms);
   }
 
   /* ─── FIREBASE INIT ───────────────────────────────────────── */
@@ -844,6 +890,9 @@
     // Firebase. El botón muestra "Crear cuenta": se abre la pantalla de
     // autenticación para registrarse e iniciar sesión.
     if (isAnon) { openAuth('login'); return; }
+    // En móvil el botón "Salir" vive dentro del cajón: se recoge para que
+    // no quede el menú a medio abrir mientras se cierra la sesión.
+    sidebarClose();
     auth.signOut()
       .then(function () { location.reload(); })
       .catch(function (e) { showAuthError('No se pudo cerrar sesión: ' + (e.message || e)); });
@@ -1637,9 +1686,17 @@
     t.textContent = label;
   }
 
+  /* El cajón se marca con DOS clases equivalentes: .show (la que usa el
+     CSS de siempre) y .open (nombre explícito del estado "cajón
+     desplegado"). Ambas se pon y se quitan siempre juntas para que
+     cualquier comprobación del DOM vea el mismo estado. */
   function sidebarOpen() {
     var sb = $('appSidebar');
-    if (sb) { sb.classList.add('show'); sb.setAttribute('aria-hidden', 'false'); }
+    if (sb) {
+      sb.classList.add('show');
+      sb.classList.add('open');
+      sb.setAttribute('aria-hidden', 'false');
+    }
     var ov = $('sidebarOverlay');
     if (ov) ov.classList.add('show');
     document.body.classList.add('sidebar-open');
@@ -1653,7 +1710,11 @@
        el modo colapsado), así que no se marca como oculto para los
        lectores de pantalla. En móvil, el cajón sí desaparece. */
     var visibleEnEscritorio = window.innerWidth >= 1024;
-    if (sb) { sb.classList.remove('show'); sb.setAttribute('aria-hidden', visibleEnEscritorio ? 'false' : 'true'); }
+    if (sb) {
+      sb.classList.remove('show');
+      sb.classList.remove('open');
+      sb.setAttribute('aria-hidden', visibleEnEscritorio ? 'false' : 'true');
+    }
     var ov = $('sidebarOverlay');
     if (ov) ov.classList.remove('show');
     document.body.classList.remove('sidebar-open');
@@ -1661,13 +1722,18 @@
     if (burger) burger.setAttribute('aria-expanded', 'false');
   }
 
+  function sidebarEstaAbierto() {
+    var sb = $('appSidebar');
+    if (!sb) return false;
+    return sb.classList.contains('show') || sb.classList.contains('open');
+  }
+
   function sidebarToggle() {
     if (window.innerWidth >= 1024) {
       updateSidebarCollapsed(!document.body.classList.contains('sidebar-collapsed'));
       return;
     }
-    var sb = $('appSidebar');
-    if (sb && sb.classList.contains('show')) sidebarClose();
+    if (sidebarEstaAbierto()) sidebarClose();
     else sidebarOpen();
   }
 
@@ -1805,6 +1871,42 @@
       capVisto = c;
       applyFont();
     });
+  }
+
+  /* ─── CONTROLES DEL MENÚ LATERAL (☰ / ✕ / velo) ─────────────
+     Se enlazan al cargar el script, igual que los controles del lector,
+     y NO dentro de bindEvents().
+
+     El motivo es el mismo que en bindReaderControls(): bindEvents()
+     cuelga de startApp(), que cuelga de ensureUserDoc().then(...). Si
+     ese then rechaza (Firestore sin permisos, sin red, perfil ilegible)
+     el .catch muestra el aviso y llama a showPortal(), y bindEvents()
+     no llega a ejecutarse NUNCA. La app cargaba, pero la ☰ se quedaba
+     sin ni un listener y el menú lateral no se abría en el móvil.
+
+     Aquí no hay nada que esperar: son controles estáticos de index.html
+     y solo dependen del ancho de la ventana. La guarda de
+     shellControlsBound evita cualquier enlace doble. */
+  var shellControlsBound = false;
+  function bindShellControls() {
+    if (shellControlsBound) return;
+    shellControlsBound = true;
+    var appBurger = $('appBurger');
+    if (appBurger) appBurger.addEventListener('click', sidebarToggle);
+    var sidebarCloseBtn = $('sidebarClose');
+    if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', sidebarClose);
+    var sidebarOverlayEl = $('sidebarOverlay');
+    if (sidebarOverlayEl) sidebarOverlayEl.addEventListener('click', sidebarClose);
+    var sidebarNavEl = document.querySelector('.sidebar-nav');
+    if (sidebarNavEl) {
+      sidebarNavEl.addEventListener('click', function (e) {
+        var link = e.target.closest ? e.target.closest('.sidebar-link') : null;
+        if (!link) return;
+        e.preventDefault();
+        var nav = link.getAttribute('data-nav');
+        if (nav) sidebarNavTo(nav);
+      });
+    }
   }
 
   /* ─── MODE SWITCH ─────────────────────────────────────────── */
@@ -2034,7 +2136,11 @@
      bindReaderControls() en DOMContentLoaded, para que no dependan de que el
      arranque con la sesión llegue hasta esta función (ver el comentario de
      bindReaderControls). Enlazarlos en los dos sitios haría que cada clic
-     sumase dos pasos y los botones pareciesen saltarse el tope. */
+     sumase dos pasos y los botones pareciesen saltarse el tope.
+
+     Lo mismo vale para la ☰, el ✕ del menú y el velo: los enlaza
+     bindShellControls() en DOMContentLoaded (mismo motivo: bindEvents()
+     depende de la cadena de autenticación). */
   function bindEvents() {
     $('themeToggle').addEventListener('click', toggleTheme);
     var brandHome = $('brandHome');
@@ -2043,29 +2149,12 @@
       V.showPublicPortal();
     });
     $('btnNewCourse').addEventListener('click', function () { if (V.onNewCourse) V.onNewCourse(); });
-    $('modeGestor').addEventListener('click', function () { setMode('gestor'); });
-    $('modeEstudiante').addEventListener('click', function () { setMode('estudiante'); });
-    $('modeAdmin').addEventListener('click', function () { setMode('admin'); });
+    $('modeGestor').addEventListener('click', function () { setMode('gestor'); sidebarClose(); });
+    $('modeEstudiante').addEventListener('click', function () { setMode('estudiante'); sidebarClose(); });
+    $('modeAdmin').addEventListener('click', function () { setMode('admin'); sidebarClose(); });
     $('btnCancelEdit').addEventListener('click', function () { showView('viewCatalog'); });
     bindBreadcrumbEvents();
 
-    // App Shell: hamburguesa, drawer y navegación lateral
-    var appBurger = $('appBurger');
-    if (appBurger) appBurger.addEventListener('click', sidebarToggle);
-    var sidebarCloseBtn = $('sidebarClose');
-    if (sidebarCloseBtn) sidebarCloseBtn.addEventListener('click', sidebarClose);
-    var sidebarOverlayEl = $('sidebarOverlay');
-    if (sidebarOverlayEl) sidebarOverlayEl.addEventListener('click', sidebarClose);
-    var sidebarNavEl = document.querySelector('.sidebar-nav');
-    if (sidebarNavEl) {
-      sidebarNavEl.addEventListener('click', function (e) {
-        var link = e.target.closest ? e.target.closest('.sidebar-link') : null;
-        if (!link) return;
-        e.preventDefault();
-        var nav = link.getAttribute('data-nav');
-        if (nav) sidebarNavTo(nav);
-      });
-    }
     var sidebarLogoutBtn = $('btnLogout');
     if (sidebarLogoutBtn) sidebarLogoutBtn.addEventListener('click', handleLogout);
     // Conmutador de pestañas de la vista unificada "Red MLM": el superadmin
@@ -2334,6 +2423,10 @@
     // no necesitan sesión, y así funcionan aunque el arranque con la cuenta
     // falle antes de llegar a bindEvents().
     bindReaderControls();
+    // Los controles del menú lateral (☰ / ✕ / velo) se enlazan igual, por el
+    // mismo motivo: si el arranque con la cuenta falla, el menú tiene que
+    // seguir siendo utilizable.
+    bindShellControls();
     // Botón flotante y ventana de chat de WhatsApp: controles estáticos del
     // HTML de la landing, igual que los del lector, sin depender de sesión.
     bindChatWidget();

@@ -363,7 +363,7 @@
       V.toast('Solo el superadmin puede cambiar el número de WhatsApp.', true);
       return;
     }
-    if (!V.db) { V.toast('Firestore no disponible.', true); return; }
+    if (!V.db) { V.toast('Firestore no disponible.', 'critico'); return; }
 
     var input = $('whatsappNumberInput');
     var numero = input ? String(input.value || '').trim() : '';

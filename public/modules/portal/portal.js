@@ -1211,7 +1211,7 @@
       V.toast('Solo el superadmin puede modificar el video corporativo.', true);
       return;
     }
-    if (!V.db) { V.toast('Firestore no disponible.', true); return; }
+    if (!V.db) { V.toast('Firestore no disponible.', 'critico'); return; }
 
     var inEtiqueta = $('pvcEtiqueta');
     var inSecTit = $('pvcTituloSeccion');

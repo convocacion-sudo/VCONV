@@ -8,9 +8,11 @@
         con las tablas que el código inserta en caliente, porque la
         aplicación es casi toda dinamicidad.
 
-     2. Tablas pequeñas → se convierten en tarjetas apiladas en móvil
-        (clase .rs-cards): cada celda recibe en data-rs-label el
-        texto de su columna, que el CSS pinta como etiqueta.
+     2. Tablas → se convierten en tarjetas apiladas en móvil (clase
+        .rs-cards): cada celda recibe en data-rs-label el texto de su
+        columna, que el CSS pinta como etiqueta. Así ninguna tabla
+        necesita desplazamiento horizontal en el móvil ni ve sus
+        celdas aplastadas.
 
      3. Menú lateral → en móvil es un cajón: se abre con la
         hamburguesa y se cierra solo al pulsar cualquier opción, con
@@ -26,6 +28,7 @@
   var DESKTOP_MIN = 1024;    /* a partir de aquí el menú es fijo   */
   var WRAP_CLASS = 'rs-table-scroll';
   var CARDS_CLASS = 'rs-cards';
+  var KEEP_HEAD_CLASS = 'rs-keep-head';
 
   var V = window.VCONV = window.VCONV || {};
 
@@ -60,19 +63,30 @@
     wrap.appendChild(tabla);
   }
 
-  /* ── 2. Tablas pequeñas → tarjetas apiladas ──────────────── */
+  /* ── 2. Tablas → tarjetas apiladas ─────────────────────── */
+  /* El contenido de una lección es TEXTO para leer, no una rejilla de
+     datos: sus tablas no se convierten en tarjetas (cada celda con su
+     etiqueta quedaría como una lista interminable) y conservan su
+     desplazamiento propio. */
+  function estaEnContenidoDeLeccion(tabla) {
+    var p = tabla.parentNode;
+    while (p && p.nodeType === 1) {
+      if (p.classList && (p.classList.contains('lesson-content') || p.classList.contains('reader-content'))) return true;
+      p = p.parentNode;
+    }
+    return false;
+  }
+
   function esAptaParaTarjetas(tabla) {
     if (!tabla || tabla.nodeType !== 1) return false;
     if (tabla.getAttribute('data-rs-tarjetas') === 'no') return false;
+    if (estaEnContenidoDeLeccion(tabla)) return false;
     var thead = tabla.querySelector('thead');
     if (!thead) return false;
     var ths = thead.querySelectorAll('th');
-    if (ths.length < 2 || ths.length > 4) return false;
-    /* Una tabla con ancho mínimo grande está pensada para desplazarse
-       en horizontal: en ese caso el scroll es mejor que las tarjetas. */
-    var minw = 0;
-    try { minw = parseFloat(window.getComputedStyle(tabla).minWidth) || 0; } catch (e) { minw = 0; }
-    if (minw > 480) return false;
+    /* Con menos de dos columnas no hay etiquetas que poner: se deja
+       como tabla con desplazamiento. */
+    if (ths.length < 2) return false;
     return true;
   }
 
@@ -99,6 +113,10 @@
     if (!tabla.classList.contains(CARDS_CLASS)) {
       if (!esAptaParaTarjetas(tabla)) return;
       tabla.classList.add(CARDS_CLASS);
+      /* Si la cabecera lleva una casilla ("seleccionar todo"), esa
+         celda se conserva visible en el móvil: sin ella la selección
+         múltiple se pierde (el CSS oculta el resto de la cabecera). */
+      if (tabla.querySelector('thead input')) tabla.classList.add(KEEP_HEAD_CLASS);
     }
     marcarEtiquetas(tabla);
   }
@@ -139,6 +157,7 @@
     var sb = $('appSidebar');
     if (sb) {
       sb.classList.remove('show');
+      sb.classList.remove('open');
       sb.setAttribute('aria-hidden', window.innerWidth >= DESKTOP_MIN ? 'false' : 'true');
     }
     var ov = $('sidebarOverlay');
@@ -150,19 +169,29 @@
 
   function menuAbierto() {
     var sb = $('appSidebar');
-    return !!(sb && sb.classList.contains('show'));
+    if (!sb) return false;
+    return sb.classList.contains('show') || sb.classList.contains('open');
   }
 
-  /* Al pulsar cualquier enlace o botón del menú (no solo los que
-     llevan data-nav) el cajón se recoge: en móvil se quiere ver la
-     vista a la que se acaba de ir. */
+  /* Al pulsar cualquier enlace del menú el cajón se recoge: en móvil se
+     quiere ver la vista a la que se acaba de ir.
+
+     OJO: solo cuentan los clics DENTRO del cajón. La ☰ vive en la barra
+     superior, FUERA del menú, y su propio manejador abre el cajón; si
+     este escuchador también lo cerrara, el mismo toque que abría el
+     menú lo cerraría detrás y el usuario vería que "la ☰ no hace
+     nada" en el móvil (quedándose sin acceso a los módulos de
+     administración ni al botón "Salir"). Por eso se comprueba que el
+     destino del clic esté dentro del propio cajón. */
   function alPulsarEnMenu(e) {
     if (window.innerWidth >= DESKTOP_MIN) return;
-    if (!menuAbierto()) return;
     var sb = $('appSidebar');
+    if (!sb) return;
+    if (!menuAbierto()) return;
     var n = e.target;
+    if (!n || !sb.contains(n)) return;
     while (n && n !== sb) {
-      if (n.tagName === 'A' || n.tagName === 'BUTTON') { cerrarMenu(); return; }
+      if (n.tagName === 'A') { cerrarMenu(); return; }
       n = n.parentNode;
     }
   }

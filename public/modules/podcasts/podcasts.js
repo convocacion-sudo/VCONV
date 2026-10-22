@@ -650,7 +650,7 @@
       V.toast('Tu rol no permite gestionar los podcasts.', true);
       return Promise.resolve(false);
     }
-    if (!V.db) { V.toast('Firestore no disponible.', true); return Promise.resolve(false); }
+    if (!V.db) { V.toast('Firestore no disponible.', 'critico'); return Promise.resolve(false); }
     if (!texto(datos.titulo)) {
       V.toast('El título de la colección es obligatorio.', true);
       return Promise.resolve(false);
@@ -710,7 +710,7 @@
       V.toast('Tu rol no permite gestionar los podcasts.', true);
       return Promise.resolve(false);
     }
-    if (!V.db) { V.toast('Firestore no disponible.', true); return Promise.resolve(false); }
+    if (!V.db) { V.toast('Firestore no disponible.', 'critico'); return Promise.resolve(false); }
     if (!colId) {
       V.toast('Elige o crea una colección antes de añadir audios.', true);
       return Promise.resolve(false);

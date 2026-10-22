@@ -1011,7 +1011,7 @@
       V.toast('Tu cuenta no tiene el permiso "Vendedor Autorizado".', true);
       return;
     }
-    if (!V.db) { V.toast('Firestore no disponible.', true); return; }
+    if (!V.db) { V.toast('Firestore no disponible.', 'critico'); return; }
     if (!texto(datos.nombre)) {
       V.toast('El nombre del negocio es obligatorio.', true);
       return;

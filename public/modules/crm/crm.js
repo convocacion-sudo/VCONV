@@ -1340,7 +1340,7 @@ td.setAttribute('colspan', '13');
   // mantenimiento del índice que usa la vista jerárquica del coordinador.
   function reconstruirIndiceRed() {
     if (!V.roles || !V.roles.reconstruirIndice) {
-      V.toast('El módulo de roles no está disponible.', true);
+      V.toast('El módulo de roles no está disponible.', 'critico');
       return;
     }
     if (!confirm('Se recalculará la ruta de patrocinio (camino) de TODOS los usuarios.\n¿Continuar?')) return;
