@@ -246,17 +246,6 @@ html { scroll-behavior: smooth; }
   color: var(--accent); font-size: 0.85rem; font-weight: 600; text-decoration: none;
 }
 .portal-video-open:hover { text-decoration: underline; }
-
-/* ── CONTACTO ─────────────────────────────────────────── */
-.portal-contact { border-top: 1px solid var(--border); background: var(--bg-secondary); max-width: none; }
-.portal-contact-grid {
-  max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1.1fr;
-  gap: 2.5rem; align-items: start;
-}
-.portal-contact-form {
-  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);
-  padding: 1.75rem; box-shadow: var(--shadow);
-}
 .portal-contact-form .btn { width: 100%; }
 .input.invalid, .textarea.invalid {
   border-color: var(--danger); box-shadow: 0 0 0 2px var(--danger-bg);
@@ -327,7 +316,6 @@ html { scroll-behavior: smooth; }
   .portal-burger { display: flex; }
   .portal-hero { padding: 3rem 1rem 2.75rem; }
   .portal-section { padding: 2.5rem 1rem; }
-  .portal-contact-grid { grid-template-columns: 1fr; gap: 1.5rem; }
   .portal-blocks { grid-template-columns: 1fr; }
   .portal-fichas { grid-template-columns: 1fr; }
   .portal-courses-card { flex-direction: column; align-items: flex-start; gap: 1.1rem; padding: 1.6rem 1.4rem; }

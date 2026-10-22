@@ -292,7 +292,6 @@ html[data-theme="light"] .crm-view-block.prof-purple { background: #eae2fa; bord
 
 /* ── EMPTY TABLE ─────────────────────────────────────── */
 .admin-empty { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); }
-.admin-empty-icon { font-size: 2.5rem; margin-bottom: 0.75rem; display: block; }
 
 /* ── RESPONSIVE ──────────────────────────────────────── */
 @media (max-width: 600px) {
@@ -331,7 +330,6 @@ html[data-theme="light"] .crm-view-block.prof-purple { background: #eae2fa; bord
 .mlm-switch input:checked + .mlm-switch-slider { background: var(--accent); }
 .mlm-switch input:checked + .mlm-switch-slider::after { transform: translateX(20px); }
 .mlm-switch-label { font-size: 0.88rem; font-weight: 700; color: var(--text-primary); }
-.mlm-levels { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
 .mlm-level-row {
   display: flex; align-items: center; justify-content: space-between; gap: 1rem;
   padding: 0.55rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-md);

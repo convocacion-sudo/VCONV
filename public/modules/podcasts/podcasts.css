@@ -51,14 +51,6 @@
   margin-top: auto; padding-top: 0.75rem;
 }
 .podcast-count { font-size: 0.72rem; color: var(--text-muted); font-weight: 600; }
-
-/* ── EPISODIOS ────────────────────────────────────────────────── */
-.podcast-episodes-head {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 1rem; flex-wrap: wrap; margin: 2rem 0 1rem;
-}
-.podcast-episodes-head h3 { font-size: 1.1rem; font-weight: 800; letter-spacing: -0.01em; }
-.podcast-episodes-head-ttl { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; min-width: 0; }
 .podcast-episodes { display: flex; flex-direction: column; gap: 0.75rem; }
 
 .podcast-episode {
@@ -95,11 +87,7 @@
   background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius);
 }
 .podcast-player audio { flex: 1; min-width: 240px; height: 38px; }
-.podcast-player-info { font-size: 0.78rem; color: var(--text-secondary); font-weight: 600; min-width: 0; }
 .podcast-player.is-hidden { display: none; }
-
-/* ── PANEL DE GESTIÓN (gestor · superadmin) ───────────────────── */
-.podcast-admin { margin-top: 2.5rem; }
 .podcast-admin-card {
   background: var(--bg-card); border: 1px solid var(--border); border-top: 3px solid var(--gold);
   border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1.5rem;

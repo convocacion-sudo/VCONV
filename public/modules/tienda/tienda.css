@@ -202,9 +202,6 @@
   padding: 0.7rem 1rem; border-top: 1px solid var(--border); background: var(--bg-secondary);
 }
 .tienda-viewer-foot .btn { width: auto; }
-
-/* ── PANEL DE VENDEDOR (Mi Tienda Externa) ───────────────────── */
-.tienda-admin { margin-top: 2.5rem; }
 .tienda-admin-card {
   background: var(--bg-card); border: 1px solid var(--border); border-top: 3px solid var(--gold);
   border-radius: var(--radius-lg); padding: 1.5rem; margin-bottom: 1.5rem;

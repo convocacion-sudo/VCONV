@@ -177,7 +177,6 @@ body.sidebar-open { overflow: hidden; }
   display: flex; align-items: center; justify-content: flex-end;
   padding: 2px 0.6rem; border-bottom: 1px solid var(--border);
 }
-.sidebar-brand { display: flex; align-items: center; text-decoration: none; margin: 0; padding: 0; }
 .app-logo { height: 45px; width: auto; object-fit: contain; display: inline-block; vertical-align: middle; margin: 0; padding: 0; overflow: visible; }
 .sidebar-close {
   width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border);
@@ -203,11 +202,6 @@ body.sidebar-open { overflow: hidden; }
   box-shadow: inset 3px 0 0 var(--gold);
 }
 .sidebar-ico { width: 22px; text-align: center; font-size: 1rem; flex-shrink: 0; }
-.sidebar-tag {
-  margin-left: auto; font-size: 0.62rem; font-weight: 800; text-transform: uppercase;
-  letter-spacing: 0.04em; color: var(--gold); background: var(--gold-glow);
-  border-radius: 99px; padding: 0.12rem 0.5rem;
-}
 .sidebar-link.is-disabled { opacity: 0.5; cursor: default; pointer-events: none; }
 
 .sidebar-settings {
@@ -451,8 +445,6 @@ html[data-theme="light"] .wa-chat-input:focus {
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-success { background: var(--success); color: #fff; }
 .btn-success:hover { opacity: 0.9; }
-.btn-gold { background: var(--gold); color: #241c02; }
-.btn-gold:hover { background: var(--gold-hover); }
 .btn-danger { background: var(--danger); color: #fff; }
 .btn-danger:hover { opacity: 0.9; }
 .btn-outline { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); }

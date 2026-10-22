@@ -92,7 +92,6 @@
 }
 .set-help { margin: 0; font-size: 0.73rem; color: var(--text-muted); line-height: 1.5; }
 .set-help.es-error { color: var(--danger); }
-.set-hint { margin: 0.5rem 0 0; font-size: 0.73rem; color: var(--text-muted); font-style: italic; }
 .set-textarea { resize: vertical; min-height: 4.5rem; line-height: 1.5; }
 .set-color { padding: 0.2rem; height: 2.5rem; cursor: pointer; }
 .set-subhead {
@@ -162,22 +161,6 @@
 }
 .set-editor { margin-top: 0.85rem; }
 .set-editor .set-grid { margin-bottom: 0.5rem; }
-
-/* ── LISTA DE COMPROBACIÓN ───────────────────────────────────
-   Los campos asignados a un formulario: casillas con la etiqueta del
-   campo del catálogo. */
-.set-checklist { display: flex; flex-direction: column; gap: 0.4rem; }
-.set-check {
-  display: flex; align-items: center; gap: 0.55rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--bg-secondary);
-  font-size: 0.8rem; color: var(--text-secondary);
-  cursor: pointer;
-}
-.set-check:hover { border-color: var(--border-hover); }
-.set-check input { accent-color: var(--gold); width: 16px; height: 16px; }
-.set-check-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── TABLA DE ESTADO ─────────────────────────────────────────
    Roles y acceso por módulo: filas con un distintivo de estado al

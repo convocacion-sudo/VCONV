@@ -338,6 +338,7 @@
         img.className = 'podcast-cover';
         img.alt = '';
         img.loading = 'lazy';
+        img.decoding = 'async';
         img.src = portada;
         // Una portada rota no debe dejar una caja vacía ni el texto de alt:
         // se sustituye por el marcador de posición.
@@ -405,10 +406,8 @@
       } catch (e) {}
     }
     if (embedColHtml) {
-      try { console.log('[podcasts] embedColHtml detectado:', embedColHtml.substring(0, 80)); } catch (e) { console.log('[podcasts] embedColHtml detectado'); }
       var embedColeccion = el('div', 'podcast-embed');
       var safe = sanitizeEmbed(embedColHtml);
-      try { console.log('[podcasts] embedColHtml sanitizado:', safe.substring(0, 80)); } catch (e) { console.log('[podcasts] embedColHtml sanitizado'); }
       embedColeccion.innerHTML = safe;
       list.appendChild(embedColeccion);
     }
