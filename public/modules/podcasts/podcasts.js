@@ -108,6 +108,26 @@
     return -1;
   }
 
+  /* ─── DESPLAZAMIENTO ─────────────────────────────────────────
+     Al abrir una colección, la vista baja sola hasta sus episodios y
+     el reproductor (#podcast-detalle). Sin este salto, en pantallas
+     cortas o en el móvil el clic parece no haber hecho nada: la lista
+     de episodios queda fuera de pantalla. La rejilla de colecciones
+     NO se oculta, así que el oyente puede volver a ella cuando quiera.
+     El botón "← Todas las colecciones" devuelve la pantalla al
+     inicio del catálogo. */
+  function desplazarAlDetalle() {
+    var detalle = document.querySelector('#podcast-detalle');
+    if (!detalle) return;
+    detalle.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function desplazarAlInicio() {
+    var inicio = document.querySelector('#podcast-inicio') || document.querySelector('#viewPodcasts');
+    if (!inicio) return;
+    inicio.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   /* ─── FIRESTORE ────────────────────────────────────────────── */
   /* Consultas de un SOLO campo. `!= false` no sirve: en una consulta descarta
      los documentos sin el campo, que son la mayoría hasta que alguien marque la
@@ -550,11 +570,12 @@
       suscribirEpisodios(coleccionActualId);
       escribirUrl({ podcast: coleccionActualId });
       if (moverUrl) {
-        var head = $('podcastEpisodesHead');
-        if (head) head.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        // Scroll suave al reproductor/episodios (NO se ocultan colecciones).
+        desplazarAlDetalle();
       }
     } else if (moverUrl) {
       escribirUrl(null);
+      desplazarAlInicio();
     }
     if (gestionando) renderAdmin();
   }
@@ -1159,7 +1180,12 @@
       if (t) t.focus();
     });
     var btnVolver = $('podcastVolverTodas');
-    if (btnVolver) btnVolver.addEventListener('click', function () { seleccionarColeccion('', true); });
+    if (btnVolver) btnVolver.addEventListener('click', function () {
+      // Cierra la colección: la rejilla de todas las colecciones sigue visible.
+      // Se desplaza suavemente al inicio del catálogo.
+      seleccionarColeccion('', true);
+      desplazarAlInicio();
+    });
     var btnCopiar = $('podcastCopiarEnlace');
     if (btnCopiar) btnCopiar.addEventListener('click', function () {
       if (!coleccionActualId || !V.deepLink) return;

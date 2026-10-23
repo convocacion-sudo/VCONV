@@ -50,6 +50,10 @@
 
   var ETIQUETA_USUARIO = 'Aporte de Usuario';
   var ETIQUETA_COMUNIDAD = 'Ofrenda de Comunidad';
+  var ETIQUETA_DIRECTO = 'Ofrenda Directa / Solidaridad';
+  var TIPO_DIRECTO = 'directo_solidaridad';
+  var FONDO_CAJA_ID = 'fondo_caja_mayor';
+  var FONDO_CAJA_NOMBRE = 'Caja Mayor / Fondo General';
 
   var DEFAULT_CONFIG = {
     finanzasEnabled: true,
@@ -243,6 +247,7 @@
     return null;
   }
   function tipoLabel(t) {
+    if (t === TIPO_DIRECTO) return ETIQUETA_DIRECTO;
     if (t === 'grupo') return 'Ofrenda de grupo';
     if (t === 'ofrenda') return 'Ofrenda';
     if (t === 'aporte') return 'Aporte (MLM)';
@@ -259,6 +264,41 @@
     if (s === 'pagado') return 'Pagado';
     if (s === 'registrada') return 'Registrada';
     return e ? String(e) : 'Registrada';
+  }
+  function estadoDirectoLabel(e) {
+    var s = String(e || '').toLowerCase();
+    if (s === 'pendiente') return 'Pendiente de aprobación';
+    if (s === 'anulada') return 'Anulada';
+    return 'Aprobado / Asignado';
+  }
+  function estadoLabelTx(tx) {
+    return tx && String(tx.tipo) === TIPO_DIRECTO
+      ? estadoDirectoLabel(tx.estado)
+      : estadoLabel(tx && tx.estado);
+  }
+  function estadoPillClsTx(tx) {
+    if (tx && String(tx.tipo) === TIPO_DIRECTO) {
+      var s = String(tx.estado || '').toLowerCase();
+      if (s === 'pendiente') return 'pend';
+      if (s === 'anulada') return 'neg';
+      return 'pos';
+    }
+    return estadoPillCls(tx && tx.estado);
+  }
+  function nombreBeneficiario(tx) {
+    if (!tx) return '';
+    var id = tx.beneficiarioId ? String(tx.beneficiarioId) : '';
+    if (tx.beneficiarioNombre) return String(tx.beneficiarioNombre);
+    if (id === FONDO_CAJA_ID) return FONDO_CAJA_NOMBRE;
+    var u = id ? usuarioById(id) : null;
+    return u ? nombreUsuario(u) : (id || '');
+  }
+  function nombreDonante(tx) {
+    if (!tx) return '';
+    if (tx.donanteNombre) return String(tx.donanteNombre);
+    var id = tx.donanteId || tx.userId;
+    var u = id ? usuarioById(id) : null;
+    return u ? nombreUsuario(u) : (id || '');
   }
 
   /* ─── PARÁMETROS DE LA BOLSA DE COMISIONES Y CAJA MAYOR ────── */
@@ -602,12 +642,23 @@
     var monto = redondear(Number(datos.monto) || 0);
     if (!(monto > 0)) throw new Error('Escribe un monto válido mayor a cero.');
 
+    var esDirecto = datos.esDirecto === true || String(datos.tipo) === TIPO_DIRECTO;
     var origen = datos.origen === 'comunidad' ? 'comunidad' : 'usuario';
     var comunidadId = (datos.comunidadId && String(datos.comunidadId)) || '';
     var userId = '';
+    var beneficiarioId = '';
     var tipo = cat.tipo;
 
-    if (origen === 'comunidad') {
+    if (esDirecto) {
+      origen = 'usuario';
+      comunidadId = '';
+      userId = String(datos.donanteId || datos.userId || '');
+      if (!userId) throw new Error('Selecciona el usuario donante de la ofrenda directa.');
+      beneficiarioId = String(datos.beneficiarioId || '');
+      if (!beneficiarioId) throw new Error('Selecciona el usuario o fondo beneficiario de la ofrenda directa.');
+      if (beneficiarioId === userId) throw new Error('El donante y el beneficiario deben ser diferentes.');
+      tipo = TIPO_DIRECTO;
+    } else if (origen === 'comunidad') {
       if (!comunidadId) throw new Error('Selecciona la comunidad de origen de la ofrenda.');
       var com = comunidadById(comunidadId);
       // El titular contable de la ofrenda es el coordinador (si existe);
@@ -631,13 +682,16 @@
     var baseTx = {
       origen: origen,
       origenId: origen === 'comunidad' ? comunidadId : userId,
-      etiqueta: origen === 'comunidad' ? ETIQUETA_COMUNIDAD : ETIQUETA_USUARIO,
+      etiqueta: esDirecto ? ETIQUETA_DIRECTO : (origen === 'comunidad' ? ETIQUETA_COMUNIDAD : ETIQUETA_USUARIO),
       userId: userId,
       comunidadId: comunidadId,
       categoriaId: cat.id,
       // Cuenta de destino (opcional): id de finanzas_cuentas. Cadena vacía
       // cuando el movimiento no se asocia a una cuenta concreta.
       cuentaId: (datos.cuentaId && String(datos.cuentaId)) || '',
+      metodoPago: String(datos.metodoPago || '').trim(),
+      referenciaPago: String(datos.referenciaPago || '').trim(),
+      comprobanteUrl: urlSegura(datos.comprobanteUrl),
       monto: monto,
       tipo: tipo,
       concepto: (datos.concepto || '').trim(),
@@ -645,6 +699,22 @@
       estado: (datos.estado && String(datos.estado)) || 'registrada',
       creadoPor: V.userId
     };
+    if (esDirecto) {
+      var uDon = usuarioById(userId);
+      var nombreDon = (datos.donanteNombre && String(datos.donanteNombre)) || (uDon ? nombreUsuario(uDon) : '');
+      var nombreBen = (datos.beneficiarioNombre && String(datos.beneficiarioNombre)) || '';
+      if (!nombreBen) {
+        if (beneficiarioId === FONDO_CAJA_ID) nombreBen = FONDO_CAJA_NOMBRE;
+        else {
+          var uBen = usuarioById(beneficiarioId);
+          nombreBen = uBen ? nombreUsuario(uBen) : '';
+        }
+      }
+      baseTx.donanteId = userId;
+      baseTx.donanteNombre = nombreDon;
+      baseTx.beneficiarioId = beneficiarioId;
+      baseTx.beneficiarioNombre = nombreBen;
+    }
     baseTx.distribucion = distribucionTx({ monto: monto });
     return baseTx;
   }
@@ -742,33 +812,54 @@
   }
 
   // Reporte de aporte/donación con comprobante, por parte del propio
-  // usuario. Se crea la transacción en estado 'pendiente' para que el
-  // superadmin la valide (cambie a 'liquidada'). NO liquida comisiones
-  // todavía: la bolsa MLM se reparte en la validación. El medio de pago y
-  // la referencia del comprobante se guardan como campos del documento.
+  // usuario. Admite aporte personal, ofrenda de comunidad y ofrenda directa
+  // (donante → usuario/fondo beneficiario). Se crea la transacción en estado
+  // 'pendiente' para que el superadmin la valide (cambie a 'liquidada').
+  // NO liquida comisiones todavía: la bolsa MLM se reparte en la validación.
+  // El medio de pago, la cuenta, la referencia y la imagen del comprobante
+  // se guardan como campos del documento.
   function reportarAportePendiente(datos) {
     return loadConfig().then(function () {
       if (!isEnabled()) throw new Error('El módulo Finanzas está desactivado.');
       if (!V.db || V.isAnon || !V.userId) throw new Error('Debes tener una cuenta para reportar un aporte.');
       var monto = redondear(Number(datos.monto) || 0);
       if (!(monto > 0)) throw new Error('Escribe un monto válido mayor a cero.');
-      var metodo = String(datos.metodo || '').trim();
+      var metodo = String(datos.metodoPago || datos.metodo || '').trim();
       if (!metodo) throw new Error('Selecciona el medio de pago que usaste.');
       var referencia = String(datos.referencia || '').trim();
       if (!referencia) throw new Error('Escribe la referencia o número de comprobante.');
       var cat = categoriaById(datos.categoriaId) || categoriasActivas()[0];
       if (!cat) throw new Error('No hay categorías de aporte disponibles.');
 
+      var esDirecto = datos.esDirecto === true || String(datos.tipo) === TIPO_DIRECTO;
+      var origen = datos.origen === 'comunidad' ? 'comunidad' : 'usuario';
+      var comunidadId = '';
+      var beneficiarioId = '';
+      var tipo = 'personal';
+      var etiqueta = ETIQUETA_USUARIO;
+      if (esDirecto) {
+        beneficiarioId = String(datos.beneficiarioId || '');
+        if (!beneficiarioId) throw new Error('Selecciona el usuario o fondo beneficiario.');
+        if (beneficiarioId === V.userId) throw new Error('El donante y el beneficiario deben ser diferentes.');
+        tipo = TIPO_DIRECTO;
+        etiqueta = ETIQUETA_DIRECTO;
+      } else if (origen === 'comunidad') {
+        comunidadId = String(datos.comunidadId || '');
+        if (!comunidadId) throw new Error('Selecciona la comunidad de la ofrenda.');
+        tipo = 'grupo';
+        etiqueta = ETIQUETA_COMUNIDAD;
+      }
+
       var tx = {
-        origen: 'usuario',
-        origenId: V.userId,
-        etiqueta: ETIQUETA_USUARIO,
+        origen: origen,
+        origenId: origen === 'comunidad' ? comunidadId : V.userId,
+        etiqueta: etiqueta,
         userId: V.userId,
-        comunidadId: '',
+        comunidadId: comunidadId,
         categoriaId: cat.id,
         cuentaId: (datos.cuentaId && String(datos.cuentaId)) || '',
         monto: monto,
-        tipo: 'personal',
+        tipo: tipo,
         concepto: (datos.concepto || '').trim(),
         metodoPago: metodo,
         referenciaPago: referencia,
@@ -777,6 +868,15 @@
         estado: 'pendiente',
         creadoPor: V.userId
       };
+      if (esDirecto) {
+        var uBen = usuarioById(beneficiarioId);
+        tx.donanteId = V.userId;
+        tx.donanteNombre = nombreUsuario(V.currentUser) || V.userId;
+        tx.beneficiarioId = beneficiarioId;
+        tx.beneficiarioNombre = beneficiarioId === FONDO_CAJA_ID
+          ? FONDO_CAJA_NOMBRE
+          : (uBen ? nombreUsuario(uBen) : (datos.beneficiarioNombre || ''));
+      }
       tx.distribucion = distribucionTx({ monto: monto });
       return V.db.collection(COL_TRANS).add(tx).then(function (ref) { return ref.id; });
     });
@@ -788,6 +888,41 @@
     if (!u) return '';
     if (/^https?:\/\//i.test(u)) return u;
     return '';
+  }
+
+  // Sube la imagen adjunta del comprobante a Firebase Storage y devuelve su
+  // URL pública. Si no hay archivo, resuelve con cadena vacía (adjunto
+  // opcional). El límite de 5 MB evita bloquear el guardado con archivos
+  // pesados; el tipo se valida en el cliente y el backend de Storage aplica
+  // sus propias reglas.
+  function subirComprobante(file) {
+    return new Promise(function (resolve, reject) {
+      if (!file) { resolve(''); return; }
+      if (file.type && file.type.indexOf('image/') !== 0) {
+        reject(new Error('El comprobante debe ser una imagen (JPG, PNG, etc.).'));
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        reject(new Error('La imagen supera el límite de 5 MB.'));
+        return;
+      }
+      var storage = V.storage;
+      if (!storage && window.firebase && typeof window.firebase.storage === 'function') {
+        try { storage = window.firebase.storage(); } catch (e) { storage = null; }
+      }
+      if (!storage) {
+        reject(new Error('El almacenamiento de archivos no está disponible.'));
+        return;
+      }
+      var nombre = String(file.name || 'comprobante').replace(/[^\w.\-]+/g, '_').slice(-80);
+      var ruta = 'finanzas/comprobantes/' + (V.userId || 'anon') + '/' + Date.now() + '_' + nombre;
+      var tarea = storage.ref(ruta).put(file);
+      tarea.on('state_changed', null, function (err) {
+        reject(err || new Error('No se pudo subir la imagen del comprobante.'));
+      }, function () {
+        tarea.snapshot.ref.getDownloadURL().then(resolve, reject);
+      });
+    });
   }
 
   // Liquidación de una ofrenda de grupo desde Comunidades: transacción a
@@ -830,6 +965,18 @@
 
   function misTransacciones() {
     return todasTransacciones();
+  }
+
+  function transaccionesRecibidasDirectas() {
+    if (!V.db || !V.userId) return Promise.resolve([]);
+    return V.db.collection(COL_TRANS).where('beneficiarioId', '==', V.userId).get()
+      .then(function (snap) {
+        var rows = [];
+        snap.forEach(function (doc) { var d = doc.data() || {}; d.id = doc.id; rows.push(d); });
+        rows.sort(function (a, b) { return (b.fecha || '').localeCompare(a.fecha || ''); });
+        return rows;
+      })
+      .catch(function () { return []; });
   }
 
   function todasComisiones() {
@@ -1056,6 +1203,11 @@
   }
   function titularDeTx(tx) {
     if (!tx) return '';
+    if (String(tx.tipo) === TIPO_DIRECTO) {
+      var don = nombreDonante(tx) || 'Donante';
+      var ben = nombreBeneficiario(tx);
+      return ben ? don + ' → ' + ben : don;
+    }
     if (tx.origen === 'comunidad' || String(tx.tipo) === 'grupo') {
       var c = tx.comunidadId ? comunidadById(tx.comunidadId) : null;
       return c && c.nombre ? c.nombre : (tx.comunidadId || 'Comunidad');
@@ -1119,16 +1271,18 @@
   function renderVistaFinanzasMiembro(cont) {
     cont.innerHTML = '';
     cont.appendChild(el('p', 'fin-loading', 'Cargando tus finanzas…'));
-    Promise.all([todasTransacciones(), todasComisiones(), misPagos(), loadConfig()])
+    Promise.all([todasTransacciones(), todasComisiones(), misPagos(), transaccionesRecibidasDirectas(), loadConfig()])
       .then(function (res) {
         if (!document.body.contains(cont)) return;
         var transacciones = res[0] || [];
         var comisiones = res[1] || [];
         var pagos = res[2] || [];
+        var recibidas = res[3] || [];
         cont.innerHTML = '';
         renderStats(cont, transacciones, comisiones, pagos);
-        if (transacciones.length || comisiones.length || pagos.length) {
+        if (transacciones.length || comisiones.length || pagos.length || recibidas.length) {
           renderHistorial(cont, transacciones);
+          renderBendiciones(cont, recibidas);
           renderGanancias(cont, comisiones);
           renderMisPagos(cont, pagos);
         } else {
@@ -1612,7 +1766,7 @@
       var tr = document.createElement('tr');
       tr.appendChild(celda(V.fmtDate(tx.fecha) || (tx.fecha || '')));
       var tdOri = celda('');
-      var pill = el('span', 'fin-pill ' + (tx.origen === 'comunidad' ? 'oro' : 'azul'), tx.etiqueta || (tx.origen === 'comunidad' ? ETIQUETA_COMUNIDAD : ETIQUETA_USUARIO));
+      var pill = el('span', 'fin-pill ' + (String(tx.tipo) === TIPO_DIRECTO || tx.origen === 'comunidad' ? 'oro' : 'azul'), tx.etiqueta || (tx.origen === 'comunidad' ? ETIQUETA_COMUNIDAD : ETIQUETA_USUARIO));
       tdOri.appendChild(pill);
       tr.appendChild(tdOri);
       tr.appendChild(celda(titularDeTx(tx)));
@@ -1621,7 +1775,7 @@
       tr.appendChild(celda(fmtMoneda(tx.monto), 'fin-monto'));
       tr.appendChild(celda(fmtMoneda(d.montoBolsa), 'fin-monto pos'));
       tr.appendChild(celda(fmtMoneda(d.montoCaja), 'fin-monto blue'));
-      tr.appendChild(celda((String(tx.estado) || '').charAt(0).toUpperCase() + String(tx.estado || '').slice(1), estadoPillCls(tx.estado) ? 'fin-monto ' + estadoPillCls(tx.estado) : ''));
+      tr.appendChild(celda(estadoLabelTx(tx), estadoPillClsTx(tx) ? 'fin-monto ' + estadoPillClsTx(tx) : ''));
 
       var tdAcc = celda('');
       if (soloLectura) {
@@ -1665,57 +1819,164 @@
     });
   }
 
-  /* ─── MODAL CREAR / EDITAR TRANSACCIÓN ─────────────────────── */
+  /* ─── MODAL ÚNICO DE TRANSACCIÓN / APORTE ─────────────────────
+     Un solo formulario para "Realizar Aporte / Donación" y "Nueva
+     transacción". Los campos contables (medio de pago, origen, monto,
+     categoría, comprobante e imagen) son comunes; el rol y la edición
+     deciden qué campos de gestión se muestran. */
   function abrirModalTransaccion(existing) {
-    if (!isAdminUser()) { V.toast('Solo el superadmin puede gestionar transacciones.', true); return; }
+    var admin = isAdminUser();
     var editando = !!existing;
+    if (editando && !admin) { V.toast('Solo administración puede editar transacciones.', true); return; }
+    if (!admin && (V.isAnon || !V.userId)) { V.toast('Inicia sesión para realizar un aporte.', true); return; }
+
     var overlay = el('div', 'modal-overlay');
     var card = el('div', 'modal-card fin-modal');
     var head = el('div', 'fin-modal-head');
-    head.appendChild(el('h3', '', editando ? '✏️ Editar transacción' : '➕ Nueva transacción'));
+    head.appendChild(el('h3', '', editando
+      ? '✏️ Editar transacción'
+      : (admin ? '💳 Nueva transacción / Aporte' : '💳 Realizar Aporte / Donación')));
     card.appendChild(head);
 
     var form = el('div', 'fin-form');
 
-    // Origen (etiqueta comercial): Usuario / Comunidad
+    /* a) Medio de pago / cuenta destino ─────────────────────── */
+    form.appendChild(el('label', '', 'Medio de pago / cuenta destino'));
+    var mediosWrap = el('div', 'fin-medios-pago');
+    var medios = mediosPagoAporte();
+    if (admin) {
+      if (editando && existing.cuentaId) {
+        var yaEsta = medios.some(function (m) { return String(m.cuentaId) === String(existing.cuentaId); });
+        if (!yaEsta) {
+          var ctaActual = cuentaById(existing.cuentaId);
+          medios.push({
+            id: 'cuenta_actual',
+            label: 'Cuenta actual',
+            icon: '🏦',
+            banco: ctaActual ? ctaActual.banco : 'Cuenta asociada',
+            numero: ctaActual ? ctaActual.numero : String(existing.cuentaId),
+            cuentaId: String(existing.cuentaId),
+            nota: 'Cuenta asociada a esta transacción.'
+          });
+        }
+      }
+      medios.push({
+        id: 'sin_cuenta',
+        label: 'Sin cuenta',
+        icon: '➖',
+        banco: 'Sin cuenta de destino',
+        numero: '—',
+        cuentaId: '',
+        nota: 'El movimiento no se asociará a una cuenta bancaria.'
+      });
+    }
+    var metodoSel = medios[0] ? medios[0].id : 'nequi';
+    if (editando) {
+      var porCuenta = existing.cuentaId
+        ? medios.filter(function (m) { return String(m.cuentaId) === String(existing.cuentaId); })[0]
+        : null;
+      var porMetodo = existing.metodoPago
+        ? medios.filter(function (m) { return m.id === String(existing.metodoPago); })[0]
+        : null;
+      if (porCuenta) metodoSel = porCuenta.id;
+      else if (porMetodo) metodoSel = porMetodo.id;
+    }
+
+    medios.forEach(function (mp) {
+      var opt = el('label', 'fin-medio-card');
+      opt.setAttribute('data-medio', mp.id);
+      var radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'finMedioPago';
+      radio.value = mp.id;
+      radio.checked = mp.id === metodoSel;
+      opt.appendChild(radio);
+      var body = el('div', 'fin-medio-body');
+      body.appendChild(el('div', 'fin-medio-head', mp.icon + ' ' + mp.label));
+      body.appendChild(el('div', 'fin-medio-dato', mp.banco));
+      body.appendChild(el('div', 'fin-medio-num', mp.numero));
+      body.appendChild(el('div', 'fin-medio-nota', mp.nota));
+      opt.appendChild(body);
+      radio.addEventListener('change', function () { if (radio.checked) metodoSel = mp.id; });
+      mediosWrap.appendChild(opt);
+    });
+    form.appendChild(mediosWrap);
+
+    function cuentaIdSeleccionada() {
+      for (var i = 0; i < medios.length; i++) {
+        if (medios[i].id === metodoSel) return medios[i].cuentaId || '';
+      }
+      return '';
+    }
+
+    /* b) Origen del movimiento ───────────────────────────────── */
     var fOrigen = el('div', 'field');
     fOrigen.appendChild(el('label', '', 'Origen del movimiento'));
     var radioWrap = el('div', 'fin-origen-radio');
-    var rUsu = document.createElement('label');
-    rUsu.className = 'fin-radio';
-    var inUsu = document.createElement('input');
-    inUsu.type = 'radio';
-    inUsu.name = 'finTxOrigen';
-    inUsu.value = 'usuario';
-    rUsu.appendChild(inUsu);
-    rUsu.appendChild(el('span', '', '👤 Aporte de Usuario'));
-    radioWrap.appendChild(rUsu);
-    var rCom = document.createElement('label');
-    rCom.className = 'fin-radio';
-    var inCom = document.createElement('input');
-    inCom.type = 'radio';
-    inCom.name = 'finTxOrigen';
-    inCom.value = 'comunidad';
-    rCom.appendChild(inCom);
-    rCom.appendChild(el('span', '', '🤝 Ofrenda de Comunidad'));
-    radioWrap.appendChild(rCom);
+
+    function radioOrigen(valor, texto) {
+      var lbl = document.createElement('label');
+      lbl.className = 'fin-radio';
+      var inp = document.createElement('input');
+      inp.type = 'radio';
+      inp.name = 'finTxOrigen';
+      inp.value = valor;
+      lbl.appendChild(inp);
+      lbl.appendChild(el('span', '', texto));
+      radioWrap.appendChild(lbl);
+      inp.addEventListener('change', actualizarOrigen);
+      return inp;
+    }
+    var inUsu = radioOrigen('usuario', '👤 Aporte de Usuario');
+    var inCom = radioOrigen('comunidad', '🤝 Ofrenda de Comunidad');
+    var inDir = radioOrigen('directo', '🙏 Ofrenda Directa / Solidaridad');
     fOrigen.appendChild(radioWrap);
     form.appendChild(fOrigen);
 
-    // Usuario destino — autocompletado en vivo (se guarda el UID).
-    var fUsr = el('div', 'field');
-    fUsr.appendChild(el('label', '', 'Usuario (Aporte)'));
-    var inpUsuario = document.createElement('input');
-    inpUsuario.type = 'text';
-    inpUsuario.className = 'input';
-    inpUsuario.placeholder = 'Escribe nombre o correo…';
-    inpUsuario.autocomplete = 'off';
-    inpUsuario.disabled = true;
-    fUsr.appendChild(inpUsuario);
-    var acUsuario = crearAutocompletar(inpUsuario);
-    form.appendChild(fUsr);
+    function origenSeleccionado() {
+      if (inDir.checked) return 'directo';
+      if (inCom.checked) return 'comunidad';
+      return 'usuario';
+    }
 
-    // Comunidad destino — autocompletado análogo (se guarda el id).
+    /* c) Selectores condicionales por origen ─────────────────── */
+    var acUsuario = null;
+    var fUsr = null;
+    if (admin) {
+      fUsr = el('div', 'field');
+      fUsr.appendChild(el('label', '', 'Usuario (Aporte)'));
+      var inpUsuario = document.createElement('input');
+      inpUsuario.type = 'text';
+      inpUsuario.className = 'input';
+      inpUsuario.placeholder = 'Escribe nombre o correo…';
+      inpUsuario.autocomplete = 'off';
+      fUsr.appendChild(inpUsuario);
+      acUsuario = crearAutocompletar(inpUsuario);
+      form.appendChild(fUsr);
+    }
+
+    var fDon = el('div', 'field');
+    fDon.appendChild(el('label', '', 'Usuario donante (remitente)'));
+    var inpDonante = document.createElement('input');
+    inpDonante.type = 'text';
+    inpDonante.className = 'input';
+    inpDonante.placeholder = 'Escribe nombre o correo…';
+    inpDonante.autocomplete = 'off';
+    fDon.appendChild(inpDonante);
+    var acDonante = crearAutocompletar(inpDonante);
+    form.appendChild(fDon);
+
+    var fBenef = el('div', 'field');
+    fBenef.appendChild(el('label', '', 'Usuario / Fondo beneficiario'));
+    var inpBenef = document.createElement('input');
+    inpBenef.type = 'text';
+    inpBenef.className = 'input';
+    inpBenef.placeholder = 'Escribe nombre, correo o elige el fondo…';
+    inpBenef.autocomplete = 'off';
+    fBenef.appendChild(inpBenef);
+    var acBenef = crearAutocompletar(inpBenef);
+    form.appendChild(fBenef);
+
     var fCom = el('div', 'field');
     fCom.appendChild(el('label', '', 'Comunidad (Ofrenda)'));
     var inpCom = document.createElement('input');
@@ -1723,17 +1984,11 @@
     inpCom.className = 'input';
     inpCom.placeholder = 'Escribe el nombre de la comunidad…';
     inpCom.autocomplete = 'off';
-    inpCom.disabled = true;
     fCom.appendChild(inpCom);
     var acCom = crearAutocompletar(inpCom);
     form.appendChild(fCom);
 
-    // Categoría: se listan TODAS las categorías activas, sin importar el
-    // origen. Antes se restringía a las de tipo 'grupo' cuando el origen era
-    // comunidad, lo que (a) ocultaba el resto de opciones y (b) al EDITAR una
-    // ofrenda existente reescribía su categoría real por la primera de tipo
-    // 'grupo'. El tipo contable no depende de la categoría elegida:
-    // prepararTransaccion fuerza 'grupo' para toda transacción de comunidad.
+    /* d) Datos contables ─────────────────────────────────────── */
     var fCat = el('div', 'field');
     fCat.appendChild(el('label', '', 'Categoría'));
     var selCat = document.createElement('select');
@@ -1741,18 +1996,6 @@
     fCat.appendChild(selCat);
     form.appendChild(fCat);
 
-    // Cuenta de destino (opcional): catálogo de finanzas_cuentas. El
-    // superadmin lo administra en el panel de Finanzas; aquí solo se elige
-    // para asociar el movimiento (aporte u ofrenda) a una cuenta concreta.
-    var fCuenta = el('div', 'field');
-    fCuenta.appendChild(el('label', '', 'Cuenta de destino'));
-    var selCuenta = document.createElement('select');
-    selCuenta.className = 'select';
-    selCuenta.id = 'finTxCuenta';
-    fCuenta.appendChild(selCuenta);
-    form.appendChild(fCuenta);
-
-    // Monto / concepto / fecha / estado
     var fMonto = el('div', 'field');
     fMonto.appendChild(el('label', '', 'Monto'));
     var inpMonto = document.createElement('input');
@@ -1764,41 +2007,93 @@
     fMonto.appendChild(inpMonto);
     form.appendChild(fMonto);
 
+    var fRef = el('div', 'field');
+    fRef.appendChild(el('label', '', 'Número de comprobante o referencia' + (admin ? '' : ' *')));
+    var inpRef = document.createElement('input');
+    inpRef.type = 'text';
+    inpRef.className = 'input';
+    inpRef.placeholder = 'Ej: 1234567890 o la referencia de PSE';
+    inpRef.autocomplete = 'off';
+    fRef.appendChild(inpRef);
+    form.appendChild(fRef);
+
+    var fImg = el('div', 'field');
+    fImg.appendChild(el('label', '', 'Imagen del comprobante (opcional)'));
+    var inpFile = document.createElement('input');
+    inpFile.type = 'file';
+    inpFile.className = 'input fin-file';
+    inpFile.accept = 'image/*';
+    fImg.appendChild(inpFile);
+    var imgInfo = el('p', 'fin-form-note', 'Puedes adjuntar una foto o captura del comprobante (máx. 5 MB).');
+    fImg.appendChild(imgInfo);
+    var preview = el('div', 'fin-img-preview-wrap');
+    fImg.appendChild(preview);
+    if (editando && existing.comprobanteUrl) {
+      var lnkComp = document.createElement('a');
+      lnkComp.href = existing.comprobanteUrl;
+      lnkComp.target = '_blank';
+      lnkComp.rel = 'noopener';
+      lnkComp.className = 'fin-link';
+      lnkComp.textContent = 'Ver comprobante actual';
+      fImg.appendChild(lnkComp);
+    }
+    form.appendChild(fImg);
+    inpFile.addEventListener('change', function () {
+      preview.innerHTML = '';
+      var archivo = inpFile.files && inpFile.files[0];
+      if (!archivo) { imgInfo.textContent = 'Puedes adjuntar una foto o captura del comprobante (máx. 5 MB).'; return; }
+      imgInfo.textContent = archivo.name + ' · ' + Math.round(archivo.size / 1024) + ' KB';
+      if (archivo.type && archivo.type.indexOf('image/') === 0) {
+        var img = document.createElement('img');
+        img.className = 'fin-img-preview';
+        img.alt = 'Vista previa del comprobante';
+        img.src = URL.createObjectURL(archivo);
+        preview.appendChild(img);
+      }
+    });
+
     var fCon = el('div', 'field');
     fCon.appendChild(el('label', '', 'Concepto (opcional)'));
     var inpCon = document.createElement('input');
     inpCon.type = 'text';
     inpCon.className = 'input';
-    inpCon.placeholder = 'Ej: Aporte de bienvenida';
+    inpCon.placeholder = 'Ej: Diezmo de octubre';
     fCon.appendChild(inpCon);
     form.appendChild(fCon);
 
-    var fFecha = el('div', 'field');
-    fFecha.appendChild(el('label', '', 'Fecha'));
-    var inpFecha = document.createElement('input');
-    inpFecha.type = 'date';
-    inpFecha.className = 'input';
-    fFecha.appendChild(inpFecha);
-    form.appendChild(fFecha);
+    var inpFecha = null;
+    var selEstado = null;
+    if (admin) {
+      var fFecha = el('div', 'field');
+      fFecha.appendChild(el('label', '', 'Fecha'));
+      inpFecha = document.createElement('input');
+      inpFecha.type = 'date';
+      inpFecha.className = 'input';
+      fFecha.appendChild(inpFecha);
+      form.appendChild(fFecha);
 
-    var fEst = el('div', 'field');
-    fEst.appendChild(el('label', '', 'Estado'));
-    var selEstado = document.createElement('select');
-    selEstado.className = 'select';
-    fillSelectOpciones(selEstado, [
-      { value: 'pendiente', label: 'Pendiente (por validar)' },
-      { value: 'registrada', label: 'Registrada' },
-      { value: 'liquidada', label: 'Liquidada' },
-      { value: 'anulada', label: 'Anulada' }
-    ], 'registrada');
-    fEst.appendChild(selEstado);
-    form.appendChild(fEst);
+      var fEst = el('div', 'field');
+      fEst.appendChild(el('label', '', 'Estado'));
+      selEstado = document.createElement('select');
+      selEstado.className = 'select';
+      fillSelectOpciones(selEstado, [
+        { value: 'pendiente', label: 'Pendiente (por validar)' },
+        { value: 'registrada', label: 'Registrada' },
+        { value: 'liquidada', label: 'Liquidada' },
+        { value: 'anulada', label: 'Anulada' }
+      ], 'registrada');
+      fEst.appendChild(selEstado);
+      form.appendChild(fEst);
+    }
 
     var resumen = el('p', 'fin-form-note', '');
     form.appendChild(resumen);
+    if (!admin) {
+      form.appendChild(el('p', 'fin-form-note', 'Tu aporte quedará en estado "Pendiente" hasta que el administrador valide el comprobante.'));
+    }
 
     var acciones = el('div', 'fin-modal-acciones');
-    var btnSave = el('button', 'btn btn-primary', editando ? 'Guardar cambios' : 'Registrar transacción');
+    var btnSave = el('button', 'btn btn-primary', editando ? 'Guardar cambios' : (admin ? 'Registrar transacción' : 'Enviar solicitud'));
     btnSave.type = 'button';
     var btnCancel = el('button', 'btn btn-outline', 'Cancelar');
     btnCancel.type = 'button';
@@ -1818,134 +2113,216 @@
     btnCancel.addEventListener('click', cerrar);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) cerrar(); });
 
-    // Categoría con la que se creó la transacción en edición: se reaplica en
-    // cada repintado del desplegable para no perderla al cambiar de origen.
     var catEnEdicion = (editando && existing && existing.categoriaId) ? String(existing.categoriaId) : '';
+    var esDirectoEd = !!(editando && existing && (String(existing.tipo) === TIPO_DIRECTO || existing.beneficiarioId));
+
+    function pintarCategorias(selected) {
+      var cats = categoriasActivas();
+      if (!admin) cats = cats.filter(function (c) { return c.tipo !== 'grupo'; });
+      var opts = cats.map(function (c) {
+        return { value: c.id, label: c.nombre + ' (' + tipoLabel(c.tipo) + ')' };
+      });
+      fillSelectOpciones(selCat, opts, selected || '');
+    }
+    pintarCategorias(catEnEdicion);
 
     function actualizarOrigen() {
-      var origen = (inUsu.checked ? 'usuario' : (inCom.checked ? 'comunidad' : ''));
-      inpUsuario.disabled = origen !== 'usuario';
-      inpCom.disabled = origen !== 'comunidad';
-      if (origen !== 'usuario' && acUsuario.getValue()) acUsuario.clear();
-      if (origen !== 'comunidad' && acCom.getValue()) acCom.clear();
-      var sel0 = selCat.value || catEnEdicion;
-      fillCategoriaSelect(selCat, sel0);
+      var origen = origenSeleccionado();
+      var directo = origen === 'directo';
+      if (fUsr) fUsr.style.display = (!directo && origen === 'usuario') ? '' : 'none';
+      fCom.style.display = (!directo && origen === 'comunidad') ? '' : 'none';
+      fDon.style.display = directo ? '' : 'none';
+      fBenef.style.display = directo ? '' : 'none';
       actualizarResumen();
-    }
-    inUsu.addEventListener('change', actualizarOrigen);
-    inCom.addEventListener('change', actualizarOrigen);
-    selMontoYConcepto(); // binds
-
-    function selMontoYConcepto() {
-      inpMonto.addEventListener('input', actualizarResumen);
-      selCat.addEventListener('change', actualizarResumen);
     }
 
     function actualizarResumen() {
       var monto = Number(inpMonto.value) || 0;
       var d = distribucionTx({ monto: monto });
-      var origen = inUsu.checked ? ETIQUETA_USUARIO : (inCom.checked ? ETIQUETA_COMUNIDAD : '—');
-      resumen.textContent = origen + ' · Bolsa MLM ' + d.pctBolsa + '% → ' + fmtMoneda(d.montoBolsa) +
+      var etiqueta = origenSeleccionado() === 'directo'
+        ? ETIQUETA_DIRECTO
+        : (origenSeleccionado() === 'comunidad' ? ETIQUETA_COMUNIDAD : ETIQUETA_USUARIO);
+      resumen.textContent = etiqueta + ' · Bolsa MLM ' + d.pctBolsa + '% → ' + fmtMoneda(d.montoBolsa) +
         ' · Caja Mayor ' + d.pctCaja + '% → ' + fmtMoneda(d.montoCaja);
+    }
+    inpMonto.addEventListener('input', actualizarResumen);
+    selCat.addEventListener('change', actualizarResumen);
+
+    function itemUsuario(u) {
+      return { id: u.uid, label: nombreUsuario(u), sub: u.email || u.uid };
+    }
+    function itemYo() {
+      var yo = V.currentUser || {};
+      return {
+        id: V.userId,
+        label: nombreUsuario(yo) || (yo.email || 'Yo'),
+        sub: yo.email || V.userId
+      };
     }
 
     function poblar() {
       loadUsuarios(true).then(function () {
-        if (!document.body.contains(inpUsuario)) return;
-        acUsuario.setItems(usuariosCache.map(function (u) {
-          return { id: u.uid, label: nombreUsuario(u), sub: u.email || u.uid };
-        }));
+        if (!document.body.contains(inpDonante)) return;
+        var userItems = usuariosCache.map(itemUsuario);
+        var yo = itemYo();
+        if (!userItems.some(function (it) { return String(it.id) === String(yo.id); })) userItems.unshift(yo);
         if (editando && existing) {
-          var uidOld = existing.userId || (existing.origen === 'usuario' ? existing.origenId : '');
-          if (uidOld) acUsuario.setValue(uidOld);
+          var uidOld = existing.donanteId || existing.userId || (existing.origen === 'usuario' ? existing.origenId : '');
+          if (uidOld && !userItems.some(function (it) { return String(it.id) === String(uidOld); })) {
+            userItems.push({ id: uidOld, label: existing.donanteNombre || uidOld, sub: 'Usuario actual' });
+          }
+        }
+        if (admin && acUsuario) acUsuario.setItems(userItems);
+        acDonante.setItems(admin ? userItems : [yo]);
+
+        var benefItems = (admin ? userItems : []).filter(function (it) {
+          return String(it.id) !== String(V.userId);
+        });
+        benefItems.unshift({ id: FONDO_CAJA_ID, label: FONDO_CAJA_NOMBRE, sub: 'Fondo de la plataforma' });
+        if (editando && existing && existing.beneficiarioId) {
+          var benId = String(existing.beneficiarioId);
+          if (!benefItems.some(function (it) { return String(it.id) === benId; })) {
+            benefItems.push({ id: benId, label: existing.beneficiarioNombre || benId, sub: 'Beneficiario actual' });
+          }
+        }
+        acBenef.setItems(benefItems);
+
+        if (editando && existing) {
+          var uidSel = existing.donanteId || existing.userId || (existing.origen === 'usuario' ? existing.origenId : '');
+          if (uidSel) {
+            if (admin && acUsuario) acUsuario.setValue(uidSel);
+            if (esDirectoEd) acDonante.setValue(uidSel);
+          }
+          if (esDirectoEd && existing.beneficiarioId) acBenef.setValue(existing.beneficiarioId);
+        } else if (!admin) {
+          acDonante.setValue(V.userId);
         }
       });
       loadComunidades(true).then(function () {
         if (!document.body.contains(inpCom)) return;
-        // La comunidad de la transacción en edición se calcula antes de armar
-        // la lista: es la que debe sobrevivir si hay otra con el mismo nombre.
         var comOld = (editando && existing)
           ? (existing.comunidadId || (existing.origen === 'comunidad' ? existing.origenId : ''))
           : '';
         acCom.setItems(comunidadesUnicas(comunidadesCache, comOld).map(function (c) {
-          return { id: c.id, label: c.nombre, sub: c.coordinadorId ? ('Coord: ' + nombreUsuario(usuarioById(c.coordinadorId))) : 'Sin coordinador' };
+          return {
+            id: c.id,
+            label: c.nombre,
+            sub: c.coordinadorId ? ('Coord: ' + nombreUsuario(usuarioById(c.coordinadorId))) : 'Sin coordinador'
+          };
         }));
         if (comOld) acCom.setValue(comOld);
       });
-      loadCuentas(true).then(function () {
-        if (!document.body.contains(selCuenta)) return;
-        var cuentaOld = (editando && existing && existing.cuentaId) ? String(existing.cuentaId) : '';
-        var opts = [{ value: '', label: '— Sin cuenta —' }];
-        cuentasCache.forEach(function (c) {
-          opts.push({ value: c.id, label: c.banco + ' · N.º ' + c.numero });
+      if (admin) {
+        loadCuentas(true).then(function () {
+          if (!document.body.contains(mediosWrap)) return;
+          var reales = mediosPagoAporte();
+          reales.forEach(function (real) {
+            for (var i = 0; i < medios.length; i++) {
+              if (medios[i].id === real.id) medios[i].cuentaId = real.cuentaId;
+            }
+            var cardReal = mediosWrap.querySelector('[data-medio="' + real.id + '"]');
+            if (!cardReal) return;
+            var dato = cardReal.querySelector('.fin-medio-dato');
+            var num = cardReal.querySelector('.fin-medio-num');
+            if (dato) dato.textContent = real.banco;
+            if (num) num.textContent = real.numero;
+          });
         });
-        // Si la cuenta guardada ya no existe en el catálogo, se conserva como
-        // opción para no borrar la referencia al guardar la transacción.
-        if (cuentaOld && !cuentaById(cuentaOld)) {
-          opts.push({ value: cuentaOld, label: 'Cuenta no disponible (' + cuentaOld + ')' });
-        }
-        fillSelectOpciones(selCuenta, opts, cuentaOld);
-      });
+      }
     }
 
     if (editando && existing) {
       var origenEd = existing.origen || (String(existing.tipo) === 'grupo' ? 'comunidad' : 'usuario');
-      (origenEd === 'comunidad' ? inCom : inUsu).checked = true;
+      if (esDirectoEd) inDir.checked = true;
+      else if (origenEd === 'comunidad') inCom.checked = true;
+      else inUsu.checked = true;
       inpMonto.value = existing.monto;
+      inpRef.value = existing.referenciaPago || '';
       inpCon.value = existing.concepto || '';
       if (inpFecha) inpFecha.value = diaISO(existing.fecha) || '';
-      fillSelectOpciones(selEstado, [
-        { value: 'registrada', label: 'Registrada' },
-        { value: 'liquidada', label: 'Liquidada' },
-        { value: 'anulada', label: 'Anulada' }
-      ], existing.estado || 'registrada');
+      if (selEstado) {
+        fillSelectOpciones(selEstado, [
+          { value: 'pendiente', label: 'Pendiente (por validar)' },
+          { value: 'registrada', label: 'Registrada' },
+          { value: 'liquidada', label: 'Liquidada' },
+          { value: 'anulada', label: 'Anulada' }
+        ], existing.estado || 'registrada');
+      }
     } else {
       inUsu.checked = true;
-      inpFecha.value = diaISO(new Date());
+      if (inpFecha) inpFecha.value = diaISO(new Date());
     }
     poblar();
     actualizarOrigen();
     actualizarResumen();
 
     btnSave.addEventListener('click', function () {
-      var origen = inUsu.checked ? 'usuario' : 'comunidad';
-      var datos = {
-        origen: origen,
-        userId: acUsuario.getValue(),
-        comunidadId: acCom.getValue(),
-        categoriaId: selCat.value,
-        cuentaId: selCuenta.value,
-        monto: inpMonto.value,
-        concepto: inpCon.value,
-        fecha: inpFecha.value || new Date().toISOString(),
-        estado: selEstado.value
-      };
-      if (origen === 'comunidad' && !datos.comunidadId) { V.toast('Selecciona la comunidad de la ofrenda.', true); return; }
-      if (origen === 'usuario' && !datos.userId) { V.toast('Selecciona un usuario de la lista de autocompletado.', true); return; }
+      var origen = origenSeleccionado();
+      var directo = origen === 'directo';
+      var referencia = inpRef.value.trim();
       if (!selCat.value) { V.toast('Selecciona una categoría.', true); return; }
       if (!(Number(inpMonto.value) > 0)) { V.toast('Escribe un monto válido mayor a cero.', true); return; }
+      if (!admin && !referencia) { V.toast('Escribe el número de comprobante o referencia.', true); return; }
+
+      var datos = {
+        origen: directo ? 'usuario' : origen,
+        esDirecto: directo,
+        userId: admin && acUsuario ? acUsuario.getValue() : V.userId,
+        donanteId: directo ? (admin ? acDonante.getValue() : V.userId) : '',
+        beneficiarioId: directo ? acBenef.getValue() : '',
+        comunidadId: (!directo && origen === 'comunidad') ? acCom.getValue() : '',
+        categoriaId: selCat.value,
+        cuentaId: cuentaIdSeleccionada(),
+        metodoPago: metodoSel,
+        referenciaPago: referencia,
+        monto: inpMonto.value,
+        concepto: inpCon.value,
+        fecha: inpFecha ? (inpFecha.value || new Date().toISOString()) : new Date().toISOString(),
+        estado: selEstado ? selEstado.value : 'pendiente'
+      };
+      if (editando && existing) {
+        datos.comprobanteUrl = existing.comprobanteUrl || '';
+        if (directo) {
+          if (String(existing.donanteId || '') === String(datos.userId || '')) datos.donanteNombre = existing.donanteNombre || '';
+          if (String(existing.beneficiarioId || '') === String(datos.beneficiarioId || '')) datos.beneficiarioNombre = existing.beneficiarioNombre || '';
+        }
+      }
+      if (directo) {
+        if (!(datos.donanteId || datos.userId)) { V.toast('Selecciona el usuario donante de la lista de autocompletado.', true); return; }
+        if (!datos.beneficiarioId) { V.toast('Selecciona el usuario o fondo beneficiario.', true); return; }
+        if (String(datos.donanteId || datos.userId) === String(datos.beneficiarioId)) {
+          V.toast('El donante y el beneficiario deben ser diferentes.', true); return;
+        }
+      } else if (origen === 'comunidad' && !datos.comunidadId) {
+        V.toast('Selecciona la comunidad de la ofrenda.', true); return;
+      } else if (origen === 'usuario' && admin && !datos.userId) {
+        V.toast('Selecciona un usuario de la lista de autocompletado.', true); return;
+      }
+      if (!directo) { datos.donanteId = ''; datos.beneficiarioId = ''; }
 
       btnSave.disabled = true;
-      btnSave.textContent = editando ? '⏳ Guardando…' : '⏳ Registrando…';
-      var op = editando
-        ? editarTransaccion(existing.id, datos)
-        : crearTransaccion(datos);
-      op.then(function () {
-        V.toast(editando ? 'Transacción actualizada ✓' : 'Transacción registrada y comisiones MLM liquidadas ✓');
+      btnSave.textContent = editando ? '⏳ Guardando…' : '⏳ Enviando…';
+      var archivo = inpFile.files && inpFile.files[0];
+      subirComprobante(archivo).then(function (url) {
+        if (url) datos.comprobanteUrl = url;
+        if (admin) {
+          return editando ? editarTransaccion(existing.id, datos) : crearTransaccion(datos);
+        }
+        return reportarAportePendiente(datos);
+      }).then(function () {
+        V.toast(editando
+          ? 'Transacción actualizada ✓'
+          : (admin ? 'Transacción registrada y comisiones MLM liquidadas ✓' : 'Solicitud enviada ✓ Queda Pendiente de validación.'));
         cerrar();
-        renderVistaFinanzas();
+        if (admin) renderVistaFinanzas(); else refreshPanel();
       }).catch(function (e) {
         V.toast(e && e.message ? e.message : 'Error al guardar.', true);
         btnSave.disabled = false;
-        btnSave.textContent = editando ? 'Guardar cambios' : 'Registrar transacción';
+        btnSave.textContent = editando ? 'Guardar cambios' : (admin ? 'Registrar transacción' : 'Enviar solicitud');
       });
     });
   }
 
-  /* ─── MODAL DESEMBOLSO / PAGO A USUARIO ────────────────────── */
-  // Egreso contable contra la Bolsa de Comisiones: descuenta el monto
-  // del saldo de comisiones del usuario (y por tanto de la bolsa), sin
-  // tocar la Caja Mayor. Guarda constancia de banco y número de cuenta.
   function abrirModalDesembolso() {
     if (!isAdminUser()) { V.toast('Solo el superadmin puede registrar desembolsos.', true); return; }
     var overlay = el('div', 'modal-overlay');
@@ -2670,6 +3047,7 @@
       misTransacciones(),
       misComisiones(),
       todosPagos(),
+      transaccionesRecibidasDirectas(),
       loadComunidades(),
       (isAdminUser() ? loadUsuarios() : Promise.resolve([]))
     ]);
@@ -2727,12 +3105,13 @@
           var transacciones = res && res[0] ? res[0] : [];
           var comisiones = res && res[1] ? res[1] : [];
           var pagos = res && res[2] ? res[2] : [];
+          var recibidas = res && res[3] ? res[3] : [];
           limpiarCarga();
           limpiarCuerpo();
           renderStats(body, transacciones, comisiones, pagos);
-          renderFormAporte(body);
-          if (transacciones.length || comisiones.length || pagos.length) {
+          if (transacciones.length || comisiones.length || pagos.length || recibidas.length) {
             renderHistorial(body, transacciones);
+            renderBendiciones(body, recibidas);
             renderGanancias(body, comisiones);
             renderMisPagos(body, pagos);
           } else {
@@ -2763,7 +3142,8 @@
   // autenticado. No depende de rol, permisos, config del módulo ni recargas
   // de datos: el markup vive fuera de finanzasBody y nunca se borra.
   function bindAporteCta() {
-    ['btnAporteDonacion', 'btnAporteDonacionModulo'].forEach(function (id) {
+    var ids = ['btnAporteDonacion', 'btnAporteDonacionModulo'];
+    ids.forEach(function (id) {
       var btn = V.$(id);
       if (!btn || btn._aporteBound) return;
       btn._aporteBound = true;
@@ -2772,6 +3152,8 @@
         abrirModalAporte();
       });
     });
+    var btnModuloCta = V.$('finanzasModuloCta');
+    if (btnModuloCta) btnModuloCta.style.display = 'none';
   }
 
   // Medios de pago mostrados en el modal: dos opciones de transferencia
@@ -2794,6 +3176,7 @@
         icon: '📱',
         banco: nequi ? nequi.banco : 'Nequi',
         numero: nequi ? nequi.numero : '300 000 0000',
+        cuentaId: nequi ? nequi.id : '',
         nota: 'Envía el dinero desde tu app Nequi a este número y guarda el comprobante.'
       },
       {
@@ -2802,6 +3185,7 @@
         icon: '🏦',
         banco: banco ? banco.banco : 'Bancolombia Ahorros',
         numero: banco ? banco.numero : '000 0000 0000',
+        cuentaId: banco ? banco.id : '',
         nota: 'Transferencia o consignación a la cuenta de ahorros. Adjunta el número de referencia.'
       }
     ];
@@ -2809,157 +3193,7 @@
 
   function abrirModalAporte() {
     if (V.isAnon || !V.userId) { V.toast('Inicia sesión para realizar un aporte.', true); return; }
-    var overlay = el('div', 'modal-overlay');
-    var card = el('div', 'modal-card fin-modal');
-    card.appendChild(el('h3', '', '💳 Realizar Aporte / Donación'));
-
-    var form = el('div', 'fin-form');
-
-    // Medios de pago (tarjetas informativas con selección).
-    form.appendChild(el('label', '', 'Selecciona el medio de pago'));
-    var mediosWrap = el('div', 'fin-medios-pago');
-    var medios = mediosPagoAporte();
-    var metodoSel = 'nequi';
-
-    medios.forEach(function (mp) {
-      var opt = el('label', 'fin-medio-card');
-      var radio = document.createElement('input');
-      radio.type = 'radio';
-      radio.name = 'finMedioPago';
-      radio.value = mp.id;
-      radio.checked = mp.id === metodoSel;
-      opt.appendChild(radio);
-      var body = el('div', 'fin-medio-body');
-      body.appendChild(el('div', 'fin-medio-head', mp.icon + ' ' + mp.label));
-      body.appendChild(el('div', 'fin-medio-dato', mp.banco));
-      body.appendChild(el('div', 'fin-medio-num', mp.numero));
-      body.appendChild(el('div', 'fin-medio-nota', mp.nota));
-      opt.appendChild(body);
-      radio.addEventListener('change', function () { metodoSel = mp.id; });
-      mediosWrap.appendChild(opt);
-    });
-    form.appendChild(mediosWrap);
-
-    // Monto
-    var fMonto = el('div', 'field');
-    fMonto.appendChild(el('label', '', 'Monto aportado'));
-    var inpMonto = document.createElement('input');
-    inpMonto.type = 'number';
-    inpMonto.className = 'input';
-    inpMonto.min = '1';
-    inpMonto.step = '1';
-    inpMonto.placeholder = 'Ej: 50000';
-    fMonto.appendChild(inpMonto);
-    form.appendChild(fMonto);
-
-    // Categoría (opcional; por defecto la primera activa)
-    var fCat = el('div', 'field');
-    fCat.appendChild(el('label', '', 'Tipo de aporte'));
-    var selCat = document.createElement('select');
-    selCat.className = 'select';
-    fCat.appendChild(selCat);
-    form.appendChild(fCat);
-
-    // Referencia / comprobante
-    var fRef = el('div', 'field');
-    fRef.appendChild(el('label', '', 'Número de comprobante o referencia *'));
-    var inpRef = document.createElement('input');
-    inpRef.type = 'text';
-    inpRef.className = 'input';
-    inpRef.placeholder = 'Ej: 1234567890 o la referencia de PSE';
-    inpRef.autocomplete = 'off';
-    fRef.appendChild(inpRef);
-    form.appendChild(fRef);
-
-    // URL del comprobante (opcional)
-    var fUrl = el('div', 'field');
-    fUrl.appendChild(el('label', '', 'Enlace al comprobante (opcional)'));
-    var inpUrl = document.createElement('input');
-    inpUrl.type = 'url';
-    inpUrl.className = 'input';
-    inpUrl.placeholder = 'https://…/comprobante.jpg';
-    fUrl.appendChild(inpUrl);
-    form.appendChild(fUrl);
-
-    // Concepto
-    var fCon = el('div', 'field');
-    fCon.appendChild(el('label', '', 'Concepto (opcional)'));
-    var inpCon = document.createElement('input');
-    inpCon.type = 'text';
-    inpCon.className = 'input';
-    inpCon.placeholder = 'Ej: Diezmo de octubre';
-    fCon.appendChild(inpCon);
-    form.appendChild(fCon);
-
-    form.appendChild(el('p', 'fin-form-note', 'Tu aporte quedará en estado "Pendiente" hasta que el administrador valide el comprobante.'));
-
-    var acciones = el('div', 'fin-modal-acciones');
-    var btnSave = el('button', 'btn btn-primary', 'Enviar solicitud');
-    btnSave.type = 'button';
-    var btnCancel = el('button', 'btn btn-outline', 'Cancelar');
-    btnCancel.type = 'button';
-    acciones.appendChild(btnSave);
-    acciones.appendChild(btnCancel);
-    form.appendChild(acciones);
-    card.appendChild(form);
-
-    overlay.appendChild(card);
-    document.body.appendChild(overlay);
-    overlay.classList.add('show');
-
-    // Categorías disponibles (excluye ofrendas de grupo).
-    var cats = categoriasActivas().filter(function (c) { return c.tipo !== 'grupo'; });
-    cats.forEach(function (c) {
-      var o = document.createElement('option');
-      o.value = c.id;
-      o.textContent = c.nombre + ' (' + tipoLabel(c.tipo) + ')';
-      selCat.appendChild(o);
-    });
-
-    // Datos reales de cuentas (best-effort).
-    loadCuentas().catch(function () { return []; }).then(function () {
-      if (!document.body.contains(mediosWrap)) return;
-      // Re-pinta los datos de Nequi/Bancolombia con el catálogo cargado.
-      var reales = mediosPagoAporte();
-      var items = mediosWrap.querySelectorAll('.fin-medio-card');
-      for (var i = 0; i < items.length && i < reales.length; i++) {
-        var datos = items[i].querySelectorAll('.fin-medio-dato, .fin-medio-num');
-        if (datos[0]) datos[0].textContent = reales[i].banco;
-        if (datos[1]) datos[1].textContent = reales[i].numero;
-      }
-    });
-
-    function cerrar() {
-      overlay.classList.remove('show');
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-    }
-    btnCancel.addEventListener('click', cerrar);
-    overlay.addEventListener('click', function (e) { if (e.target === overlay) cerrar(); });
-
-    btnSave.addEventListener('click', function () {
-      var metodo = metodoSel;
-      var ref = inpRef.value.trim();
-      if (!(Number(inpMonto.value) > 0)) { V.toast('Escribe un monto válido mayor a cero.', true); return; }
-      if (!ref) { V.toast('Escribe la referencia o número de comprobante.', true); return; }
-      btnSave.disabled = true;
-      btnSave.textContent = '⏳ Enviando…';
-      reportarAportePendiente({
-        metodo: metodo,
-        monto: inpMonto.value,
-        categoriaId: selCat.value,
-        referencia: ref,
-        comprobanteUrl: inpUrl.value,
-        concepto: inpCon.value
-      }).then(function () {
-        V.toast('Solicitud enviada ✓ Queda Pendiente de validación.');
-        cerrar();
-        refreshPanel();
-      }).catch(function (e) {
-        V.toast(e && e.message ? e.message : 'Error al enviar la solicitud.', true);
-        btnSave.disabled = false;
-        btnSave.textContent = 'Enviar solicitud';
-      });
-    });
+    abrirModalTransaccion(null);
   }
 
   function renderStats(container, transacciones, comisiones, pagos) {
@@ -2982,162 +3216,11 @@
     fillSelectOpciones(select, options, '');
   }
 
-  function renderFormAporte(container) {
-    var sec = document.createElement('details');
-    sec.className = 'fin-seccion';
-    sec.open = true;
-    var s = document.createElement('summary');
-    s.appendChild(el('span', '', '💳 Registrar aporte'));
-    sec.appendChild(s);
-    var wrap = el('div', 'fin-seccion-body');
-    sec.appendChild(wrap);
-
-    var form = el('div', 'fin-form');
-
-    var catRow = el('div', 'field');
-    catRow.appendChild(el('label', '', 'Categoría'));
-    var selCat = document.createElement('select');
-    selCat.className = 'select';
-    catRow.appendChild(selCat);
-    form.appendChild(catRow);
-
-    var montoRow = el('div', 'field');
-    montoRow.appendChild(el('label', '', 'Monto'));
-    var inputMonto = document.createElement('input');
-    inputMonto.type = 'number';
-    inputMonto.className = 'input';
-    inputMonto.min = '1';
-    inputMonto.step = '1';
-    inputMonto.placeholder = 'Ej: 50000';
-    montoRow.appendChild(inputMonto);
-    form.appendChild(montoRow);
-
-    var conRow = el('div', 'field');
-    conRow.appendChild(el('label', '', 'Concepto (opcional)'));
-    var inputCon = document.createElement('input');
-    inputCon.type = 'text';
-    inputCon.className = 'input';
-    inputCon.placeholder = 'Ej: Aporte de bienvenida';
-    conRow.appendChild(inputCon);
-    form.appendChild(conRow);
-
-    // Cuenta de destino (opcional): solo para quien puede leer el catálogo
-    // (superadmin y gestor). El gestor puede seleccionarla, pero no editarla.
-    var selCuentaAporte = null;
-    if (puedeLeerCuentas()) {
-      var cuentaRow = el('div', 'field');
-      cuentaRow.appendChild(el('label', '', 'Cuenta de destino (opcional)'));
-      selCuentaAporte = document.createElement('select');
-      selCuentaAporte.className = 'select';
-      cuentaRow.appendChild(selCuentaAporte);
-      form.appendChild(cuentaRow);
-    }
-
-    var selUsuario = null;
-    var selCom = null;
-    var selEstado = null;
-    if (isAdminUser()) {
-      var fUsr = el('div', 'field');
-      fUsr.appendChild(el('label', '', 'Usuario destino (superadmin)'));
-      selUsuario = document.createElement('select');
-      selUsuario.className = 'select';
-      fUsr.appendChild(selUsuario);
-      form.appendChild(fUsr);
-
-      var fCom = el('div', 'field');
-      fCom.appendChild(el('label', '', 'Comunidad (superadmin, opcional)'));
-      selCom = document.createElement('select');
-      selCom.className = 'select';
-      fCom.appendChild(selCom);
-      form.appendChild(fCom);
-
-      var fEst = el('div', 'field');
-      fEst.appendChild(el('label', '', 'Estado (superadmin)'));
-      selEstado = document.createElement('select');
-      selEstado.className = 'select';
-      fEst.appendChild(selEstado);
-      form.appendChild(fEst);
-    }
-
-    var acciones = el('div', 'fin-form-acciones');
-    var btn = el('button', 'btn btn-primary', 'Registrar');
-    btn.type = 'button';
-    acciones.appendChild(btn);
-    form.appendChild(acciones);
-
-    wrap.appendChild(form);
-    container.appendChild(sec);
-
-    var cats = categoriasActivas().filter(function (c) { return isAdminUser() || c.tipo !== 'grupo'; });
-    selectOpcoes(selCat, cats.map(function (c) { return { value: c.id, label: c.nombre + ' (' + tipoLabel(c.tipo) + ')' }; }));
-
-    if (selCuentaAporte) {
-      loadCuentas().then(function () {
-        if (!document.body.contains(selCuentaAporte)) return;
-        var cuentaOpts = [{ value: '', label: '— Sin cuenta —', selected: true }];
-        cuentasCache.forEach(function (c) {
-          cuentaOpts.push({ value: c.id, label: c.banco + ' · N.º ' + c.numero });
-        });
-        selectOpcoes(selCuentaAporte, cuentaOpts);
-      });
-    }
-
-    if (isAdminUser() && selUsuario) {
-      loadUsuarios().then(function () {
-        if (!document.body.contains(selUsuario)) return;
-        var me = (V.currentUser && V.currentUser.email) ? 'Yo · ' + V.currentUser.email : 'Yo';
-        var opts = [{ value: V.userId, label: me, selected: true }];
-        usuariosCache.filter(function (u) { return u.uid !== V.userId; })
-          .forEach(function (u) {
-            opts.push({ value: u.uid, label: nombreUsuario(u) + ' · ' + (u.email || u.uid) });
-          });
-        selectOpcoes(selUsuario, opts);
-      });
-    }
-    if (isAdminUser() && selCom) {
-      loadComunidades().then(function () {
-        if (!document.body.contains(selCom)) return;
-        var opts = [{ value: '', label: '(Sin comunidad)' }];
-        comunidadesUnicas(comunidadesCache, selCom.value).forEach(function (c) { opts.push({ value: c.id, label: c.nombre + (c.coordinadorId ? ' · Coord: ' + nombreUsuario(usuarioById(c.coordinadorId)) : '') }); });
-        selectOpcoes(selCom, opts);
-      });
-    }
-    if (isAdminUser() && selEstado) {
-      selectOpcoes(selEstado, [
-        { value: 'registrada', label: 'Registrada', selected: true },
-        { value: 'liquidada', label: 'Liquidada' }
-      ]);
-    }
-
-    btn.addEventListener('click', function () {
-      if (!selCat.value) { V.toast('Selecciona una categoría.', true); return; }
-      if (!(Number(inputMonto.value) > 0)) { V.toast('Escribe un monto válido mayor a cero.', true); return; }
-      var datosAporte = { categoriaId: selCat.value, monto: inputMonto.value, concepto: inputCon.value, cuentaId: selCuentaAporte ? selCuentaAporte.value : '' };
-      if (isAdminUser()) {
-        if (selUsuario && selUsuario.value) datosAporte.userId = selUsuario.value;
-        if (selCom && selCom.value) datosAporte.comunidadId = selCom.value;
-        if (selEstado) datosAporte.estado = selEstado.value;
-      }
-      btn.disabled = true;
-      btn.textContent = '⏳ Registrando…';
-      registrarAportePersonal(datosAporte).then(function () {
-        V.toast('Aporte registrado ✓');
-        inputMonto.value = '';
-        inputCon.value = '';
-        return refreshPanel();
-      }).catch(function (e) {
-        V.toast(e && e.message ? e.message : 'Error al registrar.', true);
-        btn.disabled = false;
-        btn.textContent = 'Registrar';
-      });
-    });
-  }
-
   function renderHistorial(container, transacciones) {
     var sec = document.createElement('details');
     sec.className = 'fin-seccion';
     var s = document.createElement('summary');
-    s.appendChild(el('span', '', '📊 Historial de mis movimientos'));
+    s.appendChild(el('span', '', '📊 Mis Aportes · Historial de movimientos'));
     sec.appendChild(s);
     var wrap = el('div', 'fin-seccion-body');
     sec.appendChild(wrap);
@@ -3147,12 +3230,17 @@
       wrap.appendChild(el('p', 'fin-empty', 'Aún no has registrado aportes.'));
       return;
     }
+
     transacciones.forEach(function (t) {
+      var esDirecto = String(t.tipo) === TIPO_DIRECTO;
       var cat = categoriaById(t.categoriaId) || { nombre: t.categoriaId || '—', tipo: t.tipo };
       var row = el('div', 'fin-fila');
       var info = el('div', 'fin-fila-info');
-      info.appendChild(el('div', 'fin-fila-titulo', cat.nombre || '—'));
+      info.appendChild(el('div', 'fin-fila-titulo', esDirecto ? ETIQUETA_DIRECTO : (cat.nombre || '—')));
       var partes = [];
+      if (esDirecto) {
+        partes.push('Ofrenda para: ' + (nombreBeneficiario(t) || 'Beneficiario'));
+      }
       if (t.origen === 'comunidad' || t.tipo === 'grupo') {
         var comunidadTx = t.comunidadId ? comunidadById(t.comunidadId) : null;
         partes.push(comunidadTx ? 'Comunidad: ' + comunidadTx.nombre : 'Comunidad');
@@ -3166,17 +3254,57 @@
       var subTxt = partes.join(' · ');
       info.appendChild(el('div', 'fin-fila-sub', subTxt));
       if (t.estado) {
-        var estCls = estadoPillCls(t.estado) || 'gris';
-        info.appendChild(el('span', 'fin-pill ' + estCls, estadoLabel(t.estado)));
+        var estCls = estadoPillClsTx(t) || 'gris';
+        info.appendChild(el('span', 'fin-pill ' + estCls, estadoLabelTx(t)));
       }
       row.appendChild(info);
       var right = el('div', 'fin-fila-info');
-      right.appendChild(el('div', 'fin-fila-monto' + (t.tipo === 'grupo' ? ' pos' : ''), fmtMoneda(t.monto)));
-      right.appendChild(el('span', 'fin-pill ' + (t.tipo === 'grupo' ? 'oro' : (t.origen === 'usuario' ? 'azul' : 'gris')), tipoLabel(t.tipo)));
+      right.appendChild(el('div', 'fin-fila-monto' + (esDirecto || t.tipo === 'grupo' ? ' pos' : ''), fmtMoneda(t.monto)));
+      right.appendChild(el('span', 'fin-pill ' + (esDirecto || t.tipo === 'grupo' ? 'oro' : (t.origen === 'usuario' ? 'azul' : 'gris')), tipoLabel(t.tipo)));
       row.appendChild(right);
       wrap.appendChild(row);
       renderDesglose(wrap, t);
     });
+  }
+
+  function renderBendiciones(container, recibidas) {
+    if (!recibidas || !recibidas.length) return;
+    var sec = document.createElement('details');
+    sec.className = 'fin-seccion';
+    sec.open = true;
+    var s = document.createElement('summary');
+    s.appendChild(el('span', '', '🙏 Mis Bendiciones / Recursos Recibidos'));
+    sec.appendChild(s);
+    var wrap = el('div', 'fin-seccion-body');
+    sec.appendChild(wrap);
+    container.appendChild(sec);
+
+    var total = 0;
+    recibidas.forEach(function (t) {
+      total += Number(t.monto) || 0;
+      var origen = nombreDonante(t) || 'Donante';
+      var row = el('div', 'fin-fila');
+      var info = el('div', 'fin-fila-info');
+      info.appendChild(el('div', 'fin-fila-titulo', 'Ofrenda recibida de ' + origen));
+      var partes = ['Origen: ' + origen];
+      if (t.concepto) partes.push(t.concepto);
+      if (t.fecha) partes.push(V.fmtDate(t.fecha));
+      info.appendChild(el('div', 'fin-fila-sub', partes.join(' · ')));
+      if (t.estado) {
+        var estCls = estadoPillClsTx(t) || 'gris';
+        info.appendChild(el('span', 'fin-pill ' + estCls, estadoLabelTx(t)));
+      }
+      row.appendChild(info);
+      var right = el('div', 'fin-fila-info');
+      right.appendChild(el('div', 'fin-fila-monto pos', fmtMoneda(t.monto)));
+      right.appendChild(el('span', 'fin-pill oro', tipoLabel(t.tipo)));
+      row.appendChild(right);
+      wrap.appendChild(row);
+    });
+    var totalRow = el('div', 'fin-fila');
+    totalRow.appendChild(el('div', 'fin-fila-titulo', 'Total recibido'));
+    totalRow.appendChild(el('div', 'fin-fila-monto pos', fmtMoneda(total)));
+    wrap.appendChild(totalRow);
   }
 
   function renderGanancias(container, comisiones) {
@@ -3961,6 +4089,7 @@
     liquidarOfrendaGrupo: liquidarOfrendaGrupo,
     misTransacciones: misTransacciones,
     misComisiones: misComisiones,
+    transaccionesRecibidasDirectas: transaccionesRecibidasDirectas,
     todasTransacciones: todasTransacciones,
     todasComisiones: todasComisiones,
     crearTransaccion: crearTransaccion,

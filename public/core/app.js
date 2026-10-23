@@ -887,8 +887,8 @@
 
   function handleLogout() {
     // Un visitante en modo local nunca "cierra sesión": no tiene sesión de
-    // Firebase. El botón muestra "Crear cuenta": se abre la pantalla de
-    // autenticación para registrarse e iniciar sesión.
+    // Firebase. El botón muestra "Ingresar": se abre la pantalla de
+    // autenticación en la pestaña de acceso (que permite cambiar a registro).
     if (isAnon) { openAuth('login'); return; }
     // En móvil el botón "Salir" vive dentro del cajón: se recoge para que
     // no quede el menú a medio abrir mientras se cierra la sesión.
@@ -2026,7 +2026,7 @@
     applyFont();
     if (isAnon) setupGuestChip(currentUser); else setupUserChip(currentUser);
     var logoutBtn = $('btnLogout');
-    if (logoutBtn) logoutBtn.textContent = isAnon ? '🔐 Crear cuenta' : 'Salir';
+    if (logoutBtn) logoutBtn.textContent = isAnon ? '🔓 Ingresar' : 'Salir';
     if (localStorage.getItem('vconv_sidebar') === 'collapsed') updateSidebarCollapsed(true);
 
     if (appStarted) {
@@ -2102,7 +2102,7 @@
     showApp();
     if (isAnon) setupGuestChip(currentUser); else setupUserChip(currentUser);
     var logoutBtn = $('btnLogout');
-    if (logoutBtn) logoutBtn.textContent = isAnon ? '🔐 Crear cuenta' : 'Salir';
+    if (logoutBtn) logoutBtn.textContent = isAnon ? '🔓 Ingresar' : 'Salir';
     $('modeAdmin').style.display = esAdmin() ? '' : 'none';
     updateSidebarAccess();
     setMode(mode);

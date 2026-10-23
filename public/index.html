@@ -82,6 +82,8 @@
       <div class="sidebar-actions">
         <button class="icon-btn" id="themeToggle" title="Cambiar tema">🌙</button>
         <button type="button" class="btn btn-outline btn-sm" id="btnLogout" title="Cerrar sesión">Salir</button>
+        <!-- El texto se ajusta en core/app.js: "🔓 Ingresar" para el visitante
+             (abre la pantalla de acceso) y "Salir" para la sesión activa. -->
       </div>
     </div>
   </aside>
@@ -606,7 +608,8 @@
 
     <!-- ═══ MÓDULO PODCASTS (catálogo público de audio) ═══ -->
     <div class="view" id="viewPodcasts">
-      <div class="section-header">
+      <!-- Ancla de vuelta: "← Todas las colecciones" regresa aquí -->
+      <div class="section-header" id="podcast-inicio">
         <div>
           <h2>🎧 Podcasts</h2>
           <p id="podcastSub">Colecciones de audio y episodios para escuchar.</p>
@@ -617,21 +620,27 @@
         </div>
       </div>
       <div id="podcastCategoriasBar" class="podcast-cats"></div>
+      <!-- La rejilla de colecciones NUNCA se oculta: sigue visible con una
+           colección abierta. El detalle de esa colección vive debajo. -->
       <div id="podcastCollections" class="podcast-grid"></div>
-      <div id="podcastEpisodesHead" style="display:none;">
-        <div>
-          <h3 id="podcastEpisodesTitle"></h3>
-          <p id="podcastEpisodesCount" class="muted"></p>
+      <!-- Destino del auto-scroll: al abrir una colección, la vista baja sola
+           hasta sus episodios y el reproductor. -->
+      <div id="podcast-detalle" class="podcast-detalle">
+        <div id="podcastEpisodesHead" style="display:none;">
+          <div>
+            <h3 id="podcastEpisodesTitle"></h3>
+            <p id="podcastEpisodesCount" class="muted"></p>
+          </div>
+          <div>
+            <button type="button" id="podcastVolverTodas" class="btn btn-outline">← Todas las colecciones</button>
+            <button type="button" id="podcastCopiarEnlace" class="btn btn-outline">🔗 Copiar enlace</button>
+          </div>
         </div>
-        <div>
-          <button type="button" id="podcastVolverTodas" class="btn btn-outline">← Todas las colecciones</button>
-          <button type="button" id="podcastCopiarEnlace" class="btn btn-outline">🔗 Copiar enlace</button>
+        <div id="podcastEpisodes" class="podcast-episode-list"></div>
+        <div id="podcastPlayer" class="podcast-player" style="display:none;">
+          <div id="podcastPlayerInfo"></div>
+          <audio id="podcastAudio" controls preload="none"></audio>
         </div>
-      </div>
-      <div id="podcastEpisodes" class="podcast-episode-list"></div>
-      <div id="podcastPlayer" class="podcast-player" style="display:none;">
-        <div id="podcastPlayerInfo"></div>
-        <audio id="podcastAudio" controls preload="none"></audio>
       </div>
       <div id="podcastAdmin" style="display:none;"></div>
     </div>
@@ -670,15 +679,8 @@
         </div>
         <div class="section-header-acciones">
           <button type="button" class="btn btn-outline" id="btnNuevoDesembolso">💸 Pago/Desembolso</button>
-          <button type="button" class="btn btn-primary" id="btnNuevaTransaccion">➕ Nueva transacción</button>
+          <button type="button" class="btn btn-primary" id="btnNuevaTransaccion">💳 Realizar Aporte / Donación</button>
         </div>
-      </div>
-      <div class="fin-cta-aporte" id="finanzasModuloCta">
-        <div class="fin-cta-text">
-          <h3 class="fin-cta-title">Realiza tu aporte o donación</h3>
-          <p class="fin-cta-sub">Transfiere por Nequi, Bancolombia o la pasarela PSE y reporta tu comprobante. El equipo validará tu aporte.</p>
-        </div>
-        <button type="button" class="btn fin-btn-aporte" id="btnAporteDonacionModulo">💳 Realizar Aporte / Donación</button>
       </div>
       <div id="finanzasContent"></div>
       <div id="finanzasConfigArea" style="display:none;"></div>

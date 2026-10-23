@@ -18,6 +18,18 @@
 .podcast-cat:hover { border-color: var(--border-hover); color: var(--text-primary); }
 .podcast-cat.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+/* ── DETALLE DE LA COLECCIÓN ABIERTA ───────────────────────────
+   Bloque que sigue a la rejilla (que nunca se oculta). Es el destino
+   del auto-scroll al abrir una colección: `scroll-margin-top` deja
+   hueco bajo la barra superior fija para que el título y el botón
+   "Todas las colecciones" no queden tapados al llegar. */
+.podcast-detalle {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 76px;
+}
+
 /* ── REJILLA DE COLECCIONES ───────────────────────────────────── */
 .podcast-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem;

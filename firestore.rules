@@ -919,7 +919,8 @@ service cloud.firestore {
     //     crear/editar/eliminar transacciones de CUALQUIER usuario o
     //     comunidad sin restricciones de cadenas de patrocinio (bypass
     //     || isAdmin()). Cada usuario registrado también puede leer las
-    //     transacciones donde es titular contable (userId == sesión) y
+    //     transacciones donde es titular contable (userId == sesión) o
+    //     beneficiario directo (beneficiarioId == sesión) y
     //     crear sus propios aportes personales (origen 'usuario' con
     //     userId == sesión, etiqueta "Aporte de Usuario"). Las
     //     transacciones de origen 'comunidad' (etiqueta "Ofrenda de
@@ -939,6 +940,7 @@ service cloud.firestore {
     match /finanzas_transacciones/{id} {
       allow read: if signedIn()
         && (request.auth.uid == resource.data.userId
+            || request.auth.uid == resource.data.beneficiarioId
             || esMiArbolFin()   // rol avanzado: su propia red (≤5 niveles)
             || esContable()     // rol contable: todas las transacciones
             || isAdmin());
