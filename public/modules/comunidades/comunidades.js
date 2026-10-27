@@ -69,8 +69,23 @@
     return null;
   }
   function coordinadorDe(c) {
-    if (!c || !c.coordinadorId) return null;
-    for (var i = 0; i < usuarios.length; i++) if (usuarios[i].uid === c.coordinadorId) return usuarios[i];
+    if (!c) return null;
+    var ids = [c.coordinadorId, c.coordinadorUid, c.coordinadorUserId, c.uidCoordinador]
+      .map(textoClave)
+      .filter(function (v) { return !!v; });
+    for (var i = 0; i < ids.length; i++) {
+      for (var j = 0; j < usuarios.length; j++) {
+        if (usuarios[j].uid === ids[i]) return usuarios[j];
+      }
+    }
+    if (ids.length || c.coordinadorNombre || c.coordinadorEmail || c.coordinadorTelefono) {
+      return {
+        uid: ids[0] || '',
+        nombre: c.coordinadorNombre || '',
+        email: c.coordinadorEmail || '',
+        telefono: c.coordinadorTelefono || ''
+      };
+    }
     return null;
   }
   function miembrosDe(comunidadId) {
@@ -82,6 +97,97 @@
   function isAdmin() {
     var r = (V.userRole || '').toLowerCase();
     return r === 'superadmin' || r === 'admin';
+  }
+
+  /* IDENTIDAD DE LA SESIÓN (uid / correo). Fuente única: el usuario
+     autenticado en Firebase Auth. V.userId puede quedar desfasado un
+     instante mientras se restaura la sesión. El correo es un alias de
+     lectura para documentos antiguos que guardaron el email en crmId. */
+  function authUserActual() {
+    try {
+      if (V.auth && V.auth.currentUser) return V.auth.currentUser;
+    } catch (e) { /* noop */ }
+    try {
+      if (typeof firebase !== 'undefined' && firebase.auth) return firebase.auth().currentUser;
+    } catch (e2) { /* noop */ }
+    return null;
+  }
+  function uidActual() {
+    var u = authUserActual();
+    if (u && u.uid) return String(u.uid);
+    if (typeof V.uidSesion === 'function') {
+      var uid = V.uidSesion();
+      if (uid) return String(uid);
+    }
+    return String(V.userId || '');
+  }
+  function emailActual() {
+    var u = authUserActual();
+    if (u && u.email) return String(u.email).trim().toLowerCase();
+    var perfil = V.currentUser || {};
+    if (perfil.email) return String(perfil.email).trim().toLowerCase();
+    var uid = uidActual();
+    var cargado = uid ? usuarioDe(uid) : null;
+    return String((cargado && cargado.email) || '').trim().toLowerCase();
+  }
+  function usuarioActual() {
+    var uid = uidActual();
+    if (uid) {
+      var u = usuarioDe(uid);
+      if (u) return u;
+    }
+    return V.currentUser || null;
+  }
+  function textoClave(v) { return String(v == null ? '' : v).trim(); }
+  function textoCorreo(v) { return textoClave(v).toLowerCase(); }
+  function clavesMiembro(m) {
+    if (!m) return [];
+    return [m.crmId, m.userId, m.uid, m.usuarioId, m.authUid, m.userUid,
+      m.email, m.correo, m.usuarioEmail]
+      .map(textoClave)
+      .filter(function (v) { return !!v; });
+  }
+  function miembroCoincideCon(m, uid, email, usuario) {
+    var claves = clavesMiembro(m);
+    if (!claves.length) return false;
+    var id = textoClave(uid);
+    if (id && claves.indexOf(id) !== -1) return true;
+    var correos = [textoCorreo(email), textoCorreo(usuario && usuario.email)]
+      .filter(function (v) { return !!v; });
+    for (var i = 0; i < claves.length; i++) {
+      if (correos.indexOf(textoCorreo(claves[i])) !== -1) return true;
+    }
+    if (usuario) {
+      var aliasPerfil = [usuario.crmId, usuario.contactoId, usuario.uid]
+        .map(textoClave)
+        .filter(function (v) { return !!v; });
+      for (var j = 0; j < claves.length; j++) {
+        if (aliasPerfil.indexOf(claves[j]) !== -1) return true;
+      }
+    }
+    return false;
+  }
+  function claveMiembro(m, uid) {
+    var claves = [m && m.crmId, m && m.userId, m && m.uid, m && m.usuarioId]
+      .map(textoClave)
+      .filter(function (v) { return !!v; });
+    return claves.length ? claves[0] : textoClave(uid);
+  }
+  function coordinadorCoincideCon(c, uid, email) {
+    if (!c) return false;
+    var ids = [c.coordinadorId, c.coordinadorUid, c.coordinadorUserId, c.uidCoordinador]
+      .map(textoClave)
+      .filter(function (v) { return !!v; });
+    var id = textoClave(uid);
+    var correo = textoCorreo(email);
+    for (var i = 0; i < ids.length; i++) {
+      if (id && ids[i] === id) return true;
+      if (correo && textoCorreo(ids[i]) === correo) return true;
+    }
+    var correos = [c.coordinadorEmail, c.emailCoordinador, c.coordinadorCorreo]
+      .map(textoCorreo)
+      .filter(function (v) { return !!v; });
+    return !!(correo && correos.indexOf(correo) !== -1);
   }
 
   /* ─── HELPERS DE REUNIONES / ASISTENCIA ─────────────────────── */
@@ -173,6 +279,9 @@
   var currComId = null;     // comunidad seleccionada en coordinador
   var currReunionId = null; // reunión seleccionada
   var tabActivo = 'grupo';  // pestaña activa del coordinador
+  var _liveComunidades = null; // unsubscribe onSnapshot comunidades
+  var _liveMiembros = null;    // unsubscribe onSnapshot comunidad_miembros
+  var _liveUid = '';           // identidad con la que se abrieron los listeners
 
   /* ─── DATA LOADERS ──────────────────────────────────────────── */
   function loadUsuarios() {
@@ -184,7 +293,23 @@
         snap.forEach(function (doc) { var d = doc.data(); d.uid = doc.id; usuarios.push(d); });
         return usuarios;
       })
-      .catch(function () { return []; });
+      .catch(function () {
+        // Un estudiante no puede listar toda la colección (reglas por red).
+        // Al menos se carga su propio perfil para pintar la vista personal.
+        var uid = uidActual();
+        if (!uid) return [];
+        return V.db.collection(V.COL_USUARIOS).doc(uid).get()
+          .then(function (doc) {
+            usuarios = [];
+            if (doc.exists) {
+              var d = doc.data() || {};
+              d.uid = doc.id;
+              usuarios.push(d);
+            }
+            return usuarios;
+          })
+          .catch(function () { return []; });
+      });
   }
   function loadComunidades() {
     if (!V.db) return Promise.resolve([]);
@@ -259,7 +384,7 @@
     var col = V.db.collection(COL_OFRS);
     var q = isSuperadmin()
       ? col.where('tipo', '==', 'grupo')
-      : col.where('tipo', '==', 'grupo').where('userId', '==', V.userId);
+      : col.where('tipo', '==', 'grupo').where('userId', '==', uidActual());
     return q.get()
       .then(function (snap) {
         ofrendasCache = [];
@@ -280,7 +405,7 @@
     var content = $('comunidadesContent');
     if (!content) return;
     var rol = V.userRole || 'estudiante';
-    var esCoordinador = comunidadPorCoordinador(V.userId) ? true : false;
+    var esCoordinador = comunidadPorCoordinador(uidActual()) ? true : false;
     var esAdmin = isAdmin();
 
     // Botón "+ Nueva Comunidad" del encabezado (visible para gestor, admin o coordinador)
@@ -367,7 +492,7 @@
       opt.value = u.uid;
       var label = userFullName(u) + (u.email ? ' · ' + u.email : '');
       opt.textContent = label;
-      opt.selected = u.uid === V.userId;
+      opt.selected = u.uid === uidActual();
       selectCoord.appendChild(opt);
     });
     fieldCoord.appendChild(selectCoord);
@@ -405,10 +530,15 @@
       var data = validar();
       if (!data) return;
       btnSave.disabled = true;
+      var coordPerfil = usuarioDe(data.coordinadorId) || {};
       V.db.collection(V.COL_COMUNIDADES).add({
         nombre: data.nombre,
         tipo: data.tipo,
         coordinadorId: data.coordinadorId,
+        coordinadorUid: data.coordinadorId,
+        coordinadorEmail: textoCorreo(coordPerfil.email),
+        coordinadorNombre: coordPerfil.uid ? userFullName(coordPerfil) : '',
+        coordinadorTelefono: coordPerfil.telefono || '',
         createdAt: new Date().toISOString()
       }).then(function () {
         V.toast('Comunidad creada ✓');
@@ -447,7 +577,11 @@
     card.appendChild(el('p', '', 'Busca en la base general del CRM y selecciona perfiles. Los ya vinculados no se muestran ni se duplican.'));
 
     var yaVinculados = {};
-    miembrosDe(comId).forEach(function (mm) { yaVinculados[mm.crmId] = true; });
+    miembrosDe(comId).forEach(function (mm) {
+      clavesMiembro(mm).forEach(function (clave) { yaVinculados[clave] = true; });
+      var correo = textoCorreo(mm.email || mm.correo || mm.usuarioEmail);
+      if (correo) yaVinculados[correo] = true;
+    });
 
     var filtro = document.createElement('input');
     filtro.type = 'text';
@@ -479,8 +613,9 @@
     function renderContactList(q) {
       q = (q || '').toLowerCase();
       var available = usuarios.filter(function (u) {
-        if (yaVinculados[u.uid]) return false;
-        if (u.uid === V.userId) return false;
+        var correoU = textoCorreo(u.email);
+        if (yaVinculados[u.uid] || (correoU && yaVinculados[correoU])) return false;
+        if (u.uid === uidActual()) return false;
         var haystack = (userFullName(u) + ' ' + (u.email || '')).toLowerCase();
         if (q && haystack.indexOf(q) === -1) return false;
         return true;
@@ -514,9 +649,17 @@
       var estado = selEstado.value || 'activo';
       var fecha = new Date().toISOString();
       var promises = Array.prototype.map.call(seleccionados, function (cb) {
+        var uid = textoClave(cb.value);
+        var usuario = usuarioDe(uid) || {};
+        var correo = textoCorreo(usuario.email);
         return V.db.collection(V.COL_COMUNIDAD_MIEMBROS).add({
           comunidadId: comId,
-          crmId: cb.value,
+          // crmId se conserva por compatibilidad con asistencias/reportes
+          // históricos; userId/uid/email dejan la relación inequívoca.
+          crmId: uid,
+          userId: uid,
+          uid: uid,
+          email: correo,
           estado: estado,
           fechaVinculacion: fecha
         });
@@ -588,10 +731,15 @@
       if (!tipo) { V.toast('Selecciona el tipo de comunidad.', true); return; }
       if (!coord) { V.toast('Selecciona el coordinador.', true); return; }
       btnSave.disabled = true;
+      var coordPerfil = usuarioDe(coord) || {};
       V.db.collection(V.COL_COMUNIDADES).doc(comId).update({
         nombre: nombre,
         tipo: tipo,
-        coordinadorId: coord
+        coordinadorId: coord,
+        coordinadorUid: coord,
+        coordinadorEmail: textoCorreo(coordPerfil.email),
+        coordinadorNombre: coordPerfil.uid ? userFullName(coordPerfil) : '',
+        coordinadorTelefono: coordPerfil.telefono || ''
       }).then(function () {
         V.toast('Comunidad actualizada ✓');
         m.close();
@@ -631,8 +779,10 @@
 
   /* ─── ESTUDIANTE (Escritorio Personal) ──────────────────────── */
   function comunidadPorCoordinador(uid) {
+    var id = textoClave(uid) || uidActual();
+    var correo = emailActual();
     for (var i = 0; i < comunidades.length; i++) {
-      if (comunidades[i].coordinadorId === uid) return comunidades[i];
+      if (coordinadorCoincideCon(comunidades[i], id, correo)) return comunidades[i];
     }
     return null;
   }
@@ -641,14 +791,37 @@
   // como miembro (comunidad_miembros) o figurar como coordinadorId de
   // una comunidad (colección comunidades).
   function miVinculacion() {
+    var uid = uidActual();
+    var correo = emailActual();
+    if (!uid) return null;
+    var perfil = usuarioActual();
+    var candidatos = [];
     for (var i = 0; i < miembros.length; i++) {
-      if (miembros[i].crmId === V.userId) {
-        return { via: 'miembro', miembro: miembros[i], comunidad: comunidadById(miembros[i].comunidadId), crmId: V.userId };
-      }
+      if (!miembroCoincideCon(miembros[i], uid, correo, perfil)) continue;
+      var comunidad = comunidadById(miembros[i].comunidadId);
+      if (!comunidad) continue;
+      candidatos.push({ miembro: miembros[i], comunidad: comunidad });
     }
-    var com = comunidadPorCoordinador(V.userId);
+    if (candidatos.length) {
+      candidatos.sort(function (a, b) {
+        var activoA = (a.miembro.estado || 'activo') === 'activo' ? 1 : 0;
+        var activoB = (b.miembro.estado || 'activo') === 'activo' ? 1 : 0;
+        if (activoA !== activoB) return activoB - activoA;
+        return String(b.miembro.fechaVinculacion || '')
+          .localeCompare(String(a.miembro.fechaVinculacion || ''));
+      });
+      var elegido = candidatos[0];
+      return {
+        via: 'miembro',
+        miembro: elegido.miembro,
+        comunidad: elegido.comunidad,
+        crmId: claveMiembro(elegido.miembro, uid),
+        uid: uid
+      };
+    }
+    var com = comunidadPorCoordinador(uid);
     if (com) {
-      return { via: 'coordinador', miembro: null, comunidad: com, crmId: V.userId };
+      return { via: 'coordinador', miembro: null, comunidad: com, crmId: uid, uid: uid };
     }
     return null;
   }
@@ -707,7 +880,7 @@
     } else {
       var btn = el('button', 'btn btn-primary', '✅ Confirmar asistencia');
       btn.type = 'button';
-      btn.addEventListener('click', function () { confirmarAsistencia(reu, btn); });
+      btn.addEventListener('click', function () { confirmarAsistencia(reu, btn, crmId); });
       actions.appendChild(btn);
     }
 
@@ -715,15 +888,16 @@
     return card;
   }
 
-  function confirmarAsistencia(reu, btn) {
+  function confirmarAsistencia(reu, btn, crmId) {
+    var clave = textoClave(crmId) || uidActual();
     if (!V.db) { V.toast('La base de datos no está disponible.', 'critico'); return; }
     if (!reu || !reu.id) { V.toast('La reunión ya no está disponible.', true); return; }
-    if (!V.userId) { V.toast('Inicia sesión para confirmar tu asistencia.', true); return; }
+    if (!clave) { V.toast('Inicia sesión para confirmar tu asistencia.', true); return; }
 
     var prev = btn ? btn.textContent : '';
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Confirmando…'; }
     var upd = {};
-    upd['asistencias.' + V.userId] = 'confirmado';
+    upd['asistencias.' + clave] = 'confirmado';
     upd.actualizado = new Date().toISOString();
 
     return V.db.collection(COL_REUNIONES).doc(reu.id).update(upd)
@@ -804,7 +978,9 @@
 
   /* ─── COORDINADOR (Gestión de Grupo) ────────────────────────── */
   function misComunidades() {
-    return comunidades.filter(function (c) { return c.coordinadorId === V.userId; });
+    var uid = uidActual();
+    var correo = emailActual();
+    return comunidades.filter(function (c) { return coordinadorCoincideCon(c, uid, correo); });
   }
 
   function renderCoordinador(content) {
@@ -1849,7 +2025,68 @@
   }
 
   /* ─── SHOW HOOK ─────────────────────────────────────────────── */
+  /* TIEMPO REAL: comunidades y comunidad_miembros. La vista del estudiante
+     se repinta en cuanto el administrador asigna un coordinador o vincula
+     al usuario, sin recargar la página. */
+  function vistaComunidadesActiva() {
+    var view = $('viewComunidades');
+    return !!(view && view.classList.contains('active'));
+  }
+  function refrescarComunidadesEnVivo() {
+    if (!vistaComunidadesActiva()) return;
+    renderPanel();
+  }
+  function detenerTiempoRealComunidades() {
+    if (typeof _liveComunidades === 'function') {
+      try { _liveComunidades(); } catch (e) { /* noop */ }
+    }
+    if (typeof _liveMiembros === 'function') {
+      try { _liveMiembros(); } catch (e2) { /* noop */ }
+    }
+    _liveComunidades = null;
+    _liveMiembros = null;
+    _liveUid = '';
+  }
+  function iniciarTiempoRealComunidades() {
+    if (!V.db) return;
+    var uid = uidActual();
+    if (!uid) { detenerTiempoRealComunidades(); return; }
+    if (_liveUid === uid && _liveComunidades && _liveMiembros) return;
+    detenerTiempoRealComunidades();
+    _liveUid = uid;
+    function alFallar(err) {
+      var code = err && err.code;
+      if (code === 'permission-denied' || code === 'unauthenticated') {
+        detenerTiempoRealComunidades();
+      }
+    }
+    try {
+      _liveComunidades = V.db.collection(V.COL_COMUNIDADES).onSnapshot(function (snap) {
+        comunidades = [];
+        snap.forEach(function (doc) {
+          var d = doc.data() || {};
+          d.id = doc.id;
+          comunidades.push(d);
+        });
+        refrescarComunidadesEnVivo();
+      }, alFallar);
+      _liveMiembros = V.db.collection(V.COL_COMUNIDAD_MIEMBROS).onSnapshot(function (snap) {
+        miembros = [];
+        snap.forEach(function (doc) {
+          var d = doc.data() || {};
+          d.id = doc.id;
+          miembros.push(d);
+        });
+        refrescarComunidadesEnVivo();
+      }, alFallar);
+    } catch (e3) {
+      detenerTiempoRealComunidades();
+    }
+  }
+
+  /* SHOW HOOK */
   function showComunidades() {
+    iniciarTiempoRealComunidades();
     loadAll().then(function () {
       renderPanel();
     }).catch(function (e) {
@@ -1859,6 +2096,26 @@
   }
 
   V.onComunidadesShow = showComunidades;
+
+  // Reconstruye identidad y listeners cuando cambia la sesión de Firebase.
+  var _prevSessionRefresh = V.onSessionRefresh;
+  V.onSessionRefresh = function () {
+    detenerTiempoRealComunidades();
+    comunidades = [];
+    miembros = [];
+    usuarios = [];
+    currComId = null;
+    currReunionId = null;
+    if (typeof _prevSessionRefresh === 'function') {
+      try { _prevSessionRefresh(); } catch (e) { /* noop */ }
+    }
+    if (vistaComunidadesActiva() && uidActual()) {
+      iniciarTiempoRealComunidades();
+      loadAll().then(function () {
+        if (vistaComunidadesActiva()) renderPanel();
+      }).catch(function () { /* noop */ });
+    }
+  };
 
   /* ─── MODULE INTERFACE ──────────────────────────────────────── */
   var ComunidadesModule = {

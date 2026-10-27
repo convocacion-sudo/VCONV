@@ -945,6 +945,12 @@ service cloud.firestore {
             || esContable()     // rol contable: todas las transacciones
             || isAdmin());
       allow create: if isRegistered()
+        && request.resource.data.userId is string
+        && request.resource.data.userId.size() > 0
+        && (!request.resource.data.keys().hasAny(['beneficiarioId'])
+            || (request.resource.data.beneficiarioId is string
+                && request.resource.data.beneficiarioId.size() > 0
+                && request.resource.data.beneficiarioId != request.resource.data.userId))
         && (request.resource.data.userId == request.auth.uid
             || esContable()
             || isAdmin());

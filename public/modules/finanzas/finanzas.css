@@ -48,6 +48,43 @@
 .fin-form-acciones { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .fin-form-note { font-size: 0.72rem; color: var(--text-muted); margin: 0.1rem 0; }
 
+/* ── FICHA DE SALDO (cabecera del módulo) ───────────────────── */
+.fin-saldo-card {
+  margin: 0 0 1rem; border: 1px solid var(--border); border-radius: var(--radius-lg, 14px);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.10), rgba(59, 130, 246, 0.08));
+  box-shadow: 0 16px 38px -28px rgba(15, 23, 42, 0.85);
+  overflow: hidden;
+}
+.fin-saldo-head {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;
+  padding: 1rem 1.1rem; border-bottom: 1px solid var(--border);
+}
+.fin-saldo-title { margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--text-primary); }
+.fin-saldo-sub { margin: 0.25rem 0 0; font-size: 0.78rem; color: var(--text-muted); line-height: 1.45; }
+.fin-saldo-stamp { font-size: 0.7rem; color: var(--text-muted); white-space: nowrap; }
+.fin-saldo-body {
+  display: grid; grid-template-columns: minmax(190px, 1fr) 2fr;
+  gap: 1rem; padding: 1rem 1.1rem; align-items: stretch;
+}
+.fin-saldo-main {
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 0.9rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-md, 10px);
+  background: var(--bg-elev, rgba(255, 255, 255, 0.04));
+}
+.fin-saldo-label { font-size: 0.72rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.fin-saldo-value { margin-top: 0.2rem; font-size: 1.85rem; font-weight: 900; color: #22c55e; letter-spacing: -0.02em; }
+.fin-saldo-hint { margin-top: 0.25rem; font-size: 0.72rem; color: var(--text-muted); }
+.fin-saldo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.55rem; }
+.fin-saldo-item {
+  padding: 0.65rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-md, 10px);
+  background: var(--bg-elev, rgba(255, 255, 255, 0.04));
+}
+.fin-saldo-item-label { font-size: 0.68rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+.fin-saldo-item-value { margin-top: 0.2rem; font-size: 0.98rem; font-weight: 800; color: var(--text-primary); }
+.fin-saldo-item-value.gold { color: var(--accent, #f59e0b); }
+.fin-saldo-item-value.green { color: #22c55e; }
+.fin-saldo-item-value.blue { color: var(--accent-2, #3b82f6); }
+
 /* ── RESÚMENES (ganancias / historial) ────────────────────── */
 .fin-stats {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -276,12 +313,21 @@
 .fin-radio input { accent-color: var(--accent, #f59e0b); }
 .fin-modal-acciones { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
 .fin-form-note { line-height: 1.5; }
-.fin-file { padding: 0.55rem 0.65rem; cursor: pointer; }
-.fin-img-preview-wrap:empty { display: none; }
-.fin-img-preview {
-  display: block; max-width: 100%; max-height: 170px; margin-top: 0.45rem;
-  border: 1px solid var(--border); border-radius: var(--radius-sm, 8px); object-fit: contain;
+.fin-wa-notice {
+  margin-top: 0.35rem; padding: 0.85rem; display: flex; flex-direction: column; gap: 0.5rem;
+  border: 1px solid rgba(34, 197, 94, 0.4); border-radius: var(--radius-md, 10px);
+  background: rgba(34, 197, 94, 0.08);
 }
+.fin-wa-title { font-size: 0.88rem; font-weight: 800; color: #22c55e; }
+.fin-wa-text { margin: 0; font-size: 0.76rem; line-height: 1.5; color: var(--text-secondary); }
+.fin-wa-num { margin: 0; font-size: 0.74rem; color: var(--text-muted); }
+.btn-wa {
+  align-self: flex-start; border: none; cursor: pointer; padding: 0.6rem 0.95rem;
+  border-radius: 10px; font-size: 0.8rem; font-weight: 800; color: #fff;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  box-shadow: 0 10px 22px -14px rgba(34, 197, 94, 0.9);
+}
+.btn-wa:hover { filter: brightness(1.07); }
 .fin-link {
   display: inline-block; margin-top: 0.35rem; font-size: 0.75rem;
   color: var(--accent, #f59e0b); text-decoration: underline;
@@ -323,6 +369,11 @@
   .fin-tab { text-align: center; }
   .fin-modal-acciones { flex-direction: column-reverse; }
   .fin-modal-acciones .btn { width: 100%; }
+  .fin-saldo-head { flex-direction: column; }
+  .fin-saldo-stamp { white-space: normal; }
+  .fin-saldo-body { grid-template-columns: 1fr; }
+  .fin-saldo-value { font-size: 1.6rem; }
+  .btn-wa { width: 100%; align-self: stretch; }
 }
 
 /* ── AUTCOMPLETADO / BUSCADOR DEL MODAL ────────────────────── */

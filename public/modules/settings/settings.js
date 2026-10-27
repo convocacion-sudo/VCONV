@@ -500,28 +500,61 @@
   }
 
   function medioDe(ficha) {
-    // Dos formas de llegar al mismo medio: el documento guardado en Firestore
-    // (campos planos mediaTipo/mediaUrl/mediaFuente) y el objeto del editor
-    // en memoria (medio: { tipo, url, fuente }). Se cubren las dos para que
-    // el medio no se pierda al guardar.
-    if (ficha && ficha.medio) {
+    // Dos formas de llegar al mismo medio: los campos planos que guarda
+    // Firestore (mediaTipo/mediaUrl/mediaFuente) y el objeto `medio` que
+    // también se persiste. Se priorizan los campos planos —igual que la
+    // portada— y se usa el objeto como respaldo para fichas antiguas.
+    if (!ficha) return { tipo: 'ninguna', url: '', fuente: 'auto' };
+    var urlPlano = String(ficha.mediaUrl || '');
+    var tipoPlano = String(ficha.mediaTipo || '');
+    if (urlPlano || (tipoPlano && tipoPlano !== 'ninguna')) {
+      return {
+        tipo: tipoPlano || 'ninguna',
+        url: urlPlano,
+        fuente: ficha.mediaFuente || 'auto'
+      };
+    }
+    if (ficha.medio) {
       return {
         tipo: ficha.medio.tipo || 'ninguna',
         url: ficha.medio.url || '',
         fuente: ficha.medio.fuente || 'auto'
       };
     }
-    return {
-      tipo: ficha.mediaTipo || 'ninguna',
-      url: ficha.mediaUrl || '',
-      fuente: ficha.mediaFuente || 'auto'
-    };
+    return { tipo: 'ninguna', url: '', fuente: 'auto' };
   }
 
   function guardarFicha(ficha) {
     if (!V.db) return Promise.reject(new Error('Firestore no disponible.'));
     var ref = V.db.collection(COL_FICHAS).doc(ficha.id);
-    var medio = V.multimedia ? V.multimedia.normalizarMedio(medioDe(ficha)) : { tipo: 'ninguna', url: '', fuente: 'auto' };
+    var medio = medioDe(ficha);
+    var url = String(medio && medio.url || '').trim();
+    // Se conserva la URL completa (sin recortes ni límites de longitud) y,
+    // además de los campos planos que ya usa la portada, se persiste el
+    // objeto `medio` completo para que cualquier consumidor lo lea igual.
+    if (url) {
+      var fuente = String(medio.fuente || 'auto');
+      if (V.multimedia) {
+        var normalizado = V.multimedia.normalizarMedio({ tipo: medio.tipo, url: url, fuente: fuente });
+        if (normalizado.url) {
+          medio = normalizado;
+          if (medio.tipo !== 'video') medio.tipo = 'imagen';
+          url = normalizado.url;
+        } else {
+          // Si el clasificador no puede montar el medio, se guarda la URL
+          // segura tal cual para no perder el valor elegido por el usuario.
+          var segura = typeof V.multimedia.cleanUrl === 'function' ? V.multimedia.cleanUrl(url) : '';
+          medio = segura
+            ? { tipo: medio.tipo === 'video' ? 'video' : 'imagen', url: segura, fuente: fuente }
+            : { tipo: 'ninguna', url: '', fuente: 'auto' };
+        }
+      } else {
+        medio = { tipo: medio.tipo === 'video' ? 'video' : 'imagen', url: url, fuente: fuente };
+      }
+    } else {
+      medio = { tipo: 'ninguna', url: '', fuente: 'auto' };
+    }
+
     var ahora = new Date().toISOString();
     var data = {
       titulo: String(ficha.titulo || '').trim(),
@@ -531,12 +564,16 @@
       mediaTipo: medio.tipo,
       mediaUrl: medio.url,
       mediaFuente: medio.fuente,
+      medio: { tipo: medio.tipo, url: medio.url, fuente: medio.fuente },
       publicado: !!ficha.publicado,
       orden: Number(ficha.orden) || 0,
       actualizado: ahora
     };
     if (!ficha.creado) data.creado = ahora;
-    return ref.set(data, { merge: true }).then(function () { return data; });
+    return ref.set(data, { merge: true }).then(function () {
+      data.id = ficha.id;
+      return data;
+    });
   }
 
   function eliminarFicha(id) {
@@ -643,11 +680,28 @@
     var btnUsar = el('button', 'btn btn-primary', 'Usar este medio');
     btnUsar.type = 'button';
     btnUsar.addEventListener('click', function () {
+      // Se lee el valor completo del input en el momento del clic. No se
+      // recorta ni se limita la longitud: las URLs de CDN con parámetros y
+      // tokens largos deben viajar íntegras al editor y a Firestore.
       var url = String(inUrl.value || '').trim();
       var medio = { tipo: tipoActual, url: url, fuente: selFuente.value };
-      if (V.multimedia) medio = V.multimedia.normalizarMedio(medio);
+      if (V.multimedia) {
+        try {
+          medio = V.multimedia.normalizarMedio(medio);
+        } catch (e) {
+          // Un fallo del clasificador no debe bloquear el botón: el editor
+          // recibe igualmente el medio para poder guardar la ficha.
+          if (window.console && console.error) console.error('[settings] no se pudo normalizar el medio:', e);
+          medio = { tipo: tipoActual, url: url, fuente: selFuente.value };
+        }
+      }
       overlay.remove();
-      alElegir(medio);
+      try {
+        alElegir(medio);
+      } catch (e) {
+        if (window.console && console.error) console.error('[settings] no se pudo aplicar el medio:', e);
+        toast('No se pudo aplicar el medio seleccionado.', true);
+      }
     });
     pie.appendChild(btnCancelar);
     pie.appendChild(btnUsar);
@@ -793,6 +847,28 @@
         var infoMedio = el('div', 'set-row-title');
         filaMedio.appendChild(infoMedio);
         var accMedio = el('div', 'set-item-acc');
+
+        // Asigna el medio al estado del editor Y a la ficha activa. Así el
+        // valor queda disponible de inmediato para la vista previa y para el
+        // guardado, incluso si el editor se volviera a pintar. No se limita
+        // la longitud de la URL: los enlaces CDN firmados deben conservarse
+        // completos hasta Firestore.
+        function aplicarMedio(nuevo) {
+          var m = {
+            tipo: nuevo && nuevo.tipo === 'imagen' ? 'imagen' : (nuevo && nuevo.tipo === 'video' ? 'video' : 'ninguna'),
+            url: String(nuevo && nuevo.url || ''),
+            fuente: String(nuevo && nuevo.fuente || 'auto')
+          };
+          medioActual = m;
+          if (f) {
+            f.medio = m;
+            f.mediaTipo = m.tipo;
+            f.mediaUrl = m.url;
+            f.mediaFuente = m.fuente;
+          }
+          pintarPreview();
+        }
+
         var btnCambiar = boton(accMedio, '🎨 Seleccionar medio', 'btn-outline btn-sm', function () {
           var galeria = [];
           fichas.forEach(function (otra) {
@@ -801,14 +877,10 @@
               galeria.push({ tipo: m.tipo, url: m.url });
             }
           });
-          abrirSelectorMedio({ actual: medioActual, galeria: galeria }, function (nuevo) {
-            medioActual = nuevo;
-            pintarEditor();
-          });
+          abrirSelectorMedio({ actual: medioActual, galeria: galeria }, aplicarMedio);
         });
         var btnQuitar = boton(accMedio, '✕ Quitar', 'btn-outline btn-sm', function () {
-          medioActual = { tipo: 'ninguna', url: '', fuente: 'auto' };
-          pintarEditor();
+          aplicarMedio({ tipo: 'ninguna', url: '', fuente: 'auto' });
         });
         filaMedio.appendChild(accMedio);
         editor.appendChild(filaMedio);
@@ -849,12 +921,30 @@
           btnGuardar.disabled = true;
           var original = btnGuardar.textContent;
           btnGuardar.textContent = '⏳ Guardando…';
-          guardarFicha(datos).then(function () {
-            return leerFichas();
-          }).then(function (lista2) {
-            fichas.length = 0;
-            lista2.forEach(function (x) { fichas.push(x); });
-            sel = Math.max(0, fichas.findIndex(function (x) { return x.id === datos.id; }));
+          guardarFicha(datos).then(function (guardada) {
+            // El estado local se actualiza con lo que se acaba de escribir,
+            // sin releer y sin limpiar el editor. Así el medio recién
+            // elegido sigue visible inmediatamente después de guardar.
+            var local = {
+              id: guardada.id || datos.id,
+              titulo: guardada.titulo,
+              subtitulo: guardada.subtitulo,
+              icono: guardada.icono,
+              texto: guardada.texto,
+              medio: guardada.medio,
+              mediaTipo: guardada.mediaTipo,
+              mediaUrl: guardada.mediaUrl,
+              mediaFuente: guardada.mediaFuente,
+              publicado: guardada.publicado,
+              orden: guardada.orden,
+              creado: guardada.creado || (f ? f.creado : guardada.actualizado),
+              actualizado: guardada.actualizado
+            };
+            var idx = fichas.findIndex(function (x) { return x.id === local.id; });
+            if (idx === -1) fichas.push(local);
+            else fichas[idx] = local;
+            fichas.sort(ordenarFichas);
+            sel = Math.max(0, fichas.findIndex(function (x) { return x.id === local.id; }));
             pintarLista(); pintarEditor();
             toast('Ficha guardada ✓');
           }).catch(function (e) {

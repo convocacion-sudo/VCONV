@@ -2363,6 +2363,10 @@
     send: enviarChat,
     mount: mountChatWidget
   };
+  // Número de soporte vivo (config/whatsapp). Lo consulta el módulo de
+  // finanzas para el aviso de comprobantes: la foto se envía por WhatsApp,
+  // no se sube desde el formulario.
+  V.getWhatsAppNumero = function () { return waNumero; };
   V.setMode = setMode;
   V.toggleTheme = toggleTheme;
   V.changeFont = changeFont;

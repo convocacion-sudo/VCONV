@@ -9,7 +9,7 @@
                                 (por defecto 30 / 5 / 5 / 5 / 5 = 55%)
      - porcentajeCaja             % de Caja Mayor / Fondo Estructura
                                 General (por defecto 45% = lo restante)
-     - categorias                 CRUD de categorías (personal/grupo/ofrenda)
+     - categorias                 CRUD de categorías (personal/grupo/ofrenda/solidario)
 
    Colecciones:
      - finanzas_transacciones     (origen, origenId, etiqueta, userId,
@@ -22,6 +22,10 @@
    Etiquetado obligatorio de origen (en BD y UI):
      - origen 'usuario'    →  etiqueta "Aporte de Usuario"
      - origen 'comunidad'  →  etiqueta "Ofrenda de Comunidad"
+
+   Ofrendas directas / solidarias: el monto va 100% al destinatario. No se
+   divide entre Bolsa de Comisiones y Caja Mayor ni genera comisiones MLM.
+   El comprobante NO se sube desde el formulario: se envía por WhatsApp.
 
    BYPASS DE SUPERADMIN: el rol superadmin registra, edita y elimina
    transacciones de CUALQUIER usuario o comunidad sin restricciones de
@@ -46,7 +50,7 @@
   // administra; superadmin y gestor pueden leerlas (firestore.rules). Cada
   // documento expone SOLO { banco, numero } como campos de negocio.
   var COL_CUENTAS = 'finanzas_cuentas';
-  var TIPOS_VALIDOS = ['personal', 'grupo', 'ofrenda'];
+  var TIPOS_VALIDOS = ['personal', 'grupo', 'ofrenda', 'solidario'];
 
   var ETIQUETA_USUARIO = 'Aporte de Usuario';
   var ETIQUETA_COMUNIDAD = 'Ofrenda de Comunidad';
@@ -54,6 +58,17 @@
   var TIPO_DIRECTO = 'directo_solidaridad';
   var FONDO_CAJA_ID = 'fondo_caja_mayor';
   var FONDO_CAJA_NOMBRE = 'Caja Mayor / Fondo General';
+
+  // Trazabilidad solidaria: todo movimiento nace "Registrado" y solo pasa a
+  // "Asignado" cuando administración verifica el comprobante y confirma el
+  // destino (beneficiario o red MLM). Los estados históricos se normalizan
+  // al leerlos para no romper los documentos ya guardados.
+  var ESTADO_REGISTRADO = 'registrado';
+  var ESTADO_ASIGNADO = 'asignado';
+  var ESTADOS_TRANSACCION = [
+    { value: ESTADO_REGISTRADO, label: 'Registrado' },
+    { value: ESTADO_ASIGNADO, label: 'Asignado' }
+  ];
 
   var DEFAULT_CONFIG = {
     finanzasEnabled: true,
@@ -141,7 +156,11 @@
       var id = c && c.id ? String(c.id).trim() : '';
       var nombre = c && c.nombre ? String(c.nombre).trim() : '';
       if (!id || !nombre) return;
-      var tipo = TIPOS_VALIDOS.indexOf(c.tipo) === -1 ? 'personal' : c.tipo;
+      var tipoRaw = String(c && c.tipo != null ? c.tipo : '').trim().toLowerCase();
+      if (tipoRaw === TIPO_DIRECTO || tipoRaw === 'aporte_solidario' || tipoRaw === 'ofrenda_directa') {
+        tipoRaw = 'solidario';
+      }
+      var tipo = TIPOS_VALIDOS.indexOf(tipoRaw) === -1 ? 'personal' : tipoRaw;
       out.push({ id: id, nombre: nombre, tipo: tipo, activa: c.activa !== false });
     });
     return out;
@@ -247,7 +266,7 @@
     return null;
   }
   function tipoLabel(t) {
-    if (t === TIPO_DIRECTO) return ETIQUETA_DIRECTO;
+    if (t === TIPO_DIRECTO || t === 'solidario') return ETIQUETA_DIRECTO;
     if (t === 'grupo') return 'Ofrenda de grupo';
     if (t === 'ofrenda') return 'Ofrenda';
     if (t === 'aporte') return 'Aporte (MLM)';
@@ -256,34 +275,50 @@
     if (t === 'comunidad') return ETIQUETA_COMUNIDAD;
     return 'Aporte personal';
   }
-  function estadoLabel(e) {
-    var s = String(e || '').toLowerCase();
-    if (s === 'pendiente') return 'Pendiente';
-    if (s === 'liquidada') return 'Liquidada';
-    if (s === 'anulada') return 'Anulada';
-    if (s === 'pagado') return 'Pagado';
-    if (s === 'registrada') return 'Registrada';
-    return e ? String(e) : 'Registrada';
+  // Una categoría es solidaria cuando su tipo se declaró como tal o cuando su
+  // nombre identifica una ofrenda directa. En ambos casos el dinero NO se
+  // reparte entre Bolsa MLM y Caja Mayor: va 100% al destinatario.
+  function esCategoriaSolidaria(cat) {
+    if (!cat) return false;
+    if (String(cat.tipo) === 'solidario' || String(cat.tipo) === TIPO_DIRECTO) return true;
+    var n = String(cat.nombre == null ? '' : cat.nombre).toLowerCase();
+    return n.indexOf('solidar') !== -1
+      || n.indexOf('ofrenda directa') !== -1
+      || n.indexOf('aporte directo') !== -1;
   }
-  function estadoDirectoLabel(e) {
-    var s = String(e || '').toLowerCase();
-    if (s === 'pendiente') return 'Pendiente de aprobación';
-    if (s === 'anulada') return 'Anulada';
-    return 'Aprobado / Asignado';
+  function esTxDirecta(tx) {
+    if (!tx) return false;
+    if (String(tx.tipo) === TIPO_DIRECTO || String(tx.tipo) === 'solidario') return true;
+    if (tx.beneficiarioId) return true;
+    return esCategoriaSolidaria(categoriaById(tx.categoriaId));
+  }
+  function estadoNormalizado(e) {
+    var s = String(e == null ? '' : e).trim().toLowerCase();
+    // Compatibilidad con estados anteriores: "liquidada"/"pagado" eran el
+    // equivalente operativo de "asignado"; "pendiente"/"registrada" de
+    // "registrado". Los documentos nuevos usan SOLO los dos estados base.
+    if (s === ESTADO_ASIGNADO || s === 'asignada' || s === 'liquidada' || s === 'liquidado'
+      || s === 'aprobada' || s === 'aprobado' || s === 'pagado' || s === 'pagada') {
+      return ESTADO_ASIGNADO;
+    }
+    if (s === 'anulada' || s === 'anulado' || s === 'cancelada' || s === 'cancelado') return 'anulada';
+    return ESTADO_REGISTRADO;
+  }
+  function estadoLabel(e) {
+    var n = estadoNormalizado(e);
+    if (n === 'anulada') return 'Anulada';
+    return n === ESTADO_ASIGNADO ? 'Asignado' : 'Registrado';
   }
   function estadoLabelTx(tx) {
-    return tx && String(tx.tipo) === TIPO_DIRECTO
-      ? estadoDirectoLabel(tx.estado)
-      : estadoLabel(tx && tx.estado);
+    return estadoLabel(tx && tx.estado);
   }
   function estadoPillClsTx(tx) {
-    if (tx && String(tx.tipo) === TIPO_DIRECTO) {
-      var s = String(tx.estado || '').toLowerCase();
-      if (s === 'pendiente') return 'pend';
-      if (s === 'anulada') return 'neg';
-      return 'pos';
-    }
     return estadoPillCls(tx && tx.estado);
+  }
+  function opcionesEstado(incluirTodos) {
+    var opts = incluirTodos ? [{ value: '', label: 'Todos los estados' }] : [];
+    ESTADOS_TRANSACCION.forEach(function (e) { opts.push({ value: e.value, label: e.label }); });
+    return opts;
   }
   function nombreBeneficiario(tx) {
     if (!tx) return '';
@@ -292,6 +327,26 @@
     if (id === FONDO_CAJA_ID) return FONDO_CAJA_NOMBRE;
     var u = id ? usuarioById(id) : null;
     return u ? nombreUsuario(u) : (id || '');
+  }
+  // Campos de verificación del beneficiado. Se aceptan los nombres nuevos
+  // (beneficiario*) y los alias antiguos para que la trazabilidad siga
+  // visible en documentos ya registrados.
+  function telefonoBeneficiario(tx) {
+    if (!tx) return '';
+    return String(tx.beneficiarioTelefono || tx.telefonoBeneficiario || '').trim();
+  }
+  function notasVerificacionBeneficiario(tx) {
+    if (!tx) return '';
+    return String(tx.beneficiarioNotasVerificacion || tx.notasVerificacion
+      || tx.notasBeneficiario || '').trim();
+  }
+  function detalleBeneficiario(tx) {
+    var partes = [];
+    var tel = telefonoBeneficiario(tx);
+    var notas = notasVerificacionBeneficiario(tx);
+    if (tel) partes.push('Tel: ' + tel);
+    if (notas) partes.push('Verificación: ' + notas);
+    return partes.join(' · ');
   }
   function nombreDonante(tx) {
     if (!tx) return '';
@@ -323,15 +378,33 @@
     return Math.max(0, 100 - bolsaTotalPct());
   }
   // Distribución de UNA transacción con los porcentajes vigentes.
+  // Las ofrendas directas/solidarias no se fraccionan: el 100% es para el
+  // destinatario y no alimenta la Bolsa de Comisiones ni la Caja Mayor.
   function distribucionTx(tx) {
     var monto = Number(tx && tx.monto) || 0;
+    if (esTxDirecta(tx)) {
+      return {
+        directo: true,
+        pctBolsa: 0,
+        pctCaja: 0,
+        pctDestinatario: 100,
+        montoBolsa: 0,
+        montoCaja: 0,
+        montoDestinatario: redondear(monto),
+        montoDirecto: redondear(monto)
+      };
+    }
     var bolsaPct = bolsaTotalPct();
     var cajaPct = Math.max(0, 100 - bolsaPct);
     return {
+      directo: false,
       pctBolsa: bolsaPct,
       pctCaja: cajaPct,
+      pctDestinatario: 0,
       montoBolsa: redondear(monto * bolsaPct / 100),
-      montoCaja: redondear(monto * cajaPct / 100)
+      montoCaja: redondear(monto * cajaPct / 100),
+      montoDestinatario: 0,
+      montoDirecto: 0
     };
   }
 
@@ -449,6 +522,29 @@
     for (var i = 0; i < usuariosCache.length; i++) if (usuariosCache[i].uid === uid) return usuariosCache[i];
     return null;
   }
+  // La trazabilidad se apoya SIEMPRE en el uid de Firebase Auth. El nombre o
+  // el correo son solo datos de presentación: nunca identifican al usuario
+  // contable. Estas funciones centralizan la comparación para evitar que una
+  // coincidencia de texto asigne dinero a la persona equivocada.
+  function uidDe(raw) {
+    return String(raw == null ? '' : raw).trim();
+  }
+  function mismoUid(a, b) {
+    var ua = uidDe(a);
+    return !!ua && ua === uidDe(b);
+  }
+  function usuarioPorUid(raw) {
+    var uid = uidDe(raw);
+    return uid ? usuarioById(uid) : null;
+  }
+  function uidValidoDeUsuario(raw, campo) {
+    var uid = uidDe(raw);
+    if (!uid) throw new Error('Selecciona ' + campo + ' desde la lista de usuarios.');
+    if (!usuarioPorUid(uid)) {
+      throw new Error('El uid seleccionado para ' + campo + ' no existe en la plataforma.');
+    }
+    return uid;
+  }
 
   /* ─── CUENTAS BANCARIAS / BILLETERAS ─────────────────────────
      Catálogo de cuentas del proyecto. Cada cuenta tiene SOLO dos campos
@@ -553,6 +649,8 @@
 
      Devuelve [{ userId, nivel, porcentaje, monto }].              */
   function calcularComisionesTx(tx) {
+    // Ofrenda directa / solidaria: el 100% va al destinatario, sin comisiones.
+    if (esTxDirecta(tx)) return Promise.resolve([]);
     if (!V.db || !tx || !tx.userId || !V.mlm || typeof V.mlm.calcularPayloadCon !== 'function') {
       return Promise.resolve([]);
     }
@@ -642,7 +740,9 @@
     var monto = redondear(Number(datos.monto) || 0);
     if (!(monto > 0)) throw new Error('Escribe un monto válido mayor a cero.');
 
-    var esDirecto = datos.esDirecto === true || String(datos.tipo) === TIPO_DIRECTO;
+      var esDirecto = datos.esDirecto === true
+        || String(datos.tipo) === TIPO_DIRECTO
+        || esCategoriaSolidaria(cat);
     var origen = datos.origen === 'comunidad' ? 'comunidad' : 'usuario';
     var comunidadId = (datos.comunidadId && String(datos.comunidadId)) || '';
     var userId = '';
@@ -652,10 +752,12 @@
     if (esDirecto) {
       origen = 'usuario';
       comunidadId = '';
-      userId = String(datos.donanteId || datos.userId || '');
-      if (!userId) throw new Error('Selecciona el usuario donante de la ofrenda directa.');
-      beneficiarioId = String(datos.beneficiarioId || '');
+      userId = uidValidoDeUsuario(datos.donanteId || datos.userId, 'el usuario donante de la ofrenda directa');
+      beneficiarioId = uidDe(datos.beneficiarioId);
       if (!beneficiarioId) throw new Error('Selecciona el usuario o fondo beneficiario de la ofrenda directa.');
+      if (beneficiarioId !== FONDO_CAJA_ID) {
+        beneficiarioId = uidValidoDeUsuario(beneficiarioId, 'el usuario beneficiario');
+      }
       if (beneficiarioId === userId) throw new Error('El donante y el beneficiario deben ser diferentes.');
       tipo = TIPO_DIRECTO;
     } else if (origen === 'comunidad') {
@@ -664,11 +766,11 @@
       // El titular contable de la ofrenda es el coordinador (si existe);
       // el superadmin puede sobrescribir el userId de forma explícita
       // (bypass total, sin restricciones de cadenas de patrocinio).
-      userId = (datos.userId && String(datos.userId)) || (com && com.coordinadorId) || '';
+      userId = uidDe(datos.userId) || uidDe(com && com.coordinadorId);
+      if (!userId) throw new Error('La comunidad seleccionada no tiene un coordinador vinculado por uid.');
       tipo = 'grupo';
     } else {
-      if (!datos.userId) throw new Error('Selecciona el usuario de origen del aporte.');
-      userId = String(datos.userId);
+      userId = uidValidoDeUsuario(datos.userId, 'el usuario de origen del aporte');
     }
 
     var fecha;
@@ -696,26 +798,31 @@
       tipo: tipo,
       concepto: (datos.concepto || '').trim(),
       fecha: fecha,
-      estado: (datos.estado && String(datos.estado)) || 'registrada',
+      estado: estadoNormalizado(datos.estado || ESTADO_REGISTRADO),
       creadoPor: V.userId
     };
     if (esDirecto) {
-      var uDon = usuarioById(userId);
+      var uDon = usuarioPorUid(userId);
+      var uBen = beneficiarioId === FONDO_CAJA_ID ? null : usuarioPorUid(beneficiarioId);
       var nombreDon = (datos.donanteNombre && String(datos.donanteNombre)) || (uDon ? nombreUsuario(uDon) : '');
       var nombreBen = (datos.beneficiarioNombre && String(datos.beneficiarioNombre)) || '';
       if (!nombreBen) {
-        if (beneficiarioId === FONDO_CAJA_ID) nombreBen = FONDO_CAJA_NOMBRE;
-        else {
-          var uBen = usuarioById(beneficiarioId);
-          nombreBen = uBen ? nombreUsuario(uBen) : '';
-        }
+        nombreBen = beneficiarioId === FONDO_CAJA_ID
+          ? FONDO_CAJA_NOMBRE
+          : (uBen ? nombreUsuario(uBen) : '');
       }
+      var telBen = String(datos.beneficiarioTelefono || datos.telefonoBeneficiario || '').trim();
+      if (!telBen && uBen) telBen = String(uBen.telefono || '').trim();
       baseTx.donanteId = userId;
       baseTx.donanteNombre = nombreDon;
       baseTx.beneficiarioId = beneficiarioId;
       baseTx.beneficiarioNombre = nombreBen;
+      baseTx.beneficiarioTelefono = telBen;
+      baseTx.beneficiarioNotasVerificacion = String(
+        datos.beneficiarioNotasVerificacion || datos.notasVerificacion || ''
+      ).trim();
     }
-    baseTx.distribucion = distribucionTx({ monto: monto });
+    baseTx.distribucion = distribucionTx(baseTx);
     return baseTx;
   }
 
@@ -728,6 +835,10 @@
       if (!V.db) throw new Error('Firestore no disponible.');
       var tx = prepararTransaccion(datos);
       return V.db.collection(COL_TRANS).add(tx).then(function (ref) {
+        // Solo una transacción "Asignada" reparte la bolsa MLM. Una
+        // "Registrada" queda a la espera de verificación administrativa y
+        // una ofrenda directa nunca genera comisiones (100% destinatario).
+        if (estadoNormalizado(tx.estado) !== ESTADO_ASIGNADO || esTxDirecta(tx)) return ref.id;
         return liquidarComisionesTx(tx, ref.id).then(function () { return ref.id; });
       });
     });
@@ -742,9 +853,11 @@
         if (!doc.exists) throw new Error('La transacción ya no existe.');
         var tx = prepararTransaccion(datos);
         return ref.set(tx).then(function () {
-          // Al cambiar el monto/origen se re-liquida la bolsa MLM para
-          // mantener la coherencia contable (bypass superadmin).
+          // Al cambiar el monto/origen/estado se recalcula la bolsa MLM para
+          // mantener la coherencia contable (bypass superadmin). Si vuelve a
+          // "Registrado" se retiran las comisiones previamente liquidadas.
           return eliminarComisionesDe(id).then(function () {
+            if (estadoNormalizado(tx.estado) !== ESTADO_ASIGNADO || esTxDirecta(tx)) return id;
             return liquidarComisionesTx(tx, id).then(function () { return id; });
           });
         });
@@ -770,6 +883,9 @@
       var admin = isAdminUser();
       var cat = categoriaById(datos.categoriaId);
       if (!cat) throw new Error('Selecciona una categoría válida.');
+      if (esCategoriaSolidaria(cat)) {
+        throw new Error('Las ofrendas directas/solidarias se registran desde el formulario de Aporte / Donación para indicar el destinatario.');
+      }
       if (cat.tipo === 'grupo' && !admin) throw new Error('Las ofrendas de grupo se liquidan desde "Ofrenda de grupo".');
       var monto = redondear(Number(datos.monto) || 0);
       if (!(monto > 0)) throw new Error('Escribe un monto válido mayor a cero.');
@@ -777,7 +893,7 @@
       var comunidadId = '';
       var tipo = cat.tipo;
       var origen = 'usuario';
-      var userId = (admin && datos.userId) ? String(datos.userId) : V.userId;
+      var userId = (admin && datos.userId) ? uidDe(datos.userId) : uidDe(V.userId);
 
       if (admin && (datos.comunidadId || cat.tipo === 'grupo')) {
         origen = 'comunidad';
@@ -785,9 +901,11 @@
         if (cat.tipo === 'grupo' && !comunidadId) throw new Error('Selecciona la comunidad de la ofrenda de grupo.');
         var com = comunidadById(comunidadId);
         if (!com) throw new Error('Selecciona una comunidad válida.');
-        userId = (datos.userId && String(datos.userId)) || com.coordinadorId || '';
+        userId = uidDe(datos.userId) || uidDe(com.coordinadorId);
+        if (!userId) throw new Error('La comunidad seleccionada no tiene un coordinador vinculado por uid.');
         tipo = 'grupo';
       }
+      if (!userId) throw new Error('Selecciona el usuario de origen del aporte.');
 
       var tx = {
         origen: origen,
@@ -801,11 +919,12 @@
         tipo: tipo,
         concepto: (datos.concepto || '').trim(),
         fecha: new Date().toISOString(),
-        estado: (admin && datos.estado) ? String(datos.estado) : 'registrada',
+        estado: estadoNormalizado((admin && datos.estado) ? datos.estado : ESTADO_REGISTRADO),
         creadoPor: V.userId
       };
-      tx.distribucion = distribucionTx({ monto: monto });
+      tx.distribucion = distribucionTx(tx);
       return V.db.collection(COL_TRANS).add(tx).then(function (ref) {
+        if (estadoNormalizado(tx.estado) !== ESTADO_ASIGNADO || esTxDirecta(tx)) return ref.id;
         return liquidarComisionesTx(tx, ref.id).then(function () { return ref.id; });
       });
     });
@@ -814,10 +933,11 @@
   // Reporte de aporte/donación con comprobante, por parte del propio
   // usuario. Admite aporte personal, ofrenda de comunidad y ofrenda directa
   // (donante → usuario/fondo beneficiario). Se crea la transacción en estado
-  // 'pendiente' para que el superadmin la valide (cambie a 'liquidada').
-  // NO liquida comisiones todavía: la bolsa MLM se reparte en la validación.
-  // El medio de pago, la cuenta, la referencia y la imagen del comprobante
-  // se guardan como campos del documento.
+  // 'Registrado' para que administración la verifique y la pase a 'Asignado'.
+  // NO liquida comisiones todavía: la bolsa MLM se reparte al asignar.
+  // El medio de pago, la cuenta, la referencia, la imagen del comprobante,
+  // el teléfono y las notas de verificación del beneficiario se guardan en
+  // el documento para conservar la trazabilidad solidaria.
   function reportarAportePendiente(datos) {
     return loadConfig().then(function () {
       if (!isEnabled()) throw new Error('El módulo Finanzas está desactivado.');
@@ -831,16 +951,21 @@
       var cat = categoriaById(datos.categoriaId) || categoriasActivas()[0];
       if (!cat) throw new Error('No hay categorías de aporte disponibles.');
 
-      var esDirecto = datos.esDirecto === true || String(datos.tipo) === TIPO_DIRECTO;
+    var esDirecto = datos.esDirecto === true
+      || String(datos.tipo) === TIPO_DIRECTO
+      || esCategoriaSolidaria(cat);
       var origen = datos.origen === 'comunidad' ? 'comunidad' : 'usuario';
       var comunidadId = '';
       var beneficiarioId = '';
       var tipo = 'personal';
       var etiqueta = ETIQUETA_USUARIO;
       if (esDirecto) {
-        beneficiarioId = String(datos.beneficiarioId || '');
+        beneficiarioId = uidDe(datos.beneficiarioId);
         if (!beneficiarioId) throw new Error('Selecciona el usuario o fondo beneficiario.');
-        if (beneficiarioId === V.userId) throw new Error('El donante y el beneficiario deben ser diferentes.');
+        if (beneficiarioId !== FONDO_CAJA_ID) {
+          beneficiarioId = uidValidoDeUsuario(beneficiarioId, 'el usuario beneficiario');
+        }
+        if (mismoUid(beneficiarioId, V.userId)) throw new Error('El donante y el beneficiario deben ser diferentes.');
         tipo = TIPO_DIRECTO;
         etiqueta = ETIQUETA_DIRECTO;
       } else if (origen === 'comunidad') {
@@ -865,19 +990,25 @@
         referenciaPago: referencia,
         comprobanteUrl: urlSegura(datos.comprobanteUrl),
         fecha: new Date().toISOString(),
-        estado: 'pendiente',
+        estado: ESTADO_REGISTRADO,
         creadoPor: V.userId
       };
       if (esDirecto) {
-        var uBen = usuarioById(beneficiarioId);
-        tx.donanteId = V.userId;
-        tx.donanteNombre = nombreUsuario(V.currentUser) || V.userId;
+        var uBen = beneficiarioId === FONDO_CAJA_ID ? null : usuarioPorUid(beneficiarioId);
+        var telBen = String(datos.beneficiarioTelefono || datos.telefonoBeneficiario || '').trim();
+        if (!telBen && uBen) telBen = String(uBen.telefono || '').trim();
+        tx.donanteId = uidDe(V.userId);
+        tx.donanteNombre = nombreUsuario(V.currentUser) || uidDe(V.userId);
         tx.beneficiarioId = beneficiarioId;
         tx.beneficiarioNombre = beneficiarioId === FONDO_CAJA_ID
           ? FONDO_CAJA_NOMBRE
           : (uBen ? nombreUsuario(uBen) : (datos.beneficiarioNombre || ''));
+        tx.beneficiarioTelefono = telBen;
+        tx.beneficiarioNotasVerificacion = String(
+          datos.beneficiarioNotasVerificacion || datos.notasVerificacion || ''
+        ).trim();
       }
-      tx.distribucion = distribucionTx({ monto: monto });
+      tx.distribucion = distribucionTx(tx);
       return V.db.collection(COL_TRANS).add(tx).then(function (ref) { return ref.id; });
     });
   }
@@ -890,39 +1021,20 @@
     return '';
   }
 
-  // Sube la imagen adjunta del comprobante a Firebase Storage y devuelve su
-  // URL pública. Si no hay archivo, resuelve con cadena vacía (adjunto
-  // opcional). El límite de 5 MB evita bloquear el guardado con archivos
-  // pesados; el tipo se valida en el cliente y el backend de Storage aplica
-  // sus propias reglas.
-  function subirComprobante(file) {
-    return new Promise(function (resolve, reject) {
-      if (!file) { resolve(''); return; }
-      if (file.type && file.type.indexOf('image/') !== 0) {
-        reject(new Error('El comprobante debe ser una imagen (JPG, PNG, etc.).'));
-        return;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        reject(new Error('La imagen supera el límite de 5 MB.'));
-        return;
-      }
-      var storage = V.storage;
-      if (!storage && window.firebase && typeof window.firebase.storage === 'function') {
-        try { storage = window.firebase.storage(); } catch (e) { storage = null; }
-      }
-      if (!storage) {
-        reject(new Error('El almacenamiento de archivos no está disponible.'));
-        return;
-      }
-      var nombre = String(file.name || 'comprobante').replace(/[^\w.\-]+/g, '_').slice(-80);
-      var ruta = 'finanzas/comprobantes/' + (V.userId || 'anon') + '/' + Date.now() + '_' + nombre;
-      var tarea = storage.ref(ruta).put(file);
-      tarea.on('state_changed', null, function (err) {
-        reject(err || new Error('No se pudo subir la imagen del comprobante.'));
-      }, function () {
-        tarea.snapshot.ref.getDownloadURL().then(resolve, reject);
-      });
-    });
+  // Número de WhatsApp de soporte (config/whatsapp). El core lo mantiene en
+  // vivo con una suscripción; aquí solo se consume al abrir el chat.
+  function numeroWhatsApp() {
+    var raw = typeof V.getWhatsAppNumero === 'function' ? V.getWhatsAppNumero() : '';
+    return String(raw || '').replace(/\D/g, '');
+  }
+  function abrirWhatsApp(mensaje) {
+    var numero = numeroWhatsApp();
+    if (!numero) {
+      V.toast('El WhatsApp de soporte aún no está configurado. Contacta a administración.', true);
+      return false;
+    }
+    window.open('https://wa.me/' + numero + '?text=' + encodeURIComponent(mensaje || ''), '_blank', 'noopener');
+    return true;
   }
 
   // Liquidación de una ofrenda de grupo desde Comunidades: transacción a
@@ -942,7 +1054,7 @@
         monto: datos.monto,
         concepto: datos.concepto,
         fecha: datos.fecha || new Date().toISOString(),
-        estado: 'liquidada'
+        estado: ESTADO_ASIGNADO
       });
       return V.db.collection(COL_TRANS).add(tx)
         .then(function (ref) { return liquidarComisionesTx(tx, ref.id).then(function () { return ref.id; }); });
@@ -1180,7 +1292,7 @@
   function coincideTx(tx, f) {
     if (f.origen && tx.origen !== f.origen) return false;
     if (f.categoriaId && tx.categoriaId !== f.categoriaId) return false;
-    if (f.estado && tx.estado !== f.estado) return false;
+    if (f.estado && estadoNormalizado(tx.estado) !== estadoNormalizado(f.estado)) return false;
     var d = diaISO(tx.fecha);
     if (f.desde && d < f.desde) return false;
     if (f.hasta && d > f.hasta) return false;
@@ -1203,7 +1315,7 @@
   }
   function titularDeTx(tx) {
     if (!tx) return '';
-    if (String(tx.tipo) === TIPO_DIRECTO) {
+    if (esTxDirecta(tx)) {
       var don = nombreDonante(tx) || 'Donante';
       var ben = nombreBeneficiario(tx);
       return ben ? don + ' → ' + ben : don;
@@ -1216,10 +1328,10 @@
     return u ? nombreUsuario(u) : (tx.userId || 'Usuario');
   }
   function estadoPillCls(estado) {
-    var e = String(estado || '').toLowerCase();
-    if (e === 'liquidada') return 'pos';
+    var e = estadoNormalizado(estado);
+    if (e === ESTADO_ASIGNADO) return 'pos';
     if (e === 'anulada') return 'neg';
-    if (e === 'pendiente') return 'pend';
+    if (e === ESTADO_REGISTRADO) return 'pend';
     return '';
   }
 
@@ -1244,11 +1356,14 @@
     cont.innerHTML = '';
     cont.appendChild(el('p', 'fin-loading', 'Cargando transacciones…'));
 
-    Promise.all([todasTransacciones(), loadComunidades(true), loadUsuarios(true), loadConfig()])
+    Promise.all([todasTransacciones(), loadComunidades(true), loadUsuarios(true), loadConfig(), todosPagos()])
       .then(function (res) {
         if (!document.body.contains(cont)) return;
         var txs = filtrarTxs(res[0], _finState);
         cont.innerHTML = '';
+        renderFichaSaldo(cont, res[0], res[4], {
+          subtitulo: 'Balance global del módulo: ingresos, bolsa, caja y ofrendas directas.'
+        });
         renderKpisFinanzas(cont, res[0], _finState);
         renderFiltrosFinanzas(cont);
         renderTablaTransacciones(cont, txs);
@@ -1279,7 +1394,7 @@
         var pagos = res[2] || [];
         var recibidas = res[3] || [];
         cont.innerHTML = '';
-        renderStats(cont, transacciones, comisiones, pagos);
+        renderStats(cont, transacciones, comisiones, pagos, recibidas);
         if (transacciones.length || comisiones.length || pagos.length || recibidas.length) {
           renderHistorial(cont, transacciones);
           renderBendiciones(cont, recibidas);
@@ -1330,6 +1445,9 @@
           '👁 Vista de solo lectura: consultas tus movimientos y los de tu red (hasta 5 niveles). '
           + 'Registrar, editar o eliminar transacciones y desembolsos sigue siendo exclusivo del superadmin.'));
 
+        renderFichaSaldo(cont, txs, pagos, {
+          subtitulo: 'Balance y totales acumulados de tu red.'
+        });
         renderKpisFinanzas(cont, txs, _finState);
         renderFiltrosFinanzas(cont);
         renderTablaTransacciones(cont, filtrarTxs(txs, _finState), true);
@@ -1421,21 +1539,89 @@
     return wrap;
   }
 
-  function renderKpisFinanzas(container, txs, filtros) {
-    var base = txs || [];
-    var filtradas = filtrarTxs(base, filtros);
-    var totalIngresos = 0, totalBolsa = 0, totalCaja = 0;
-    filtradas.forEach(function (tx) {
+  // Totales consolidados de un conjunto de movimientos. Las ofrendas
+  // directas se contabilizan como ingreso, pero NUNCA como Bolsa ni Caja.
+  function totalesFinancieros(txs, pagos) {
+    var totalIngresos = 0, totalBolsa = 0, totalCaja = 0, totalDirecto = 0, directas = 0;
+    (txs || []).forEach(function (tx) {
       var d = distribucionTx(tx);
       totalIngresos += Number(tx.monto) || 0;
       totalBolsa += d.montoBolsa;
       totalCaja += d.montoCaja;
+      if (d.directo) {
+        totalDirecto += Number(tx.monto) || 0;
+        directas++;
+      }
     });
+    var totalPagado = sumarMontos(pagos || []);
+    return {
+      totalIngresos: redondear(totalIngresos),
+      totalBolsa: redondear(totalBolsa),
+      totalCaja: redondear(totalCaja),
+      totalDirecto: redondear(totalDirecto),
+      directas: directas,
+      totalPagado: totalPagado,
+      // Las ofrendas directas no forman parte del dinero retenido por la
+      // organización: van 100% al destinatario. El balance solo considera
+      // lo retenido en bolsa + caja menos los desembolsos.
+      balance: redondear(totalBolsa + totalCaja - totalPagado)
+    };
+  }
+
+  /* ─── FICHA DE SALDO (parte superior del módulo) ──────────────
+     Resume el balance y los acumulados con los datos ya cargados. Se
+     repinta cada vez que la vista se actualiza (al registrar, editar,
+     eliminar o desembolsar), de modo que los totales reflejan el estado
+     actual de Firestore sin recargar la página. */
+  function renderFichaSaldo(container, txs, pagos, opts) {
+    opts = opts || {};
+    var t = totalesFinancieros(txs, pagos);
+    var card = el('div', 'fin-saldo-card');
+    var head = el('div', 'fin-saldo-head');
+    var titles = el('div', '');
+    titles.appendChild(el('h3', 'fin-saldo-title', '📊 Ficha de saldo'));
+    titles.appendChild(el('p', 'fin-saldo-sub', opts.subtitulo || 'Balance acumulado y totales del módulo de finanzas.'));
+    head.appendChild(titles);
+    var stamp = el('div', 'fin-saldo-stamp', 'Actualizado ' + new Date().toLocaleTimeString('es-CO'));
+    head.appendChild(stamp);
+    card.appendChild(head);
+
+    var body = el('div', 'fin-saldo-body');
+    var main = el('div', 'fin-saldo-main');
+    main.appendChild(el('div', 'fin-saldo-label', 'Balance disponible'));
+    main.appendChild(el('div', 'fin-saldo-value', fmtMoneda(t.balance)));
+    main.appendChild(el('div', 'fin-saldo-hint', 'Ingresos retenidos (bolsa + caja) − desembolsos'));
+    body.appendChild(main);
+
+    var grid = el('div', 'fin-saldo-grid');
+    grid.appendChild(fichaItem('Ingresos acumulados', fmtMoneda(t.totalIngresos), 'gold'));
+    grid.appendChild(fichaItem('Desembolsos', fmtMoneda(t.totalPagado), 'blue'));
+    grid.appendChild(fichaItem('Bolsa de comisiones (' + bolsaTotalPct() + '%)', fmtMoneda(t.totalBolsa), 'green'));
+    grid.appendChild(fichaItem('Caja Mayor (' + cajaPctVigente() + '%)', fmtMoneda(t.totalCaja), 'blue'));
+    grid.appendChild(fichaItem('Ofrendas directas (100%)', fmtMoneda(t.totalDirecto), 'gold'));
+    grid.appendChild(fichaItem('Movimientos', String((txs || []).length), ''));
+    body.appendChild(grid);
+    card.appendChild(body);
+    container.appendChild(card);
+  }
+
+  function fichaItem(label, value, cls) {
+    var item = el('div', 'fin-saldo-item');
+    item.appendChild(el('div', 'fin-saldo-item-label', label));
+    item.appendChild(el('div', 'fin-saldo-item-value' + (cls ? ' ' + cls : ''), value));
+    return item;
+  }
+
+  function renderKpisFinanzas(container, txs, filtros) {
+    var base = txs || [];
+    var filtradas = filtrarTxs(base, filtros);
+    var t = totalesFinancieros(filtradas, []);
     var stats = el('div', 'fin-stats fin-stats-kpi');
-    stats.appendChild(statCard('Ingresos totales', fmtMoneda(totalIngresos), 'gold'));
+    stats.appendChild(statCard('Ingresos totales', fmtMoneda(t.totalIngresos), 'gold'));
     stats.appendChild(statCard('Transacciones', String(filtradas.length), ''));
-    stats.appendChild(statCard('Bolsa de comisiones (' + bolsaTotalPct() + '%)', fmtMoneda(totalBolsa), 'green'));
-    stats.appendChild(statCard('Caja Mayor (' + cajaPctVigente() + '%)', fmtMoneda(totalCaja), 'blue'));
+    stats.appendChild(statCard('Bolsa de comisiones (' + bolsaTotalPct() + '%)', fmtMoneda(t.totalBolsa), 'green'));
+    stats.appendChild(statCard('Caja Mayor (' + cajaPctVigente() + '%)', fmtMoneda(t.totalCaja), 'blue'));
+    stats.appendChild(statCard('Ofrendas directas (100%)', fmtMoneda(t.totalDirecto), 'gold'));
     container.appendChild(stats);
   }
 
@@ -1484,14 +1670,8 @@
     fEst.appendChild(el('label', '', 'Estado'));
     var selEst = document.createElement('select');
     selEst.className = 'select';
-    var estOptions = [
-      { value: '', label: 'Todos los estados' },
-      { value: 'pendiente', label: 'Pendiente (por validar)' },
-      { value: 'registrada', label: 'Registrada' },
-      { value: 'liquidada', label: 'Liquidada' },
-      { value: 'anulada', label: 'Anulada' }
-    ];
-    fillSelectOpciones(selEst, estOptions, _finState.estado);
+    fillSelectOpciones(selEst, opcionesEstado(true),
+      _finState.estado ? estadoNormalizado(_finState.estado) : '');
     fEst.appendChild(selEst);
     bar.appendChild(fEst);
 
@@ -1642,22 +1822,20 @@
     function getValue() {
       var raw = (input.value || '').trim();
       if (!raw) return '';
+      // Vínculo ESTRICTO por uid: solo vale una opción seleccionada de la
+      // lista o el uid escrito literalmente. Nunca se resuelve por nombre ni
+      // correo, porque dos personas pueden compartir esos textos y el dinero
+      // terminaría asignado a la cuenta equivocada.
       if (input.dataset.id) {
         for (var i = 0; i < items.length; i++) {
           var it = items[i];
-          if (String(it.id) === String(input.dataset.id)
-            && (it.label === raw || it.sub === raw || String(it.id) === raw)) {
+          if (String(it.id) === String(input.dataset.id) && (it.label === raw || it.sub === raw)) {
             return it.id;
           }
         }
       }
       for (var j = 0; j < items.length; j++) {
-        var itj = items[j];
-        if (String(itj.id) === raw
-          || itj.label.toLowerCase() === raw.toLowerCase()
-          || itj.sub.toLowerCase() === raw.toLowerCase()) {
-          return itj.id;
-        }
+        if (String(items[j].id) === raw) return items[j].id;
       }
       return '';
     }
@@ -1682,13 +1860,10 @@
           var it = list[idxSel];
           if (it) { ev.preventDefault(); seleccionar(it); }
         } else {
-          var raw = (input.value || '').trim().toLowerCase();
+          var raw = (input.value || '').trim();
           for (var k = 0; k < items.length; k++) {
-            var itk = items[k];
-            if (itk.label.toLowerCase() === raw
-              || itk.sub.toLowerCase() === raw
-              || String(itk.id).toLowerCase() === raw) {
-              seleccionar(itk);
+            if (String(items[k].id) === raw) {
+              seleccionar(items[k]);
               break;
             }
           }
@@ -1766,15 +1941,27 @@
       var tr = document.createElement('tr');
       tr.appendChild(celda(V.fmtDate(tx.fecha) || (tx.fecha || '')));
       var tdOri = celda('');
-      var pill = el('span', 'fin-pill ' + (String(tx.tipo) === TIPO_DIRECTO || tx.origen === 'comunidad' ? 'oro' : 'azul'), tx.etiqueta || (tx.origen === 'comunidad' ? ETIQUETA_COMUNIDAD : ETIQUETA_USUARIO));
+      var pill = el('span', 'fin-pill ' + (esTxDirecta(tx) || tx.origen === 'comunidad' ? 'oro' : 'azul'), tx.etiqueta || (tx.origen === 'comunidad' ? ETIQUETA_COMUNIDAD : ETIQUETA_USUARIO));
       tdOri.appendChild(pill);
       tr.appendChild(tdOri);
-      tr.appendChild(celda(titularDeTx(tx)));
+      var tdTitular = celda(titularDeTx(tx));
+      var detBen = detalleBeneficiario(tx);
+      if (detBen) tdTitular.appendChild(el('div', 'fin-fila-sub', detBen));
+      tr.appendChild(tdTitular);
       var cat = categoriaById(tx.categoriaId);
       tr.appendChild(celda(cat ? cat.nombre : (tx.categoriaId || '—')));
       tr.appendChild(celda(fmtMoneda(tx.monto), 'fin-monto'));
-      tr.appendChild(celda(fmtMoneda(d.montoBolsa), 'fin-monto pos'));
-      tr.appendChild(celda(fmtMoneda(d.montoCaja), 'fin-monto blue'));
+      if (d.directo) {
+        var tdSinBolsa = celda('—', 'fin-monto');
+        tdSinBolsa.title = 'Ofrenda directa: el 100% va al destinatario, sin Bolsa ni Caja.';
+        tr.appendChild(tdSinBolsa);
+        var tdSinCaja = celda('—', 'fin-monto');
+        tdSinCaja.title = 'Ofrenda directa: el 100% va al destinatario, sin Bolsa ni Caja.';
+        tr.appendChild(tdSinCaja);
+      } else {
+        tr.appendChild(celda(fmtMoneda(d.montoBolsa), 'fin-monto pos'));
+        tr.appendChild(celda(fmtMoneda(d.montoCaja), 'fin-monto blue'));
+      }
       tr.appendChild(celda(estadoLabelTx(tx), estadoPillClsTx(tx) ? 'fin-monto ' + estadoPillClsTx(tx) : ''));
 
       var tdAcc = celda('');
@@ -1974,8 +2161,34 @@
     inpBenef.placeholder = 'Escribe nombre, correo o elige el fondo…';
     inpBenef.autocomplete = 'off';
     fBenef.appendChild(inpBenef);
-    var acBenef = crearAutocompletar(inpBenef);
+    var acBenef = crearAutocompletar(inpBenef, function (it) {
+      if (!it || it.id === FONDO_CAJA_ID) return;
+      var u = usuarioPorUid(it.id);
+      if (u && !inpBenefTel.value.trim()) inpBenefTel.value = String(u.telefono || '');
+    });
     form.appendChild(fBenef);
+
+    // Datos de verificación del beneficiado: quedan adjuntos al uid del
+    // beneficiario y permiten auditar la entrega solidaria.
+    var fBenefTel = el('div', 'field');
+    fBenefTel.appendChild(el('label', '', 'Teléfono del beneficiario'));
+    var inpBenefTel = document.createElement('input');
+    inpBenefTel.type = 'text';
+    inpBenefTel.className = 'input';
+    inpBenefTel.placeholder = 'Ej: 300 123 4567';
+    inpBenefTel.autocomplete = 'off';
+    fBenefTel.appendChild(inpBenefTel);
+    form.appendChild(fBenefTel);
+
+    var fBenefNotas = el('div', 'field');
+    fBenefNotas.appendChild(el('label', '', 'Notas de verificación del beneficiario'));
+    var inpBenefNotas = document.createElement('textarea');
+    inpBenefNotas.className = 'input';
+    inpBenefNotas.rows = '2';
+    inpBenefNotas.placeholder = 'Ej: verificado por teléfono el 20/10, recibe en su cuenta Nequi…';
+    inpBenefNotas.autocomplete = 'off';
+    fBenefNotas.appendChild(inpBenefNotas);
+    form.appendChild(fBenefNotas);
 
     var fCom = el('div', 'field');
     fCom.appendChild(el('label', '', 'Comunidad (Ofrenda)'));
@@ -2017,40 +2230,39 @@
     fRef.appendChild(inpRef);
     form.appendChild(fRef);
 
-    var fImg = el('div', 'field');
-    fImg.appendChild(el('label', '', 'Imagen del comprobante (opcional)'));
-    var inpFile = document.createElement('input');
-    inpFile.type = 'file';
-    inpFile.className = 'input fin-file';
-    inpFile.accept = 'image/*';
-    fImg.appendChild(inpFile);
-    var imgInfo = el('p', 'fin-form-note', 'Puedes adjuntar una foto o captura del comprobante (máx. 5 MB).');
-    fImg.appendChild(imgInfo);
-    var preview = el('div', 'fin-img-preview-wrap');
-    fImg.appendChild(preview);
+    var fComp = el('div', 'field');
+    fComp.appendChild(el('label', '', 'Comprobante de pago'));
+    var waBox = el('div', 'fin-wa-notice');
+    waBox.appendChild(el('div', 'fin-wa-title', '📲 Envía la foto del comprobante por WhatsApp'));
+    waBox.appendChild(el('p', 'fin-wa-text',
+      'Este formulario ya no carga imágenes. Después de guardar el movimiento, envía la foto o captura del comprobante directamente por WhatsApp para que administración valide el pago.'));
+    var btnWa = el('button', 'btn btn-wa', '💬 Abrir WhatsApp y enviar comprobante');
+    btnWa.type = 'button';
+    btnWa.addEventListener('click', function () {
+      var partes = ['Hola 👋, envío el comprobante de mi aporte.'];
+      var monto = Number(inpMonto.value) || 0;
+      if (monto > 0) partes.push('Monto: ' + fmtMoneda(monto));
+      if (inpRef.value.trim()) partes.push('Referencia: ' + inpRef.value.trim());
+      var catMsg = categoriaById(selCat.value);
+      if (catMsg) partes.push('Categoría: ' + catMsg.nombre);
+      abrirWhatsApp(partes.join(' '));
+    });
+    waBox.appendChild(btnWa);
+    var waNumero = numeroWhatsApp();
+    waBox.appendChild(el('p', 'fin-wa-num', waNumero
+      ? 'Número de soporte: +' + waNumero
+      : 'El número de WhatsApp de soporte aún no está configurado.'));
     if (editando && existing.comprobanteUrl) {
       var lnkComp = document.createElement('a');
       lnkComp.href = existing.comprobanteUrl;
       lnkComp.target = '_blank';
       lnkComp.rel = 'noopener';
       lnkComp.className = 'fin-link';
-      lnkComp.textContent = 'Ver comprobante actual';
-      fImg.appendChild(lnkComp);
+      lnkComp.textContent = 'Ver comprobante registrado anteriormente';
+      waBox.appendChild(lnkComp);
     }
-    form.appendChild(fImg);
-    inpFile.addEventListener('change', function () {
-      preview.innerHTML = '';
-      var archivo = inpFile.files && inpFile.files[0];
-      if (!archivo) { imgInfo.textContent = 'Puedes adjuntar una foto o captura del comprobante (máx. 5 MB).'; return; }
-      imgInfo.textContent = archivo.name + ' · ' + Math.round(archivo.size / 1024) + ' KB';
-      if (archivo.type && archivo.type.indexOf('image/') === 0) {
-        var img = document.createElement('img');
-        img.className = 'fin-img-preview';
-        img.alt = 'Vista previa del comprobante';
-        img.src = URL.createObjectURL(archivo);
-        preview.appendChild(img);
-      }
-    });
+    fComp.appendChild(waBox);
+    form.appendChild(fComp);
 
     var fCon = el('div', 'field');
     fCon.appendChild(el('label', '', 'Concepto (opcional)'));
@@ -2076,12 +2288,7 @@
       fEst.appendChild(el('label', '', 'Estado'));
       selEstado = document.createElement('select');
       selEstado.className = 'select';
-      fillSelectOpciones(selEstado, [
-        { value: 'pendiente', label: 'Pendiente (por validar)' },
-        { value: 'registrada', label: 'Registrada' },
-        { value: 'liquidada', label: 'Liquidada' },
-        { value: 'anulada', label: 'Anulada' }
-      ], 'registrada');
+      fillSelectOpciones(selEstado, opcionesEstado(false), ESTADO_REGISTRADO);
       fEst.appendChild(selEstado);
       form.appendChild(fEst);
     }
@@ -2089,7 +2296,7 @@
     var resumen = el('p', 'fin-form-note', '');
     form.appendChild(resumen);
     if (!admin) {
-      form.appendChild(el('p', 'fin-form-note', 'Tu aporte quedará en estado "Pendiente" hasta que el administrador valide el comprobante.'));
+      form.appendChild(el('p', 'fin-form-note', 'Tu aporte quedará en estado "Registrado" hasta que administración verifique el comprobante y lo marque como "Asignado".'));
     }
 
     var acciones = el('div', 'fin-modal-acciones');
@@ -2114,7 +2321,7 @@
     overlay.addEventListener('click', function (e) { if (e.target === overlay) cerrar(); });
 
     var catEnEdicion = (editando && existing && existing.categoriaId) ? String(existing.categoriaId) : '';
-    var esDirectoEd = !!(editando && existing && (String(existing.tipo) === TIPO_DIRECTO || existing.beneficiarioId));
+    var esDirectoEd = !!(editando && existing && esTxDirecta(existing));
 
     function pintarCategorias(selected) {
       var cats = categoriasActivas();
@@ -2127,26 +2334,41 @@
     pintarCategorias(catEnEdicion);
 
     function actualizarOrigen() {
+      // Una categoría solidaria siempre se registra como ofrenda directa:
+      // el 100% va al destinatario y se necesita elegir el beneficiario.
+      if (esCategoriaSolidaria(categoriaById(selCat.value))) inDir.checked = true;
       var origen = origenSeleccionado();
       var directo = origen === 'directo';
       if (fUsr) fUsr.style.display = (!directo && origen === 'usuario') ? '' : 'none';
       fCom.style.display = (!directo && origen === 'comunidad') ? '' : 'none';
       fDon.style.display = directo ? '' : 'none';
       fBenef.style.display = directo ? '' : 'none';
+      fBenefTel.style.display = directo ? '' : 'none';
+      fBenefNotas.style.display = directo ? '' : 'none';
       actualizarResumen();
     }
 
     function actualizarResumen() {
       var monto = Number(inpMonto.value) || 0;
-      var d = distribucionTx({ monto: monto });
-      var etiqueta = origenSeleccionado() === 'directo'
+      var cat = categoriaById(selCat.value);
+      var directo = origenSeleccionado() === 'directo' || esCategoriaSolidaria(cat);
+      var d = distribucionTx({ monto: monto, tipo: directo ? TIPO_DIRECTO : '', categoriaId: selCat.value });
+      var etiqueta = directo
         ? ETIQUETA_DIRECTO
         : (origenSeleccionado() === 'comunidad' ? ETIQUETA_COMUNIDAD : ETIQUETA_USUARIO);
-      resumen.textContent = etiqueta + ' · Bolsa MLM ' + d.pctBolsa + '% → ' + fmtMoneda(d.montoBolsa) +
-        ' · Caja Mayor ' + d.pctCaja + '% → ' + fmtMoneda(d.montoCaja);
+      if (d.directo) {
+        resumen.textContent = etiqueta + ' · 100% al destinatario → ' + fmtMoneda(d.montoDestinatario) +
+          ' · Sin división entre Bolsa y Caja.';
+      } else {
+        resumen.textContent = etiqueta + ' · Bolsa MLM ' + d.pctBolsa + '% → ' + fmtMoneda(d.montoBolsa) +
+          ' · Caja Mayor ' + d.pctCaja + '% → ' + fmtMoneda(d.montoCaja);
+      }
     }
     inpMonto.addEventListener('input', actualizarResumen);
-    selCat.addEventListener('change', actualizarResumen);
+    selCat.addEventListener('change', function () {
+      if (esCategoriaSolidaria(categoriaById(selCat.value))) inDir.checked = true;
+      actualizarOrigen();
+    });
 
     function itemUsuario(u) {
       return { id: u.uid, label: nombreUsuario(u), sub: u.email || u.uid };
@@ -2239,14 +2461,12 @@
       inpMonto.value = existing.monto;
       inpRef.value = existing.referenciaPago || '';
       inpCon.value = existing.concepto || '';
+      inpBenefTel.value = telefonoBeneficiario(existing);
+      inpBenefNotas.value = notasVerificacionBeneficiario(existing);
       if (inpFecha) inpFecha.value = diaISO(existing.fecha) || '';
       if (selEstado) {
-        fillSelectOpciones(selEstado, [
-          { value: 'pendiente', label: 'Pendiente (por validar)' },
-          { value: 'registrada', label: 'Registrada' },
-          { value: 'liquidada', label: 'Liquidada' },
-          { value: 'anulada', label: 'Anulada' }
-        ], existing.estado || 'registrada');
+        fillSelectOpciones(selEstado, opcionesEstado(false),
+          estadoNormalizado(existing.estado || ESTADO_REGISTRADO));
       }
     } else {
       inUsu.checked = true;
@@ -2258,7 +2478,7 @@
 
     btnSave.addEventListener('click', function () {
       var origen = origenSeleccionado();
-      var directo = origen === 'directo';
+      var directo = origen === 'directo' || esCategoriaSolidaria(categoriaById(selCat.value));
       var referencia = inpRef.value.trim();
       if (!selCat.value) { V.toast('Selecciona una categoría.', true); return; }
       if (!(Number(inpMonto.value) > 0)) { V.toast('Escribe un monto válido mayor a cero.', true); return; }
@@ -2277,8 +2497,10 @@
         referenciaPago: referencia,
         monto: inpMonto.value,
         concepto: inpCon.value,
+        beneficiarioTelefono: directo ? inpBenefTel.value : '',
+        beneficiarioNotasVerificacion: directo ? inpBenefNotas.value : '',
         fecha: inpFecha ? (inpFecha.value || new Date().toISOString()) : new Date().toISOString(),
-        estado: selEstado ? selEstado.value : 'pendiente'
+        estado: selEstado ? selEstado.value : ESTADO_REGISTRADO
       };
       if (editando && existing) {
         datos.comprobanteUrl = existing.comprobanteUrl || '';
@@ -2288,9 +2510,9 @@
         }
       }
       if (directo) {
-        if (!(datos.donanteId || datos.userId)) { V.toast('Selecciona el usuario donante de la lista de autocompletado.', true); return; }
-        if (!datos.beneficiarioId) { V.toast('Selecciona el usuario o fondo beneficiario.', true); return; }
-        if (String(datos.donanteId || datos.userId) === String(datos.beneficiarioId)) {
+        if (!(datos.donanteId || datos.userId)) { V.toast('Selecciona el usuario donante desde la lista (vínculo por uid).', true); return; }
+        if (!datos.beneficiarioId) { V.toast('Selecciona el usuario o fondo beneficiario desde la lista (vínculo por uid).', true); return; }
+        if (mismoUid(datos.donanteId || datos.userId, datos.beneficiarioId)) {
           V.toast('El donante y el beneficiario deben ser diferentes.', true); return;
         }
       } else if (origen === 'comunidad' && !datos.comunidadId) {
@@ -2302,17 +2524,16 @@
 
       btnSave.disabled = true;
       btnSave.textContent = editando ? '⏳ Guardando…' : '⏳ Enviando…';
-      var archivo = inpFile.files && inpFile.files[0];
-      subirComprobante(archivo).then(function (url) {
-        if (url) datos.comprobanteUrl = url;
-        if (admin) {
-          return editando ? editarTransaccion(existing.id, datos) : crearTransaccion(datos);
-        }
-        return reportarAportePendiente(datos);
-      }).then(function () {
+      var guardado = admin
+        ? (editando ? editarTransaccion(existing.id, datos) : crearTransaccion(datos))
+        : reportarAportePendiente(datos);
+      guardado.then(function () {
         V.toast(editando
-          ? 'Transacción actualizada ✓'
-          : (admin ? 'Transacción registrada y comisiones MLM liquidadas ✓' : 'Solicitud enviada ✓ Queda Pendiente de validación.'));
+          ? 'Transacción actualizada ✓ Recuerda enviar el comprobante por WhatsApp.'
+          : (admin
+            ? (directo ? 'Ofrenda directa registrada ✓ El 100% va al destinatario.'
+              : 'Transacción registrada y comisiones MLM liquidadas ✓')
+            : 'Solicitud enviada ✓ Recuerda enviar la foto del comprobante por WhatsApp.'));
         cerrar();
         if (admin) renderVistaFinanzas(); else refreshPanel();
       }).catch(function (e) {
@@ -2547,13 +2768,8 @@
     fEst.appendChild(el('label', '', 'Estado'));
     var selEst = document.createElement('select');
     selEst.className = 'select';
-    fillSelectOpciones(selEst, [
-      { value: '', label: 'Todos los estados' },
-      { value: 'pendiente', label: 'Pendiente (por validar)' },
-      { value: 'registrada', label: 'Registrada' },
-      { value: 'liquidada', label: 'Liquidada' },
-      { value: 'anulada', label: 'Anulada' }
-    ], _repState.estado);
+    fillSelectOpciones(selEst, opcionesEstado(true),
+      _repState.estado ? estadoNormalizado(_repState.estado) : '');
     fEst.appendChild(selEst);
     bar.appendChild(fEst);
 
@@ -2589,13 +2805,7 @@
   }
 
   function renderKpisReportes(container, txs) {
-    var totalIngresos = 0, totalBolsa = 0, totalCaja = 0;
-    txs.forEach(function (tx) {
-      var d = distribucionTx(tx);
-      totalIngresos += Number(tx.monto) || 0;
-      totalBolsa += d.montoBolsa;
-      totalCaja += d.montoCaja;
-    });
+    var t = totalesFinancieros(txs, []);
     var filtroDesc = '';
     if (_repState.desde || _repState.hasta) {
       filtroDesc = (diaISO(_repState.desde) || 'inicio') + ' → ' + (diaISO(_repState.hasta) || 'hoy');
@@ -2603,9 +2813,10 @@
       filtroDesc = 'todo el histórico';
     }
     var stats = el('div', 'fin-stats fin-stats-kpi');
-    stats.appendChild(statCard('Ingresos totales', fmtMoneda(totalIngresos), 'gold'));
-    stats.appendChild(statCard('Bolsa de comisiones (' + bolsaTotalPct() + '%)', fmtMoneda(totalBolsa), 'green'));
-    stats.appendChild(statCard('Caja Mayor (' + cajaPctVigente() + '%)', fmtMoneda(totalCaja), 'blue'));
+    stats.appendChild(statCard('Ingresos totales', fmtMoneda(t.totalIngresos), 'gold'));
+    stats.appendChild(statCard('Bolsa de comisiones (' + bolsaTotalPct() + '%)', fmtMoneda(t.totalBolsa), 'green'));
+    stats.appendChild(statCard('Caja Mayor (' + cajaPctVigente() + '%)', fmtMoneda(t.totalCaja), 'blue'));
+    stats.appendChild(statCard('Ofrendas directas (100%)', fmtMoneda(t.totalDirecto), 'gold'));
     container.appendChild(stats);
     container.appendChild(el('p', 'fin-filtro-desc', 'Período: ' + filtroDesc + ' · Transacciones: ' + txs.length +
       ' · Porcentajes vigentes L1–L5: ' + nivelesPctTxt()));
@@ -2721,7 +2932,10 @@
         var pill = el('span', 'fin-pill ' + (tx.origen === 'comunidad' ? 'oro' : 'azul'), tx.etiqueta || (tx.origen === 'comunidad' ? ETIQUETA_COMUNIDAD : ETIQUETA_USUARIO));
         tdOri.appendChild(pill);
         tr.appendChild(tdOri);
-        tr.appendChild(celda(titularDeTx(tx)));
+        var tdTitular = celda(titularDeTx(tx));
+        var detBen = detalleBeneficiario(tx);
+        if (detBen) tdTitular.appendChild(el('div', 'fin-fila-sub', detBen));
+        tr.appendChild(tdTitular);
         var cat = categoriaById(tx.categoriaId);
         tr.appendChild(celda(cat ? cat.nombre : (tx.categoriaId || '—')));
         tr.appendChild(celda(fmtMoneda(tx.monto), 'fin-monto'));
@@ -2886,6 +3100,7 @@
     var cajaPct = cajaPctVigente();
     panel.appendChild(el('p', 'fin-note',
       'La Caja Mayor / Fondo Estructura General recibe el ' + cajaPct + '% restante de cada ingreso (100% − ' + bolsaTotalPct() + '% de bolsa MLM). ' +
+      'Las ofrendas directas/solidarias quedan fuera: su monto va 100% al destinatario. ' +
       'Es el acumulado destinado a la caja central de la organización y NO se descuenta en pagos a usuarios.'));
 
     var stats = el('div', 'fin-stats');
@@ -2920,8 +3135,17 @@
         tr.appendChild(tdOri);
         tr.appendChild(celda(titularDeTx(f.tx)));
         tr.appendChild(celda(fmtMoneda(f.tx.monto), 'fin-monto'));
-        tr.appendChild(celda(fmtMoneda(f.d.montoBolsa), 'fin-monto pos'));
-        tr.appendChild(celda(fmtMoneda(f.d.montoCaja), 'fin-monto blue'));
+        if (f.d.directo) {
+          var tdNB = celda('—', 'fin-monto');
+          tdNB.title = 'Ofrenda directa: 100% al destinatario.';
+          tr.appendChild(tdNB);
+          var tdNC = celda('—', 'fin-monto');
+          tdNC.title = 'Ofrenda directa: no alimenta la Caja Mayor.';
+          tr.appendChild(tdNC);
+        } else {
+          tr.appendChild(celda(fmtMoneda(f.d.montoBolsa), 'fin-monto pos'));
+          tr.appendChild(celda(fmtMoneda(f.d.montoCaja), 'fin-monto blue'));
+        }
         tbody.appendChild(tr);
       });
       var trT = document.createElement('tr');
@@ -3006,6 +3230,20 @@
 
   /* ─── DESGLOSE MLM (reutiliza el motor dinámico del módulo) ─ */
   function renderDesglose(container, tx) {
+    if (esTxDirecta(tx)) {
+      var directo = document.createElement('details');
+      directo.className = 'fin-desglose';
+      var dsum = document.createElement('summary');
+      dsum.appendChild(el('span', '', '🙏 Ofrenda directa · 100% al destinatario'));
+      directo.appendChild(dsum);
+      var dbody = el('div', 'fin-desglose-body');
+      dbody.appendChild(el('p', 'fin-nota',
+        'El monto completo va a ' + (nombreBeneficiario(tx) || 'el destinatario')
+        + '. No se divide entre Bolsa de Comisiones y Caja Mayor ni genera comisiones MLM.'));
+      directo.appendChild(dbody);
+      container.appendChild(directo);
+      return;
+    }
     if (!V.mlm || !V.mlm.calcularPayloadCon) return;
     var d = document.createElement('details');
     d.className = 'fin-desglose';
@@ -3108,7 +3346,7 @@
           var recibidas = res && res[3] ? res[3] : [];
           limpiarCarga();
           limpiarCuerpo();
-          renderStats(body, transacciones, comisiones, pagos);
+          renderStats(body, transacciones, comisiones, pagos, recibidas);
           if (transacciones.length || comisiones.length || pagos.length || recibidas.length) {
             renderHistorial(body, transacciones);
             renderBendiciones(body, recibidas);
@@ -3177,7 +3415,7 @@
         banco: nequi ? nequi.banco : 'Nequi',
         numero: nequi ? nequi.numero : '300 000 0000',
         cuentaId: nequi ? nequi.id : '',
-        nota: 'Envía el dinero desde tu app Nequi a este número y guarda el comprobante.'
+        nota: 'Envía el dinero desde tu app Nequi a este número y luego comparte el comprobante por WhatsApp.'
       },
       {
         id: 'bancolombia',
@@ -3196,20 +3434,40 @@
     abrirModalTransaccion(null);
   }
 
-  function renderStats(container, transacciones, comisiones, pagos) {
+  function renderStats(container, transacciones, comisiones, pagos, recibidas) {
     var totalAportado = 0;
     transacciones.forEach(function (t) { totalAportado += Number(t.monto) || 0; });
+    var totalRecibido = sumarMontos(recibidas || []);
     var totalComisiones = 0;
     comisiones.forEach(function (c) { totalComisiones += Number(c.monto) || 0; });
     var totalPagado = sumarMontos(pagos || []);
     var saldoDisponible = redondear(totalComisiones - totalPagado);
 
-    var stats = el('div', 'fin-stats');
-    stats.appendChild(statCard('Mis movimientos', String(transacciones.length), ''));
-    stats.appendChild(statCard('Total', fmtMoneda(totalAportado), ''));
-    stats.appendChild(statCard('Comisiones recibidas', fmtMoneda(totalComisiones), 'green'));
-    stats.appendChild(statCard('💸 Saldo disponible', fmtMoneda(saldoDisponible), saldoDisponible > 0 ? 'green' : ''));
-    container.appendChild(stats);
+    var card = el('div', 'fin-saldo-card');
+    var head = el('div', 'fin-saldo-head');
+    var titles = el('div', '');
+    titles.appendChild(el('h3', 'fin-saldo-title', '📊 Ficha de saldo'));
+    titles.appendChild(el('p', 'fin-saldo-sub', 'Tus aportes, ofrendas recibidas, comisiones y saldo disponible.'));
+    head.appendChild(titles);
+    head.appendChild(el('div', 'fin-saldo-stamp', 'Actualizado ' + new Date().toLocaleTimeString('es-CO')));
+    card.appendChild(head);
+
+    var body = el('div', 'fin-saldo-body');
+    var main = el('div', 'fin-saldo-main');
+    main.appendChild(el('div', 'fin-saldo-label', 'Saldo disponible'));
+    main.appendChild(el('div', 'fin-saldo-value', fmtMoneda(saldoDisponible)));
+    main.appendChild(el('div', 'fin-saldo-hint', 'Comisiones recibidas − desembolsos realizados'));
+    body.appendChild(main);
+
+    var grid = el('div', 'fin-saldo-grid');
+    grid.appendChild(fichaItem('Aportes realizados', fmtMoneda(totalAportado), 'gold'));
+    grid.appendChild(fichaItem('Ofrendas recibidas', fmtMoneda(totalRecibido), 'green'));
+    grid.appendChild(fichaItem('Comisiones recibidas', fmtMoneda(totalComisiones), 'green'));
+    grid.appendChild(fichaItem('Desembolsos', fmtMoneda(totalPagado), 'blue'));
+    grid.appendChild(fichaItem('Movimientos', String(transacciones.length), ''));
+    body.appendChild(grid);
+    card.appendChild(body);
+    container.appendChild(card);
   }
 
   function selectOpcoes(select, options) {
@@ -3232,7 +3490,7 @@
     }
 
     transacciones.forEach(function (t) {
-      var esDirecto = String(t.tipo) === TIPO_DIRECTO;
+      var esDirecto = esTxDirecta(t);
       var cat = categoriaById(t.categoriaId) || { nombre: t.categoriaId || '—', tipo: t.tipo };
       var row = el('div', 'fin-fila');
       var info = el('div', 'fin-fila-info');
@@ -3240,6 +3498,8 @@
       var partes = [];
       if (esDirecto) {
         partes.push('Ofrenda para: ' + (nombreBeneficiario(t) || 'Beneficiario'));
+        var detHist = detalleBeneficiario(t);
+        if (detHist) partes.push(detHist);
       }
       if (t.origen === 'comunidad' || t.tipo === 'grupo') {
         var comunidadTx = t.comunidadId ? comunidadById(t.comunidadId) : null;
@@ -3288,6 +3548,8 @@
       info.appendChild(el('div', 'fin-fila-titulo', 'Ofrenda recibida de ' + origen));
       var partes = ['Origen: ' + origen];
       if (t.concepto) partes.push(t.concepto);
+      var detBen = detalleBeneficiario(t);
+      if (detBen) partes.push(detBen);
       if (t.fecha) partes.push(V.fmtDate(t.fecha));
       info.appendChild(el('div', 'fin-fila-sub', partes.join(' · ')));
       if (t.estado) {

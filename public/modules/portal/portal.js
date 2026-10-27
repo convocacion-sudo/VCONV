@@ -176,17 +176,33 @@
     fichas.forEach(function (f) {
       var card = el('article', 'portal-ficha');
 
-      // El medio se guarda en campos planos (mediaTipo/mediaUrl/mediaFuente),
-      // igual que en el resto del CMS: se reconstruye aquí con el mismo
-      // normalizador que usa el panel.
-      var medio = V.multimedia ? V.multimedia.normalizarMedio({
-        tipo: f.mediaTipo || (f.medio && f.medio.tipo) || 'ninguna',
-        url: f.mediaUrl || (f.medio && f.medio.url) || '',
-        fuente: f.mediaFuente || (f.medio && f.medio.fuente) || 'auto'
-      }) : { tipo: 'ninguna', url: '' };
-      if (medio.tipo !== 'ninguna') {
+      // El medio guardado puede venir en los campos planos (mediaTipo,
+      // mediaUrl) o dentro del objeto `medio`. Para la imagen se crea la
+      // etiqueta <img> directamente con esa URL, sin depender de que el
+      // clasificador la vuelva a montar.
+      var mediaUrl = String(f.mediaUrl || (f.medio && f.medio.url) || '').trim();
+      var mediaTipo = String(f.mediaTipo || (f.medio && f.medio.tipo) || '').toLowerCase();
+      var mediaFuente = f.mediaFuente || (f.medio && f.medio.fuente) || 'auto';
+      if (mediaUrl && V.multimedia && typeof V.multimedia.cleanUrl === 'function') {
+        mediaUrl = V.multimedia.cleanUrl(mediaUrl) || '';
+      }
+
+      if (mediaUrl) {
         var marco = el('div', 'portal-ficha-media');
-        V.multimedia.montarMedio(marco, medio, { clase: 'portal-ficha-media-el', alt: f.titulo || '' });
+        if (mediaTipo === 'video') {
+          if (V.multimedia && typeof V.multimedia.montarMedio === 'function') {
+            V.multimedia.montarMedio(marco, { tipo: 'video', url: mediaUrl, fuente: mediaFuente }, { clase: 'portal-ficha-media-el', alt: f.titulo || '' });
+          }
+        } else {
+          var img = document.createElement('img');
+          img.className = 'portal-ficha-media-el';
+          img.src = mediaUrl;
+          img.alt = f.titulo || '';
+          img.loading = 'lazy';
+          img.decoding = 'async';
+          img.referrerPolicy = 'no-referrer';
+          marco.appendChild(img);
+        }
         card.appendChild(marco);
       }
 
