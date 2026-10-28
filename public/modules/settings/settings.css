@@ -93,6 +93,70 @@
 .set-help { margin: 0; font-size: 0.73rem; color: var(--text-muted); line-height: 1.5; }
 .set-help.es-error { color: var(--danger); }
 .set-textarea { resize: vertical; min-height: 4.5rem; line-height: 1.5; }
+
+/* ── IMAGEN DE LA FICHA ─────────────────────────────────────
+   Un único bloque: vista previa, una URL y las imágenes que ya usan
+   otras fichas. Sin pestañas ni campos redundantes. */
+.set-image-block {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+}
+.set-image-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 0.75rem; margin-bottom: 0.85rem;
+}
+.set-image-head-text { min-width: 0; }
+.set-image-title {
+  margin: 0 0 0.2rem;
+  font-size: 0.9rem; font-weight: 700; color: var(--text-primary);
+}
+.set-image-body {
+  display: grid;
+  grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
+  gap: 1rem; align-items: start;
+}
+.set-image-preview {
+  display: flex; align-items: center; justify-content: center;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+}
+.set-image-preview.is-empty,
+.set-image-preview.is-error {
+  border-style: dashed;
+  padding: 0.75rem;
+  text-align: center;
+}
+.set-image-preview-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.set-image-empty { font-size: 0.78rem; color: var(--text-muted); }
+.set-image-gallery {
+  margin-top: 1rem; padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+}
+.set-image-gallery .set-label { display: block; margin-bottom: 0.5rem; }
+.set-image-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 0.5rem;
+}
+.set-image-thumb {
+  padding: 0; overflow: hidden; cursor: pointer;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  transition: var(--transition);
+}
+.set-image-thumb:hover { border-color: var(--gold-soft); transform: translateY(-1px); }
+.set-image-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+@media (max-width: 640px) {
+  .set-image-body { grid-template-columns: 1fr; }
+  .set-image-preview { max-width: 320px; }
+}
 .set-color { padding: 0.2rem; height: 2.5rem; cursor: pointer; }
 .set-subhead {
   margin: 1.1rem 0 0.5rem;
@@ -211,86 +275,6 @@
   padding: 0.85rem 0 0.25rem;
   background: linear-gradient(to top, var(--bg-primary) 60%, transparent);
 }
-
-/* ── MODAL (selector de medios) ─────────────────────────────
-   Diálogo secundario dentro del panel: el overlay y la tarjeta usan las
-   mismas variables del tema, con un z-index por encima del panel para
-   que nunca quede "por debajo" de la tarjeta que lo abrió. */
-.set-modal-overlay {
-  position: fixed; inset: 0; z-index: 1200;
-  display: flex; align-items: center; justify-content: center;
-  padding: 1.25rem;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(2px);
-}
-.set-modal {
-  width: min(560px, 100%);
-  max-height: 88vh; overflow: auto;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
-}
-.set-modal-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
-  padding: 1rem 1.15rem; border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
-  position: sticky; top: 0; z-index: 1;
-}
-.set-modal-head h3 { margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-primary); }
-.set-modal-x {
-  width: 30px; height: 30px; border-radius: 50%;
-  border: 1px solid var(--border); background: var(--bg-tertiary);
-  color: var(--text-secondary); cursor: pointer; font-size: 0.85rem;
-  transition: var(--transition);
-}
-.set-modal-x:hover { border-color: var(--border-hover); color: var(--text-primary); }
-.set-modal-body { padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; }
-.set-modal-foot {
-  display: flex; justify-content: flex-end; gap: 0.6rem;
-  padding: 0.9rem 1.15rem; border-top: 1px solid var(--border);
-  background: var(--bg-secondary);
-  position: sticky; bottom: 0;
-}
-
-/* ── PESTAÑAS MINI (imagen / vídeo) ─────────────────────── */
-.set-tabs-mini { display: flex; gap: 0.4rem; flex-wrap: wrap; }
-.set-tab-mini {
-  display: inline-flex; align-items: center; gap: 0.35rem;
-  padding: 0.35rem 0.75rem;
-  border: 1px solid var(--border); border-radius: 99px;
-  background: var(--bg-secondary); color: var(--text-secondary);
-  font-size: 0.78rem; font-weight: 600; cursor: pointer;
-  transition: var(--transition);
-}
-.set-tab-mini:hover { border-color: var(--border-hover); color: var(--text-primary); }
-.set-tab-mini.is-active { background: var(--gold-glow); border-color: var(--gold-soft); color: var(--gold); }
-
-/* ── MEDIOS (vista previa y galería) ───────────────────────
-   La vista previa usa el MISMO montaje que la portada (core/multimedia.js):
-   lo que ve el administrador es exactamente lo que verá el visitante. */
-.set-media-preview {
-  border: 1px dashed var(--border); border-radius: var(--radius);
-  background: var(--bg-secondary);
-  padding: 0.75rem; min-height: 3rem;
-  display: flex; align-items: center; justify-content: center;
-}
-.set-media-img, .set-media-video {
-  max-width: 100%; max-height: 260px;
-  border-radius: var(--radius); display: block;
-}
-.set-media-video { width: 100%; aspect-ratio: 16 / 9; background: #000; }
-.set-galeria { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.set-gal-item {
-  width: 62px; height: 62px; padding: 0; overflow: hidden;
-  border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--bg-tertiary); cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: var(--transition);
-}
-.set-gal-item:hover { border-color: var(--gold-soft); }
-.set-gal-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.set-gal-ico { font-size: 1.3rem; }
 
 /* ── FILA DE CAMPO (pestaña «Campos de formularios») ───────
    Una fila por campo del formulario: estado, etiqueta, tipo, ayuda y

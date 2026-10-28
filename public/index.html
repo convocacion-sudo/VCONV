@@ -6,7 +6,7 @@
   <meta name="description" content="Gestor y visor de cursos conectado a Cloud Firestore con modo claro/oscuro y visor de contenido seguro.">
   <title>VCONV · Gestor y Visor de Cursos</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-  <link rel="stylesheet" href="core/styles.css">
+  <link rel="stylesheet" href="core/styles.css?v=20261028-8">
   <link rel="stylesheet" href="modules/cursos/cursos.css">
   <link rel="stylesheet" href="modules/crm/crm.css">
   <link rel="stylesheet" href="modules/dashboard/dashboard.css">
@@ -16,9 +16,10 @@
 <link rel="stylesheet" href="modules/roles/roles.css">
   <link rel="stylesheet" href="modules/podcasts/podcasts.css">
   <link rel="stylesheet" href="modules/tienda/tienda.css">
-  <link rel="stylesheet" href="modules/portal/portal.css">
-  <link rel="stylesheet" href="modules/superadmin/superadmin.css">
-  <link rel="stylesheet" href="modules/settings/settings.css">
+  <link rel="stylesheet" href="modules/portal/portal.css?v=20261028-9">
+  <link rel="stylesheet" href="modules/superadmin/superadmin.css?v=20261028-7">
+  <link rel="stylesheet" href="modules/settings/settings.css?v=20261028-8">
+  <link rel="stylesheet" href="modules/settings/fichas-video.css?v=20261028-10">
   <!-- Capa global de responsive: se carga DESPUÉS de todos los CSS
        de los módulos para que sus reglas manden sobre las de cada uno. -->
   <link rel="stylesheet" href="core/responsive.css">
@@ -782,22 +783,6 @@
         </div>
       </div>
 
-      <!-- ── VIDEO CORPORATIVO ──
-           El formulario lo construye portal.js (que es quien sabe traducir una
-           URL a una fuente reproducible) dentro de #saVideoForm. Toca los tres
-           textos de la sección (etiqueta, título y subtítulo) además de la URL:
-           todo eso vive en config/portal y se aplica sin desplegar. -->
-      <div class="sa-card">
-        <div class="sa-card-head">
-          <span class="icon-chip sm gold">🎬</span>
-          <div>
-            <h3>Video Corporativo</h3>
-            <p>Se publica en la portada pública, justo debajo del bloque principal. Sin cuenta y sin registro previo: los textos y la URL se guardan en Firestore y la sección aparece en cuanto se guarda. Un campo de texto vacío vuelve al valor de <code>public/data/content.json</code>.</p>
-          </div>
-        </div>
-        <div class="sa-card-body" id="saVideoForm"></div>
-      </div>
-
       <div class="sa-card">
         <div class="sa-card-head">
           <span class="icon-chip sm green">💬</span>
@@ -807,24 +792,6 @@
           </div>
         </div>
         <div class="sa-card-body" id="saWhatsappForm"></div>
-      </div>
-
-      <!-- Vista previa: lo que está viendo ahora mismo cualquier visitante.
-           Se reutiliza el mismo reproductor y la misma resolución de textos que
-           la portada, así que lo que se ve aquí es exactamente lo que se verá en
-           producción. -->
-      <div class="sa-card">
-        <div class="sa-card-head">
-          <span class="icon-chip sm blue">👁️</span>
-          <div>
-            <h3>Vista previa en la portada</h3>
-            <p>Así se ve la sección en la landing: encabezado y reproductor, con lo que tengas escrito en el formulario o con lo último guardado.</p>
-          </div>
-        </div>
-        <div class="sa-card-body">
-          <div class="sa-preview" id="saVideoPreview"></div>
-          <p class="sa-preview-note" id="saVideoPreviewNote"></p>
-        </div>
       </div>
 
       <!-- Estado real de la conexión: deja claro de dónde salen los datos y
@@ -847,7 +814,7 @@
             </table>
           </div>
           <div class="sa-legend">
-            <p><strong>Por qué la columna de lectura es tan amplia:</strong> la portada muestra el video a quien aún no tiene cuenta, así que <code>config/portal</code> se lee con la regla <code>esPublico()</code>. Por eso ese documento solo puede contener campos visibles en pantalla; la trazabilidad de quién lo editó va aparte, en <code>superadmin_auditoria</code>, que es de solo super admin.</p>
+            <p><strong>Por qué la columna de lectura es tan amplia:</strong> la portada muestra sus textos a quien aún no tiene cuenta, así que <code>config/portal</code> se lee con la regla <code>esPublico()</code>. Por eso ese documento solo puede contener campos visibles en pantalla; la trazabilidad de quién lo editó va aparte, en <code>superadmin_auditoria</code>, que es de solo super admin.</p>
           </div>
         </div>
       </div>
@@ -966,25 +933,7 @@
         </div>
       </section>
 
-      <!-- ═══ VIDEO CORPORATIVO (público · URL y textos desde Firestore) ═══ -->
-      <!-- Justo debajo del bloque principal. Oculta por defecto: solo se
-           muestra cuando el superadmin publica una URL en config/portal.
-           Los tres textos de arriba (etiqueta, título, subtítulo) también
-           salen de config/portal; si no están, se usa data/content.json. -->
-      <section class="portal-section portal-video" id="portalVideo" style="display:none;">
-        <div class="portal-section-head">
-          <span class="portal-eyebrow" id="videoEyebrow"></span>
-          <h2 id="videoTitle"></h2>
-          <p id="videoSubtitle"></p>
-        </div>
-        <div class="portal-video-card">
-          <div class="portal-video-frame" id="portalVideoFrame"></div>
-          <p class="portal-video-error" id="portalVideoError" style="display:none;"></p>
-          <a class="portal-video-open" id="portalVideoOpen" href="#" target="_blank" rel="noopener noreferrer" style="display:none;">Abrir el video en otra pestaña ↗</a>
-        </div>
-      </section>
-
-      <!-- ═══ PODCASTS (ficha de acceso directo · bajo el video) ═══ -->
+      <!-- ═══ PODCASTS (ficha de acceso directo) ═══ -->
       <!-- Atajo de la portada al módulo de audio: un clic lleva a la sección de
            podcasts, sin pasar por el Escritorio. El catálogo se lee sin sesión
            (ver firestore.rules → podcast_colecciones), así que el visitante
@@ -1468,11 +1417,12 @@
   <!-- EmailJS (envío de correos desde el frontend) -->
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <!-- Core -->
-<script src="core/multimedia.js"></script>
 <script src="core/richtext.js"></script>
 <script src="core/mantenimiento.js"></script>
 <script src="core/responsive.js"></script>
 <script src="core/app.js"></script>
+  <script src="core/images.js?v=20261028-8"></script>
+  <script src="core/video.js?v=20261028-10"></script>
   <script src="core/formulario.js"></script>
   <!-- Módulos -->
   <script src="modules/mlm/mlm.js"></script>
@@ -1483,10 +1433,11 @@
   <script src="modules/comunidades/comunidades.js"></script>
   <script src="modules/finanzas/finanzas.js"></script>
   <!-- Portal público -->
-  <script src="modules/portal/portal.js?v=20261026-4"></script>
+  <script src="modules/portal/portal.js?v=20261028-10"></script>
   <script src="modules/podcasts/podcasts.js"></script>
   <script src="modules/tienda/tienda.js"></script>
-<script src="modules/superadmin/superadmin.js"></script>
-<script src="modules/settings/settings.js?v=20261026-3"></script>
+<script src="modules/superadmin/superadmin.js?v=20261028-7"></script>
+  <script src="modules/settings/fichas-video.js?v=20261028-10"></script>
+  <script src="modules/settings/settings.js?v=20261028-10"></script>
 </body>
 </html>

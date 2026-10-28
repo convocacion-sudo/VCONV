@@ -1612,8 +1612,8 @@
     var tabsRed = $('redMlmTabs');
     if (tabsRed) tabsRed.style.display = (isAdmin && puedeVerRedCoordinador()) ? '' : 'none';
     // Panel del Super Admin: reúne los ajustes que solo el superadmin puede
-    // tocar (hoy, el video corporativo de la portada). Se oculta por rol, y
-    // además showView lo vuelve a denegar a quien llegue por otra ruta.
+    // tocar (hoy, el número de WhatsApp). Se oculta por rol, y además
+    // showView lo vuelve a denegar a quien llegue por otra ruta.
     var linkSuperadmin = $('sidebarLinkSuperadmin');
     if (linkSuperadmin) linkSuperadmin.style.display = isAdmin ? '' : 'none';
     // El avanzado no administra cursos: se oculta el botón de modo Gestor y

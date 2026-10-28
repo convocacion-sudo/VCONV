@@ -1,8 +1,7 @@
 /* ════════════════════════════════════════════════════════════════
    VCONV · Panel del Super Admin
    Contenedor de los ajustes que solo el super administrador puede
-   cambiar. Hoy, el video corporativo de la portada y los tres textos
-   de su sección, y el número de WhatsApp del widget flotante.
+   cambiar. Hoy, el número de WhatsApp del widget flotante.
 
    Este archivo NO protege nada por sí mismo: la frontera real está en
    firestore.rules (config/portal y superadmin_auditoria solo admiten
@@ -33,7 +32,7 @@
   // eso los textos dicen "regla" y no "permiso": lo que se afirma aquí es lo
   // que el archivo de reglas concede.
   var CONFIG_DOCS = {
-    portal: { label: 'Video corporativo y sus textos', lectura: 'Público (esPublico())' },
+    portal: { label: 'Textos de la portada', lectura: 'Público (esPublico())' },
     mlm: { label: 'Porcentajes MLM', lectura: 'Sesión iniciada' },
     finanzas: { label: 'Ajustes financieros', lectura: 'Sesión iniciada' },
     ubicacion: { label: 'Ubicaciones (departamentos, ciudades, barrios)', lectura: 'Sesión iniciada' },
@@ -104,8 +103,7 @@
           configCache.push({ id: d.id, data: d.data() });
         });
         // Documentos conocidos que todavía no existen se listan igual, con
-        // "Sin crear": es justo el caso que el superadmin quiere ver (la
-        // diferencia entre "no hay video" y "hay un video que no se ve").
+        // "Sin crear": es justo el caso que el superadmin quiere ver.
         Object.keys(CONFIG_DOCS).forEach(function (id) {
           if (!seen[id]) configCache.push({ id: id, data: null });
         });
@@ -169,8 +167,7 @@
   function estadoDe(id, data) {
     if (!data) return ['Sin crear', 'sa-pill-none'];
     if (id === 'portal') {
-      if (!data.videoUrl) return ['Sin video', 'sa-pill-none'];
-      if (data.videoActivo === false) return ['Guardado, sin publicar', 'sa-pill-off'];
+      if (!data.copy) return ['Sin textos', 'sa-pill-none'];
       return ['Publicado en la portada', 'sa-pill-on'];
     }
     if (id === WHATSAPP_DOC) {
@@ -269,14 +266,14 @@
       var vacio = el('div', 'sa-log-empty');
       vacio.appendChild(el('span', 'sa-log-empty-ico', '🧾'));
       vacio.appendChild(el('p', '', 'Todavía no hay cambios registrados.'));
-      vacio.appendChild(el('p', '', 'En cuanto guardes el video, sus textos o el número de WhatsApp, aparecerá aquí.'));
+      vacio.appendChild(el('p', '', 'En cuanto guardes el número de WhatsApp, aparecerá aquí.'));
       host.appendChild(vacio);
       return;
     }
 
     auditCache.forEach(function (a) {
       var item = el('div', 'sa-log-item');
-      item.appendChild(el('span', 'sa-log-ico', a.activo === false ? '⏸️' : (a.accion === 'WhatsApp de soporte' ? '💬' : '🎬')));
+      item.appendChild(el('span', 'sa-log-ico', a.accion === 'WhatsApp de soporte' ? '💬' : '🔧'));
 
       var body = el('div', 'sa-log-body');
       body.appendChild(el('div', 'sa-log-title', (a.accion || 'Ajuste') + ' · ' + (a.resumen || '')));
@@ -357,8 +354,8 @@
   }
 
   function saveWhatsAppConfig(btn) {
-    // Mismo aviso que el video: la frontera de verdad es firestore.rules
-    // (config/* solo admite escritura de isAdmin()); esto evita el intento.
+    // La frontera de verdad es firestore.rules (config/* solo admite
+    // escritura de isAdmin()); esto evita el intento.
     if (!V.esAdmin()) {
       V.toast('Solo el superadmin puede cambiar el número de WhatsApp.', true);
       return;
@@ -403,9 +400,9 @@
       });
   }
 
-  // Bitácora del cambio. Fire-and-forget: como en el video, un fallo aquí no
-  // invalida el guardado (son dos escrituras independientes), así que nunca
-  // se propaga ni se muestra como error.
+  // Bitácora del cambio. Fire-and-forget: un fallo aquí no invalida el
+  // guardado (son dos escrituras independientes), así que nunca se propaga
+  // ni se muestra como error.
   function registrarCambioWhatsApp(anterior, nuevo) {
     try {
       if (!V.db || !V.esAdmin()) return;
@@ -446,14 +443,6 @@
     if (pill) pill.textContent = (user && user.email) ? 'Super Admin · ' + user.email : 'Super Admin';
 
     openSubscriptions();
-    // El formulario y la vista previa los dibuja portal.js: es quien sabe
-    // traducir una URL a una fuente reproducible y quien comparte
-    // buildVideoFrame() y textosVideoDe() con la portada, de modo que la vista
-    // previa y lo que ve un visitante no pueden divergir.
-    if (V.portal) {
-      V.portal.renderAdminPortalConfig();
-      V.portal.renderAdminVideoPreview();
-    }
     renderStatus();
     renderLog();
     // El formulario de WhatsApp también: la instantánea de la colección lo
@@ -493,8 +482,7 @@
     } else {
       closeSubscriptions();
     }
-    // Pintado (o vaciado, si dejó de ser superadmin) del campo de WhatsApp:
-    // se llama siempre, igual que hace portal.js con el formulario del video.
+    // Pintado (o vaciado, si dejó de ser superadmin) del campo de WhatsApp.
     renderWhatsAppForm();
   };
 

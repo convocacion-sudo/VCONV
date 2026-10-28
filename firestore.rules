@@ -708,8 +708,8 @@ service cloud.firestore {
 
     /* ── FICHAS DEL HOME ───────────────────────────────────────
        Colección propia del módulo de Configuración: las fichas que el
-       superadmin crea para la portada (título, texto enriquecido, medio
-       —imagen o vídeo—, orden y estado de publicación).
+       superadmin crea para la portada (título, texto enriquecido, imagen,
+       plataforma y enlace del vídeo, orden y estado de publicación).
 
        LECTURA: el contenido PUBLICO se lee sin cuenta (esPublico()), igual
        que el catálogo publicado de la tienda o los podcasts: lo que se
@@ -732,7 +732,7 @@ service cloud.firestore {
        fichas NO existirían para nadie.
 
        CONTRATO: solo puede vivir aquí lo que ya se pinta en la landing
-       (texto, medio y orden). NO se guarda el UID de quien lo editó: este
+       (texto, imagen, vídeo y orden). NO se guarda el UID de quien lo editó: este
        documento es legible por cualquiera y eso convertiría la escritura
        del superadmin en una filtración. La trazabilidad va en
        superadmin_auditoria. */
@@ -762,16 +762,16 @@ service cloud.firestore {
       allow write: if esConfigGlobal();
     }
 
-    /* ── CONFIG PORTAL (ajustes de la landing pública) ───────
-       Ajustes que la portada muestra SIN sesión: el video corporativo y los
-       TRES TEXTOS de su sección (videoEtiqueta, videoTituloSeccion,
-       videoSubtituloSeccion). Su lectura se abre a esPublico() (como el
-       catálogo publicado y las lecciones de prueba) porque, si no, la sección
-       quedaría vacía para todo visitante que no tenga cuenta.
+    /* ── CONFIG PORTAL (textos de la landing pública) ────────
+       Ajustes que la portada muestra SIN sesión: los textos de su sección
+       (copy) y el interruptor de mantenimiento. Su lectura se abre a
+       esPublico() (como el catálogo publicado y las lecciones de prueba)
+       porque, si no, la sección quedaría vacía para todo visitante que no
+       tenga cuenta.
 
        La ESCRITURA NO se relaja en absoluto: sigue siendo exclusiva del
        superadmin (esConfigGlobal()), igual que el resto de config y que el
-       comodín /config/{id} de arriba. Cualquier intento de(student,
+       comodín /config/{id} de arriba. Cualquier intento de (student,
        gestor, avanzado, visitante) se deniega en el servidor, aunque se
        manipule el cliente; la comprobación del rol vive en el documento
        usuarios/{uid}.rol, no en nada que envíe el navegador.
@@ -783,14 +783,14 @@ service cloud.firestore {
        superadmin-only.
 
        CONTRATO DE ESTE DOCUMENTO: es PÚBLICO, luego aquí dentro solo puede
-       vivir lo que un visitante sin cuenta ya puede ver en pantalla (la URL,
-       el tipo de fuente, el interruptor de publicación, la fecha del último
-       cambio y los tres textos de la sección). Los textos van como TEXTO
-       PLANO y el cliente los pinta con textContent, nunca como HTML: un
-       campo que admitiera marcado sería Injection en la landing. En concreto
-       NO se guarda aquí el UID de quien lo editó: sería legible por cualquiera,
-       incluidos los visitantes anónimos, y bastaría para identificar la cuenta
-       del superadmin. Esa trazabilidad va en superadmin_auditoria, de abajo. */
+       vivir lo que un visitante sin cuenta ya puede ver en pantalla (los
+       textos en claro y el estado de mantenimiento). Los textos van como
+       TEXTO PLANO y el cliente los pinta con textContent, nunca como HTML:
+       un campo que admitiera marcado sería Injection en la landing. En
+       concreto NO se guarda aquí el UID de quien lo editó: sería legible
+       por cualquiera, incluidos los visitantes anónimos, y bastaría para
+       identificar la cuenta del superadmin. Esa trazabilidad va en
+       superadmin_auditoria, de abajo. */
     match /config/portal {
       allow read: if esPublico() || signedIn();
       allow write: if esConfigGlobal();
@@ -843,8 +843,8 @@ service cloud.firestore {
     }
 
     /* ── AUDITORÍA DEL SUPER ADMIN ────────────────────────────
-       Bitácora de los cambios que solo el superadmin puede hacer (hoy, el
-       video corporativo de la portada y el número de WhatsApp de soporte).
+       Bitácora de los cambios que solo el superadmin puede hacer (hoy, los
+       textos de la portada y el número de WhatsApp de soporte).
        Vive FUERA de `config` a propósito:
        cada bloque de config/{id} abre la lectura a cualquier sesión, y en
        config/portal incluso a visitantes sin cuenta, así que un registro de

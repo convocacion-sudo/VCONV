@@ -780,8 +780,7 @@
   /* ─── PANEL DE GESTIÓN ───────────────────────────────────────
      Se construye con el() en vez de vivir en index.html: el módulo
      ocupa un hueco en el HTML y todo el formulario está en un único
-     sitio, igual que el del video corporativo en el panel del super
-     admin. */
+     sitio, igual que el del panel del super admin. */
   function campo(rotulo, control, hint, full) {
     var wrap = el('div', 'field' + (full ? ' field-full' : ''));
     var l = el('label', '', rotulo);

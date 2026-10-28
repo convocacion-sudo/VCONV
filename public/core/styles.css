@@ -456,6 +456,7 @@ html[data-theme="light"] .wa-chat-input:focus {
 .field { margin-bottom: 1rem; }
 .field label { display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.35rem; }
 .field-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.45rem; }
+.field-hint.is-warn { color: var(--danger); }
 .input, .textarea {
   width: 100%; padding: 0.7rem 0.9rem; border-radius: var(--radius); border: 1px solid var(--border);
   background: var(--bg-primary); color: var(--text-primary); font-size: 0.9rem; font-family: inherit;

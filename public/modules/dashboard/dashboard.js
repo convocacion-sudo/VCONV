@@ -172,7 +172,7 @@
       // Panel de ajustes reservados al superadmin. La tarjeta solo aparece
       // para este rol y showSuperadmin() vuelve a comprobarlo, pero el
       // candazo real está en firestore.rules.
-      cards.push({ icon: '🛡️', title: 'Panel Super Admin', tag: 'Exclusivo', desc: 'Video corporativo de la portada y ajustes protegidos.', action: function () { if (V.showSuperadmin) V.showSuperadmin(); } });
+      cards.push({ icon: '🛡️', title: 'Panel Super Admin', tag: 'Exclusivo', desc: 'Ajustes protegidos de la plataforma.', action: function () { if (V.showSuperadmin) V.showSuperadmin(); } });
     }
 
     // RED MLM (vista unificada): una sola tarjeta para las dos caras de la

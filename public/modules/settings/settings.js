@@ -340,7 +340,7 @@
       container.innerHTML = '';
       var notice = el('div', 'set-notice');
       notice.appendChild(el('span', 'set-notice-ico', 'ℹ️'));
-      notice.appendChild(notaHTML('Estos textos se guardan en <code>config/portal.copy</code> y pasan a ser la fuente de la portada: <code>public/data/content.json</code> queda solo como semilla inicial. La sección de video se edita en el Panel del Super Admin.'));
+      notice.appendChild(notaHTML('Estos textos se guardan en <code>config/portal.copy</code> y pasan a ser la fuente de la portada: <code>public/data/content.json</code> queda solo como semilla inicial.'));
       container.appendChild(notice);
 
       var controles = [];
@@ -466,11 +466,11 @@
   }
 
   /* ─── PESTAÑA · FICHAS DEL HOME ─────────────────────────────── */
-  /* Las fichas son las tarjetas de la portada. Cada una puede llevar un
-     texto enriquecido y un medio (imagen o vídeo), y se publica o se deja
-     en borrador. Viven en la colección `fichas` (un documento por ficha)
-     y no en el copy de la portada: así se pueden ordenar, publicar y
-     borrar sin tocar los textos de las secciones. */
+  /* Las fichas son las tarjetas de la portada. Cada una lleva un texto
+     enriquecido y se publica o se deja en borrador. Viven en la colección
+     `fichas` (un documento por ficha) y no en el copy de la portada: así
+     se pueden ordenar, publicar y borrar sin tocar los textos de las
+     secciones. */
   var COL_FICHAS = 'fichas';
 
   function ordenarFichas(a, b) {
@@ -480,6 +480,125 @@
     if (!isFinite(ob)) ob = 9999;
     if (oa !== ob) return oa - ob;
     return String(a.titulo || '').localeCompare(String(b.titulo || ''));
+  }
+
+  function normalizarImagen(raw) {
+    if (!raw || !V.imagenes || typeof V.imagenes.urlSegura !== 'function') return '';
+    return V.imagenes.urlSegura(String(raw));
+  }
+
+  function imagenDeFicha(ficha) {
+    return normalizarImagen(ficha && ficha.imagen);
+  }
+
+  function normalizarVideoPlataforma(raw) {
+    if (!V.fichasVideo || typeof V.fichasVideo.normalizarPlataforma !== 'function') return '';
+    return V.fichasVideo.normalizarPlataforma(raw);
+  }
+
+  function normalizarVideo(plataforma, raw) {
+    if (!V.fichasVideo || typeof V.fichasVideo.normalizar !== 'function') return '';
+    return V.fichasVideo.normalizar(plataforma, raw);
+  }
+
+  function plataformaVideoDeFicha(ficha) {
+    return normalizarVideoPlataforma(ficha && ficha.videoPlataforma);
+  }
+
+  function videoDeFicha(ficha) {
+    return normalizarVideo(plataformaVideoDeFicha(ficha), ficha && ficha.video);
+  }
+
+  /* Bloque de imagen del editor de fichas. Es intencionadamente uno solo:
+     una entrada de URL y, debajo, las imágenes que ya usan otras fichas.
+     Sin pestañas, sin tipos de fuente y sin campos duplicados. */
+  function bloqueImagen(parent, valorActual, galeria) {
+    var block = el('div', 'set-image-block');
+
+    var head = el('div', 'set-image-head');
+    var titles = el('div', 'set-image-head-text');
+    titles.appendChild(el('h4', 'set-image-title', 'Imagen de la ficha'));
+    titles.appendChild(el('p', 'set-help', 'Opcional. Se muestra en la parte superior de la tarjeta.'));
+    head.appendChild(titles);
+    block.appendChild(head);
+
+    var body = el('div', 'set-image-body');
+    var preview = el('div', 'set-image-preview');
+    body.appendChild(preview);
+
+    var field = el('div', 'set-field');
+    field.appendChild(el('label', 'set-label', 'URL de la imagen'));
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'input';
+    input.value = valorActual || '';
+    input.placeholder = 'https://…/imagen.jpg';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    field.appendChild(input);
+    field.appendChild(el('p', 'set-help', 'Enlace http(s) o ruta del sitio. Formatos habituales: JPG, PNG, WebP, AVIF, GIF o SVG.'));
+    body.appendChild(field);
+    block.appendChild(body);
+
+    var btnQuitar = boton(head, '✕ Quitar', 'btn-outline btn-sm', function () {
+      input.value = '';
+      pintar();
+      input.focus();
+    });
+
+    if (galeria && galeria.length) {
+      var gallery = el('div', 'set-image-gallery');
+      gallery.appendChild(el('p', 'set-label', 'Imágenes ya usadas en otras fichas'));
+      var grid = el('div', 'set-image-gallery-grid');
+      galeria.forEach(function (url) {
+        var thumb = el('button', 'set-image-thumb');
+        thumb.type = 'button';
+        thumb.title = url;
+        var img = document.createElement('img');
+        img.src = url;
+        img.alt = '';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.addEventListener('error', function () { thumb.remove(); });
+        thumb.appendChild(img);
+        thumb.addEventListener('click', function () {
+          input.value = url;
+          pintar();
+        });
+        grid.appendChild(thumb);
+      });
+      gallery.appendChild(grid);
+      block.appendChild(gallery);
+    }
+
+    function pintar() {
+      var raw = String(input.value || '').trim();
+      var url = normalizarImagen(raw);
+      preview.className = 'set-image-preview';
+      preview.innerHTML = '';
+      btnQuitar.disabled = !raw;
+      if (!raw) {
+        preview.classList.add('is-empty');
+        preview.appendChild(el('span', 'set-image-empty', '🖼 Sin imagen seleccionada'));
+        return;
+      }
+      if (!url) {
+        preview.classList.add('is-error');
+        preview.appendChild(el('p', 'field-hint is-warn', 'Escribe un enlace de imagen válido (http/https).'));
+        return;
+      }
+      V.imagenes.montar(preview, url, {
+        alt: 'Vista previa de la imagen',
+        clase: 'set-image-preview-img'
+      });
+    }
+
+    input.addEventListener('input', pintar);
+    input.addEventListener('change', pintar);
+    pintar();
+    parent.appendChild(block);
+
+    return { input: input, pintar: pintar };
   }
 
   function leerFichas() {
@@ -499,74 +618,29 @@
     });
   }
 
-  function medioDe(ficha) {
-    // Dos formas de llegar al mismo medio: los campos planos que guarda
-    // Firestore (mediaTipo/mediaUrl/mediaFuente) y el objeto `medio` que
-    // también se persiste. Se priorizan los campos planos —igual que la
-    // portada— y se usa el objeto como respaldo para fichas antiguas.
-    if (!ficha) return { tipo: 'ninguna', url: '', fuente: 'auto' };
-    var urlPlano = String(ficha.mediaUrl || '');
-    var tipoPlano = String(ficha.mediaTipo || '');
-    if (urlPlano || (tipoPlano && tipoPlano !== 'ninguna')) {
-      return {
-        tipo: tipoPlano || 'ninguna',
-        url: urlPlano,
-        fuente: ficha.mediaFuente || 'auto'
-      };
-    }
-    if (ficha.medio) {
-      return {
-        tipo: ficha.medio.tipo || 'ninguna',
-        url: ficha.medio.url || '',
-        fuente: ficha.medio.fuente || 'auto'
-      };
-    }
-    return { tipo: 'ninguna', url: '', fuente: 'auto' };
-  }
-
   function guardarFicha(ficha) {
     if (!V.db) return Promise.reject(new Error('Firestore no disponible.'));
     var ref = V.db.collection(COL_FICHAS).doc(ficha.id);
-    var medio = medioDe(ficha);
-    var url = String(medio && medio.url || '').trim();
-    // Se conserva la URL completa (sin recortes ni límites de longitud) y,
-    // además de los campos planos que ya usa la portada, se persiste el
-    // objeto `medio` completo para que cualquier consumidor lo lea igual.
-    if (url) {
-      var fuente = String(medio.fuente || 'auto');
-      if (V.multimedia) {
-        var normalizado = V.multimedia.normalizarMedio({ tipo: medio.tipo, url: url, fuente: fuente });
-        if (normalizado.url) {
-          medio = normalizado;
-          if (medio.tipo !== 'video') medio.tipo = 'imagen';
-          url = normalizado.url;
-        } else {
-          // Si el clasificador no puede montar el medio, se guarda la URL
-          // segura tal cual para no perder el valor elegido por el usuario.
-          var segura = typeof V.multimedia.cleanUrl === 'function' ? V.multimedia.cleanUrl(url) : '';
-          medio = segura
-            ? { tipo: medio.tipo === 'video' ? 'video' : 'imagen', url: segura, fuente: fuente }
-            : { tipo: 'ninguna', url: '', fuente: 'auto' };
-        }
-      } else {
-        medio = { tipo: medio.tipo === 'video' ? 'video' : 'imagen', url: url, fuente: fuente };
-      }
-    } else {
-      medio = { tipo: 'ninguna', url: '', fuente: 'auto' };
-    }
 
     var ahora = new Date().toISOString();
+    var plataformaVideo = normalizarVideoPlataforma(ficha.videoPlataforma);
     var data = {
       titulo: String(ficha.titulo || '').trim(),
       subtitulo: String(ficha.subtitulo || '').trim(),
       icono: String(ficha.icono || '').trim(),
       texto: String(ficha.texto || ''),
-      mediaTipo: medio.tipo,
-      mediaUrl: medio.url,
-      mediaFuente: medio.fuente,
-      medio: { tipo: medio.tipo, url: medio.url, fuente: medio.fuente },
+      imagen: normalizarImagen(ficha.imagen),
+      video: normalizarVideo(plataformaVideo, ficha.video),
+      videoPlataforma: plataformaVideo,
       publicado: !!ficha.publicado,
       orden: Number(ficha.orden) || 0,
+      tamanio: ficha.tamanio || ficha.tamano || 'mediana',
+      tamano: ficha.tamano || ficha.tamanio || 'mediana',
+      posicion: ficha.posicion || ficha.ubicacion || '',
+      ubicacion: ficha.ubicacion || ficha.posicion || '',
+      prioridadEncima: ficha.prioridadEncima === true || ficha.encimaEstaticas === true || ficha.prioridad === true,
+      encimaEstaticas: ficha.encimaEstaticas === true || ficha.prioridadEncima === true || ficha.prioridad === true,
+      prioridad: ficha.prioridad === true || ficha.prioridadEncima === true,
       actualizado: ahora
     };
     if (!ficha.creado) data.creado = ahora;
@@ -581,174 +655,6 @@
     return V.db.collection(COL_FICHAS).doc(id).delete();
   }
 
-  /* ─── SELECTOR MULTIMEDIA ──────────────────────────────────────
-     Elige una imagen o un vídeo. Sigue el patrón del módulo de Tiendas
-     (una URL validada + el tipo de fuente) y usa el clasificador de
-     core/multimedia.js, que es el MISMO que usa la portada para el
-     vídeo corporativo: lo que se ve aquí es lo que se verá allí. */
-  function abrirSelectorMedio(opciones, alElegir) {
-    opciones = opciones || {};
-    var actual = opciones.actual || { tipo: 'ninguna', url: '', fuente: 'auto' };
-    var galeria = opciones.galeria || [];
-
-    var overlay = el('div', 'set-modal-overlay');
-    var card = el('div', 'set-modal');
-
-    var head = el('div', 'set-modal-head');
-    head.appendChild(el('h3', '', '🖼️ Selector de medios'));
-    var cerrar = el('button', 'set-modal-x', '✕');
-    cerrar.type = 'button';
-    cerrar.title = 'Cerrar';
-    cerrar.addEventListener('click', function () { overlay.remove(); });
-    head.appendChild(cerrar);
-    card.appendChild(head);
-
-    var cuerpo = el('div', 'set-modal-body');
-    card.appendChild(cuerpo);
-
-    // Pestañas: imagen o vídeo.
-    var tipoSel = el('div', 'set-tabs-mini');
-    var btnImg = el('button', 'set-tab-mini', '🖼️ Imagen');
-    var btnVid = el('button', 'set-tab-mini', '🎬 Vídeo');
-    btnImg.type = 'button';
-    btnVid.type = 'button';
-    tipoSel.appendChild(btnImg);
-    tipoSel.appendChild(btnVid);
-    cuerpo.appendChild(tipoSel);
-
-    var fieldUrl = el('div', 'set-field full');
-    fieldUrl.appendChild(el('label', 'set-label', 'URL del medio'));
-    var inUrl = document.createElement('input');
-    inUrl.type = 'url';
-    inUrl.className = 'input';
-    inUrl.placeholder = 'https://…';
-    fieldUrl.appendChild(inUrl);
-    cuerpo.appendChild(fieldUrl);
-
-    var fieldFuente = el('div', 'set-field full');
-    fieldFuente.appendChild(el('label', 'set-label', 'Tipo de fuente (vídeo)'));
-    var selFuente = document.createElement('select');
-    selFuente.className = 'select';
-    (V.multimedia ? V.multimedia.TIPOS_VIDEO : [['auto', 'Detectar automáticamente']]).forEach(function (t) {
-      var o = document.createElement('option');
-      o.value = t[0];
-      o.textContent = t[1];
-      selFuente.appendChild(o);
-    });
-    fieldFuente.appendChild(selFuente);
-    var ayudaFuente = el('p', 'set-help', 'YouTube, Google Drive y Vimeo se reescriben a su forma de incrustación; el resto se reproduce tal cual.');
-    fieldFuente.appendChild(ayudaFuente);
-    cuerpo.appendChild(fieldFuente);
-
-    var preview = el('div', 'set-media-preview');
-    cuerpo.appendChild(preview);
-
-    // Galería: los medios que ya usan las otras fichas.
-    if (galeria.length) {
-      var boxGal = el('div', 'set-field full');
-      boxGal.appendChild(el('label', 'set-label', 'Medios ya usados en las fichas'));
-      var gal = el('div', 'set-galeria');
-      galeria.forEach(function (m) {
-        var b = el('button', 'set-gal-item');
-        b.type = 'button';
-        b.title = m.url;
-        if (m.tipo === 'imagen') {
-          var img = document.createElement('img');
-          img.src = m.url;
-          img.alt = '';
-          img.loading = 'lazy';
-          img.decoding = 'async';
-          b.appendChild(img);
-        } else {
-          b.appendChild(el('span', 'set-gal-ico', '🎬'));
-        }
-        b.addEventListener('click', function () {
-          inUrl.value = m.url;
-          if (m.tipo === 'imagen') setTipo('imagen'); else setTipo('video');
-          refrescar();
-        });
-        gal.appendChild(b);
-      });
-      boxGal.appendChild(gal);
-      cuerpo.appendChild(boxGal);
-    }
-
-    var pie = el('div', 'set-modal-foot');
-    var btnCancelar = el('button', 'btn btn-outline', 'Cancelar');
-    btnCancelar.type = 'button';
-    btnCancelar.addEventListener('click', function () { overlay.remove(); });
-    var btnUsar = el('button', 'btn btn-primary', 'Usar este medio');
-    btnUsar.type = 'button';
-    btnUsar.addEventListener('click', function () {
-      // Se lee el valor completo del input en el momento del clic. No se
-      // recorta ni se limita la longitud: las URLs de CDN con parámetros y
-      // tokens largos deben viajar íntegras al editor y a Firestore.
-      var url = String(inUrl.value || '').trim();
-      var medio = { tipo: tipoActual, url: url, fuente: selFuente.value };
-      if (V.multimedia) {
-        try {
-          medio = V.multimedia.normalizarMedio(medio);
-        } catch (e) {
-          // Un fallo del clasificador no debe bloquear el botón: el editor
-          // recibe igualmente el medio para poder guardar la ficha.
-          if (window.console && console.error) console.error('[settings] no se pudo normalizar el medio:', e);
-          medio = { tipo: tipoActual, url: url, fuente: selFuente.value };
-        }
-      }
-      overlay.remove();
-      try {
-        alElegir(medio);
-      } catch (e) {
-        if (window.console && console.error) console.error('[settings] no se pudo aplicar el medio:', e);
-        toast('No se pudo aplicar el medio seleccionado.', true);
-      }
-    });
-    pie.appendChild(btnCancelar);
-    pie.appendChild(btnUsar);
-    card.appendChild(pie);
-
-    var tipoActual = actual.tipo === 'imagen' || actual.tipo === 'video' ? actual.tipo : 'imagen';
-
-    function setTipo(t) {
-      tipoActual = t;
-      btnImg.classList.toggle('is-active', t === 'imagen');
-      btnVid.classList.toggle('is-active', t === 'video');
-      fieldFuente.style.display = t === 'video' ? '' : 'none';
-      inUrl.placeholder = t === 'imagen'
-        ? 'https://…/foto.jpg'
-        : 'https://www.youtube.com/watch?v=… · https://…/video.mp4';
-      refrescar();
-    }
-
-    function refrescar() {
-      var url = String(inUrl.value || '').trim();
-      if (!url) {
-        preview.innerHTML = '';
-        preview.appendChild(el('p', 'set-help', 'Sin URL no hay medio que mostrar.'));
-        return;
-      }
-      if (V.multimedia) {
-        V.multimedia.montarMedio(preview, { tipo: tipoActual, url: url, fuente: selFuente.value }, { clase: 'set-media-img' });
-      } else {
-        preview.textContent = url;
-      }
-    }
-
-    btnImg.addEventListener('click', function () { setTipo('imagen'); });
-    btnVid.addEventListener('click', function () { setTipo('video'); });
-    inUrl.addEventListener('input', refrescar);
-    selFuente.addEventListener('change', refrescar);
-
-    inUrl.value = actual.url || '';
-    selFuente.value = actual.fuente || 'auto';
-    setTipo(tipoActual);
-
-    overlay.appendChild(card);
-    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.remove(); });
-    document.body.appendChild(overlay);
-    inUrl.focus();
-  }
-
   function renderFichas(container) {
     container.appendChild(el('p', 'set-loading', 'Cargando las fichas…'));
     leerFichas().then(function (fichas) {
@@ -756,7 +662,7 @@
 
       var notice = el('div', 'set-notice');
       notice.appendChild(el('span', 'set-notice-ico', '🗂️'));
-      notice.appendChild(notaHTML('Las fichas se guardan en la colección <code>fichas</code> y aparecen en la portada. Solo se muestran las <strong>publicadas</strong>: las borradores se pueden dejar a medias sin que el visitante las vea. El texto admite formato (negrita, cursiva, color y tamaño) y cada ficha puede llevar una imagen o un vídeo.'));
+      notice.appendChild(notaHTML('Las fichas se guardan en la colección <code>fichas</code> y aparecen en la portada. Solo se muestran las <strong>publicadas</strong>: las borradores se pueden dejar a medias sin que el visitante las vea. El texto admite formato (negrita, cursiva, color y tamaño); cada ficha puede llevar una imagen y un vídeo opcionales.'));
       container.appendChild(notice);
 
       var sel = fichas.length ? 0 : -1;
@@ -800,7 +706,8 @@
           head.appendChild(acc);
           item.appendChild(head);
           var sub = el('p', 'set-item-sub');
-          sub.textContent = (f.publicado ? '🟢 Publicado' : '⚪ Borrador') + ' · orden ' + (Number(f.orden) || 0);
+          sub.textContent = (f.publicado ? '🟢 Publicado' : '⚪ Borrador') + ' · orden ' + (Number(f.orden) || 0) + (imagenDeFicha(f) ? ' · 🖼 Imagen' : '');
+          if (videoDeFicha(f)) sub.textContent += ' · 🎬 Vídeo';
           item.appendChild(sub);
           lista.appendChild(item);
         });
@@ -820,101 +727,195 @@
         var grid = el('div', 'set-grid');
         refs.titulo = campo(grid, 'Título', f ? f.titulo : '', { placeholder: 'Crecimiento personal y espiritual' });
         refs.subtitulo = campo(grid, 'Subtítulo', f ? f.subtitulo : '', { placeholder: 'Una frase corta' });
-        refs.icono = campo(grid, 'Icono (emoji)', f ? f.icono : '✦', { placeholder: '🌱' });
+        var iconoWrap = el('div', 'set-field');
+        iconoWrap.appendChild(el('label', 'set-label', 'Icono (emoji)'));
+        refs.icono = document.createElement('input');
+        refs.icono.type = 'text';
+        refs.icono.className = 'input';
+        refs.icono.value = f && f.icono ? String(f.icono) : '✦';
+        refs.icono.placeholder = '🌱';
+        refs.icono.setAttribute('autocomplete', 'off');
+        refs.icono.setAttribute('spellcheck', 'false');
+        refs.icono.style.fontSize = '1.1rem';
+        iconoWrap.appendChild(refs.icono);
+        iconoWrap.appendChild(el('p', 'set-help', 'Escribe o pega cualquier emoji/símbolo. Se guarda tal cual.'));
+        grid.appendChild(iconoWrap);
         editor.appendChild(grid);
 
         // Texto enriquecido
         editor.appendChild(el('h4', 'set-subhead', 'Texto de la ficha'));
         var hostTexto = el('div', 'set-field full');
+        hostTexto.appendChild(el('label', 'set-label', 'Texto de la ficha'));
         editor.appendChild(hostTexto);
         var rt = null;
+        // Usar editor enriquecido con barra completa
         if (V.richtext && typeof V.richtext.crear === 'function') {
           rt = V.richtext.crear(hostTexto, { placeholder: 'Escribe el texto de la ficha…' });
-          if (f && f.texto) rt.setHtml(f.texto);
+          if (f && f.texto) {
+            try { rt.setHtml(f.texto); } catch (e) { if (rt.editor) rt.editor.innerHTML = f.texto; }
+          }
         } else {
-          var ta = document.createElement('textarea');
-          ta.className = 'input set-textarea';
-          ta.rows = 5;
-          ta.value = f && f.texto ? String(f.texto).replace(/<[^>]*>/g, '') : '';
-          hostTexto.appendChild(ta);
-          rt = { getHtml: function () { return ta.value; } };
-        }
-
-        // Medio
-        editor.appendChild(el('h4', 'set-subhead', 'Medio asociado'));
-        var medioActual = f ? medioDe(f) : { tipo: 'ninguna', url: '', fuente: 'auto' };
-        var filaMedio = el('div', 'set-row');
-        var infoMedio = el('div', 'set-row-title');
-        filaMedio.appendChild(infoMedio);
-        var accMedio = el('div', 'set-item-acc');
-
-        // Asigna el medio al estado del editor Y a la ficha activa. Así el
-        // valor queda disponible de inmediato para la vista previa y para el
-        // guardado, incluso si el editor se volviera a pintar. No se limita
-        // la longitud de la URL: los enlaces CDN firmados deben conservarse
-        // completos hasta Firestore.
-        function aplicarMedio(nuevo) {
-          var m = {
-            tipo: nuevo && nuevo.tipo === 'imagen' ? 'imagen' : (nuevo && nuevo.tipo === 'video' ? 'video' : 'ninguna'),
-            url: String(nuevo && nuevo.url || ''),
-            fuente: String(nuevo && nuevo.fuente || 'auto')
-          };
-          medioActual = m;
-          if (f) {
-            f.medio = m;
-            f.mediaTipo = m.tipo;
-            f.mediaUrl = m.url;
-            f.mediaFuente = m.fuente;
+          // Editor completo con contenteditable
+          var bar = el('div', 'rt-bar');
+          function btn(label, fn, title) {
+            var b = el('button', 'rt-btn', label);
+            b.type = 'button';
+            if (title) b.title = title;
+            b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+            b.addEventListener('click', function (e) {
+              e.preventDefault();
+              ed.focus();
+              try { fn(); } catch (ex) {}
+              ed.focus();
+            });
+            bar.appendChild(b);
+            return b;
           }
-          pintarPreview();
-        }
-
-        var btnCambiar = boton(accMedio, '🎨 Seleccionar medio', 'btn-outline btn-sm', function () {
-          var galeria = [];
-          fichas.forEach(function (otra) {
-            var m = medioDe(otra);
-            if (m.url && m.tipo !== 'ninguna' && galeria.every(function (g) { return g.url !== m.url; })) {
-              galeria.push({ tipo: m.tipo, url: m.url });
-            }
+          btn('B', function(){ document.execCommand('bold', false, null); }, 'Negrita');
+          btn('I', function(){ document.execCommand('italic', false, null); }, 'Cursiva');
+          btn('U', function(){ document.execCommand('underline', false, null); }, 'Subrayado');
+          btn('H3', function(){ document.execCommand('formatBlock', false, 'h3'); }, 'Encabezado H3');
+          btn('H4', function(){ document.execCommand('formatBlock', false, 'h4'); }, 'Encabezado H4');
+          btn('P', function(){ document.execCommand('formatBlock', false, 'p'); }, 'Párrafo');
+          btn('•', function(){ document.execCommand('insertUnorderedList', false, null); }, 'Viñetas');
+          btn('1.', function(){ document.execCommand('insertOrderedList', false, null); }, 'Numeración');
+          btn('Enlace', function(){
+            var url = prompt('URL del enlace:', 'https://');
+            if (url) document.execCommand('createLink', false, url);
+          }, 'Insertar enlace');
+          // color
+          var cwrap = el('span', 'rt-color');
+          var cbtn = el('button', 'rt-btn', 'Color');
+          cbtn.type = 'button';
+          var cp = el('input');
+          cp.type = 'color';
+          cp.style.width = '28px'; cp.style.height = '22px'; cp.style.border = 'none'; cp.style.background = 'transparent';
+          cp.value = '#111111';
+          cp.addEventListener('change', function(){
+            ed.focus();
+            document.execCommand('foreColor', false, cp.value);
+            ed.focus();
           });
-          abrirSelectorMedio({ actual: medioActual, galeria: galeria }, aplicarMedio);
-        });
-        var btnQuitar = boton(accMedio, '✕ Quitar', 'btn-outline btn-sm', function () {
-          aplicarMedio({ tipo: 'ninguna', url: '', fuente: 'auto' });
-        });
-        filaMedio.appendChild(accMedio);
-        editor.appendChild(filaMedio);
-        var preview = el('div', 'set-media-preview');
-        editor.appendChild(preview);
-        function pintarPreview() {
-          if (medioActual.tipo === 'ninguna' || !medioActual.url) {
-            infoMedio.textContent = 'Sin medio (solo texto).';
-            preview.innerHTML = '';
-            return;
-          }
-          infoMedio.textContent = (medioActual.tipo === 'imagen' ? 'Imagen' : 'Vídeo') + ' · ' + medioActual.url;
-          if (V.multimedia) V.multimedia.montarMedio(preview, medioActual, { clase: 'set-media-img' });
+          cwrap.appendChild(cbtn);
+          cwrap.appendChild(cp);
+          bar.appendChild(cwrap);
+          hostTexto.appendChild(bar);
+          var ed = el('div', 'rt-editor');
+          ed.contentEditable = 'true';
+          ed.setAttribute('role', 'textbox');
+          ed.setAttribute('aria-multiline', 'true');
+          ed.style.minHeight = '150px';
+          if (f && f.texto) ed.innerHTML = f.texto;
+          else ed.innerHTML = '<p></p>';
+          hostTexto.appendChild(ed);
+          rt = { getHtml: function () {
+            var div = document.createElement('div');
+            div.innerHTML = ed.innerHTML;
+            var allowed = ['B','STRONG','I','EM','U','S','P','BR','UL','OL','LI','A','SPAN','DIV','H1','H2','H3','H4','H5','H6','BLOCKQUOTE'];
+            function walk(n){
+              var kids = Array.from(n.childNodes);
+              kids.forEach(function(c){
+                if(c.nodeType===1){
+                  var t=c.tagName.toUpperCase();
+                  if(allowed.indexOf(t)===-1){ while(c.firstChild)n.insertBefore(c.firstChild,c); n.removeChild(c); return; }
+                  // limpiar atributos peligrosos
+                  Array.from(c.attributes).forEach(function(a){ var an=a.name.toLowerCase(); if(!(t==='A' && (an==='href'||an==='target'||an==='rel')) && !(t==='SPAN' && an==='style')) c.removeAttribute(a.name); });
+                  if(t==='A'){ c.setAttribute('target','_blank'); c.setAttribute('rel','noopener noreferrer'); }
+                  walk(c);
+                }
+              });
+            }
+            walk(div);
+            return div.innerHTML;
+          }, editor: ed };
         }
-        pintarPreview();
+
+        var imagenActual = imagenDeFicha(f);
+        var galeria = [];
+        fichas.forEach(function (otra) {
+          var url = imagenDeFicha(otra);
+          if (url && url !== imagenActual && galeria.indexOf(url) === -1) galeria.push(url);
+        });
+        refs.imagen = bloqueImagen(editor, imagenActual, galeria);
+
+        var plataformaVideoActual = plataformaVideoDeFicha(f);
+        var videoActual = f && typeof f.video === 'string' ? f.video : '';
+        var videosGaleria = [];
+        fichas.forEach(function (otra) {
+          var plataforma = plataformaVideoDeFicha(otra);
+          var url = otra && typeof otra.video === 'string' ? otra.video : '';
+          if (!plataforma || !url) return;
+          if (plataforma === plataformaVideoActual && url === videoActual) return;
+          var repetido = videosGaleria.some(function (item) {
+            return item.plataforma === plataforma && item.url === url;
+          });
+          if (!repetido) videosGaleria.push({ plataforma: plataforma, url: url });
+        });
+        if (V.fichasVideo) {
+          refs.video = V.fichasVideo.bloque(editor, {
+            plataforma: plataformaVideoActual,
+            url: videoActual
+          }, videosGaleria);
+        }
 
         var sw = interruptor(editor, 'Publicada (visible en la portada)', f ? f.publicado !== false : false);
         sw.checked = f ? f.publicado !== false : false;
 
-        var ordenInp = campo(editor, 'Orden', f ? (Number(f.orden) || 0) : (fichas.length ? (Number(fichas[fichas.length - 1].orden) || 0) + 1 : 0), { tipo: 'number', min: 0, step: 1 });
+        // Controles de tamaño y ubicación/orden
+        var gridControl = el('div', 'set-grid');
+        var tamSel = selector(gridControl, 'Tamaño de la ficha', f ? (f.tamano || f.tamanio || 'mediana') : 'mediana', [['pequena', 'Pequeña'], ['mediana', 'Mediana'], ['grande', 'Grande'], ['ancho', 'Ancho personalizado']]);
+        var ordenInp = campo(gridControl, 'Orden de visualización', f ? (Number(f.orden) || 0) : (fichas.length ? (Number(fichas[fichas.length - 1].orden) || 0) + 1 : 0), { tipo: 'number', min: 0, step: 1 });
+        editor.appendChild(gridControl);
+
+        var swPrioridad = interruptor(editor, 'Posicionar obligatoriamente por encima de la primera ficha estática', f ? (f.prioridadEncima === true || f.encimaEstaticas === true || f.prioridad === true) : false);
+        swPrioridad.checked = f ? (f.prioridadEncima === true || f.encimaEstaticas === true || f.prioridad === true) : false;
 
         var acciones = el('div', 'set-actions');
         var btnGuardar = el('button', 'btn btn-primary', nueva ? '➕ Crear ficha' : '💾 Guardar ficha');
         btnGuardar.type = 'button';
         btnGuardar.addEventListener('click', function () {
+          var imagenRaw = String(refs.imagen.input.value || '').trim();
+          var imagen = normalizarImagen(imagenRaw);
+          if (imagenRaw && !imagen) {
+            toast('La imagen necesita un enlace http(s) válido.', true);
+            refs.imagen.input.focus();
+            return;
+          }
+          var videoPlataformaRaw = refs.video ? String(refs.video.select.value || '').trim() : plataformaVideoActual;
+          var videoRaw = refs.video ? String(refs.video.input.value || '').trim() : videoActual;
+          var videoPlataforma = normalizarVideoPlataforma(videoPlataformaRaw);
+          var video = normalizarVideo(videoPlataforma, videoRaw);
+          if (videoRaw && !videoPlataforma) {
+            toast('Selecciona la plataforma del vídeo.', true);
+            if (refs.video) refs.video.select.focus();
+            return;
+          }
+          if (videoPlataforma && !videoRaw) {
+            toast('Pega el enlace o embed del vídeo.', true);
+            if (refs.video) refs.video.input.focus();
+            return;
+          }
+          if (videoPlataforma && videoRaw && !video) {
+            toast('El enlace no es válido para ' + V.video.etiqueta(videoPlataforma) + '.', true);
+            if (refs.video) refs.video.input.focus();
+            return;
+          }
           var datos = {
             id: f ? f.id : 'ficha_' + Date.now(),
             titulo: refs.titulo.value,
             subtitulo: refs.subtitulo.value,
             icono: refs.icono.value,
-            texto: rt.getHtml(),
-            medio: medioActual,
+            texto: rt.getHtml ? rt.getHtml() : (typeof rt === 'function' ? rt() : ''),
+            imagen: imagen,
+            video: video,
+            videoPlataforma: videoPlataforma,
             publicado: sw.checked,
             orden: Number(ordenInp.value) || 0,
+            tamanio: tamSel ? tamSel.value : 'mediana',
+            tamano: tamSel ? tamSel.value : 'mediana',
+            prioridadEncima: swPrioridad ? swPrioridad.checked : false,
+            encimaEstaticas: swPrioridad ? swPrioridad.checked : false,
+            prioridad: swPrioridad ? swPrioridad.checked : false,
             creado: f ? f.creado : null
           };
           if (!datos.titulo.trim()) { toast('La ficha necesita un título.', true); return; }
@@ -923,20 +924,23 @@
           btnGuardar.textContent = '⏳ Guardando…';
           guardarFicha(datos).then(function (guardada) {
             // El estado local se actualiza con lo que se acaba de escribir,
-            // sin releer y sin limpiar el editor. Así el medio recién
-            // elegido sigue visible inmediatamente después de guardar.
+            // sin releer y sin limpiar el editor.
             var local = {
               id: guardada.id || datos.id,
               titulo: guardada.titulo,
               subtitulo: guardada.subtitulo,
               icono: guardada.icono,
               texto: guardada.texto,
-              medio: guardada.medio,
-              mediaTipo: guardada.mediaTipo,
-              mediaUrl: guardada.mediaUrl,
-              mediaFuente: guardada.mediaFuente,
+              imagen: guardada.imagen,
+              video: guardada.video,
+              videoPlataforma: guardada.videoPlataforma,
               publicado: guardada.publicado,
               orden: guardada.orden,
+              tamanio: guardada.tamanio || guardada.tamano || datos.tamano,
+              tamano: guardada.tamano || guardada.tamanio || datos.tamano,
+              prioridadEncima: guardada.prioridadEncima === true || guardada.encimaEstaticas === true || guardada.prioridad === true,
+              encimaEstaticas: guardada.encimaEstaticas === true || guardada.prioridadEncima === true || guardada.prioridad === true,
+              prioridad: guardada.prioridad === true || guardada.prioridadEncima === true,
               creado: guardada.creado || (f ? f.creado : guardada.actualizado),
               actualizado: guardada.actualizado
             };
