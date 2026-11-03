@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="modules/roles/roles.css">
   <link rel="stylesheet" href="modules/podcasts/podcasts.css">
   <link rel="stylesheet" href="modules/tienda/tienda.css">
-  <link rel="stylesheet" href="modules/portal/portal.css?v=20261028-9">
+  <link rel="stylesheet" href="modules/portal/portal.css?v=20261103-2">
   <link rel="stylesheet" href="modules/superadmin/superadmin.css?v=20261028-7">
   <link rel="stylesheet" href="modules/settings/settings.css?v=20261028-8">
   <link rel="stylesheet" href="modules/settings/fichas-video.css?v=20261028-10">
@@ -918,6 +918,23 @@
     </aside>
 
     <main class="portal-main">
+      <!-- Fichas del Home: las crea y edita el superadmin en el panel de
+           configuraciones (pestaña «Fichas del Home») y se guardan en la
+           colección `fichas`. La lectura es pública (firestore.rules →
+           match /fichas), así que el visitante las ve sin iniciar sesión.
+           Los textos admiten override en data/content.json
+           (portal.sections.fichas). Es la PRIMERA sección del main para que
+           la ficha priorizada quede por encima de todo en el flujo real del
+           documento, no solo por CSS. -->
+      <section class="portal-section" id="portalFichas" style="display:none">
+        <div class="portal-section-head">
+          <span class="portal-eyebrow" id="fichasEyebrow"></span>
+          <h2 id="fichasTitle"></h2>
+          <p id="fichasSubtitle"></p>
+        </div>
+        <div class="portal-fichas" id="portalFichasGrid"></div>
+      </section>
+
       <section class="portal-hero" id="portalInicio">
         <div class="portal-hero-inner">
           <a href="index.html" class="portal-hero-logo" title="Vida con Vocación">
@@ -987,22 +1004,6 @@
         </div>
         <div class="portal-blocks" id="portalBlocksGrid"></div>
       </section>
-
-      <!-- Fichas del Home: las crea y edita el superadmin en el panel de
-           configuraciones (pestaña «Fichas del Home») y se guardan en la
-           colección `fichas`. La lectura es pública (firestore.rules →
-           match /fichas), así que el visitante las ve sin iniciar sesión.
-           Los textos admiten override en data/content.json
-           (portal.sections.fichas). -->
-      <section class="portal-section" id="portalFichas" style="display:none">
-        <div class="portal-section-head">
-          <span class="portal-eyebrow" id="fichasEyebrow"></span>
-          <h2 id="fichasTitle"></h2>
-          <p id="fichasSubtitle"></p>
-        </div>
-        <div class="portal-fichas" id="portalFichasGrid"></div>
-      </section>
-
 
     </main>
 
@@ -1433,11 +1434,11 @@
   <script src="modules/comunidades/comunidades.js"></script>
   <script src="modules/finanzas/finanzas.js"></script>
   <!-- Portal público -->
-  <script src="modules/portal/portal.js?v=20261028-10"></script>
+  <script src="modules/portal/portal.js?v=20261103-2"></script>
   <script src="modules/podcasts/podcasts.js"></script>
   <script src="modules/tienda/tienda.js"></script>
 <script src="modules/superadmin/superadmin.js?v=20261028-7"></script>
   <script src="modules/settings/fichas-video.js?v=20261028-10"></script>
-  <script src="modules/settings/settings.js?v=20261028-10"></script>
+  <script src="modules/settings/settings.js?v=20261103-2"></script>
 </body>
 </html>

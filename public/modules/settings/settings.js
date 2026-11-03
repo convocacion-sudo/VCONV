@@ -474,6 +474,9 @@
   var COL_FICHAS = 'fichas';
 
   function ordenarFichas(a, b) {
+    var pa = (a.prioridadEncima === true || a.encimaEstaticas === true || a.prioridad === true || a.posicionarEncima === true) ? 1 : 0;
+    var pb = (b.prioridadEncima === true || b.encimaEstaticas === true || b.prioridad === true || b.posicionarEncima === true) ? 1 : 0;
+    if (pa !== pb) return pb - pa;
     var oa = Number(a.orden);
     var ob = Number(b.orden);
     if (!isFinite(oa)) oa = 9999;
@@ -636,6 +639,8 @@
       orden: Number(ficha.orden) || 0,
       tamanio: ficha.tamanio || ficha.tamano || 'mediana',
       tamano: ficha.tamano || ficha.tamanio || 'mediana',
+      anchoPersonalizado: Math.max(0, Number(ficha.anchoPersonalizado) || Number(ficha.ancho) || 0),
+      ancho: Math.max(0, Number(ficha.ancho) || Number(ficha.anchoPersonalizado) || 0),
       posicion: ficha.posicion || ficha.ubicacion || '',
       ubicacion: ficha.ubicacion || ficha.posicion || '',
       prioridadEncima: ficha.prioridadEncima === true || ficha.encimaEstaticas === true || ficha.prioridad === true,
@@ -864,6 +869,11 @@
         // Controles de tamaño y ubicación/orden
         var gridControl = el('div', 'set-grid');
         var tamSel = selector(gridControl, 'Tamaño de la ficha', f ? (f.tamano || f.tamanio || 'mediana') : 'mediana', [['pequena', 'Pequeña'], ['mediana', 'Mediana'], ['grande', 'Grande'], ['ancho', 'Ancho personalizado']]);
+        var anchoInp = campo(gridControl, 'Ancho personalizado (px)', f ? (Number(f.anchoPersonalizado) || Number(f.ancho) || '') : '', {
+          tipo: 'number', min: 0, step: 10,
+          placeholder: 'Vacío = todo el ancho',
+          ayuda: 'Solo se aplica con «Ancho personalizado». Vacío o 0 ocupa todo el ancho disponible.'
+        });
         var ordenInp = campo(gridControl, 'Orden de visualización', f ? (Number(f.orden) || 0) : (fichas.length ? (Number(fichas[fichas.length - 1].orden) || 0) + 1 : 0), { tipo: 'number', min: 0, step: 1 });
         editor.appendChild(gridControl);
 
@@ -913,6 +923,8 @@
             orden: Number(ordenInp.value) || 0,
             tamanio: tamSel ? tamSel.value : 'mediana',
             tamano: tamSel ? tamSel.value : 'mediana',
+            anchoPersonalizado: Math.max(0, Number(anchoInp.value) || 0),
+            ancho: Math.max(0, Number(anchoInp.value) || 0),
             prioridadEncima: swPrioridad ? swPrioridad.checked : false,
             encimaEstaticas: swPrioridad ? swPrioridad.checked : false,
             prioridad: swPrioridad ? swPrioridad.checked : false,
@@ -938,6 +950,8 @@
               orden: guardada.orden,
               tamanio: guardada.tamanio || guardada.tamano || datos.tamano,
               tamano: guardada.tamano || guardada.tamanio || datos.tamano,
+              anchoPersonalizado: Number(guardada.anchoPersonalizado) || Number(guardada.ancho) || 0,
+              ancho: Number(guardada.ancho) || Number(guardada.anchoPersonalizado) || 0,
               prioridadEncima: guardada.prioridadEncima === true || guardada.encimaEstaticas === true || guardada.prioridad === true,
               encimaEstaticas: guardada.encimaEstaticas === true || guardada.prioridadEncima === true || guardada.prioridad === true,
               prioridad: guardada.prioridad === true || guardada.prioridadEncima === true,

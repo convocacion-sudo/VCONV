@@ -125,7 +125,7 @@ html { scroll-behavior: smooth; }
 
 /* ── SECTIONS ────────────────────────────────────────── */
 .portal-section { max-width: 1080px; margin: 0 auto; padding: 3.5rem 1.25rem; }
-.portal-section-head { text-align: center; max-width: 680px; margin: 0 auto 2.5rem; }
+.portal-section-head { text-align: center; max-width: 680px; margin: 0 auto 2.5rem; position: relative; z-index: 2; }
 .portal-eyebrow {
   display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
   letter-spacing: 0.08em; color: var(--accent); margin-bottom: 0.6rem;
@@ -237,28 +237,52 @@ html { scroll-behavior: smooth; }
 .portal-fichas {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem;
 }
+#portalFichas.portal-fichas-full {
+  max-width: none;
+  width: 100%;
+  padding-left: 0;
+  padding-right: 0;
+}
 .portal-ficha {
-  display: flex; flex-direction: column; overflow: hidden;
+  display: flex; flex-direction: column;
+  height: auto; overflow: visible;
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: var(--radius-lg); box-shadow: var(--shadow);
   transition: transform var(--transition), border-color var(--transition);
+  position: relative; z-index: 1;
 }
 .portal-ficha:hover { transform: translateY(-4px); border-color: var(--accent); }
 .portal-ficha-pequena { grid-column: span 1; }
 .portal-ficha-mediana { grid-column: span 1; }
-.portal-ficha-grande { grid-column: span 2; }
-.portal-ficha-ancho { grid-column: 1 / -1; }
-.portal-ficha-media { background: var(--bg-tertiary); overflow: hidden; }
+.portal-ficha-grande,
+.portal-ficha-ancho {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: none;
+}
+#portalFichasGrid > .portal-ficha-arriba {
+  grid-column: 1 / -1;
+  order: -1;
+  width: 100%;
+}
+.portal-ficha-media {
+  background: var(--bg-tertiary);
+  width: 100%; max-width: none;
+}
 .portal-ficha-media-el {
-  display: block; width: 100%; max-height: 260px;
-  aspect-ratio: 16 / 9; object-fit: cover;
+  display: block; width: 100%; height: auto;
+  max-height: none; max-width: none; object-fit: contain;
 }
 .portal-ficha-video { background: #000; overflow: hidden; }
 .portal-ficha-video-el {
-  display: block; width: 100%; max-height: 340px;
+  display: block; width: 100%; height: auto; max-height: none;
   aspect-ratio: 16 / 9; border: 0; background: #000;
 }
-.portal-ficha-body { padding: 1.4rem 1.5rem 1.6rem; display: flex; flex-direction: column; gap: 0.55rem; }
+.portal-ficha-body {
+  padding: 1.4rem 1.5rem 1.6rem;
+  display: flex; flex-direction: column; gap: 0.55rem;
+  width: 100%; max-width: none;
+}
 .portal-ficha-tag {
   align-self: flex-start;
   padding: 0.18rem 0.6rem; border-radius: 99px;

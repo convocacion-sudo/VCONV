@@ -12,6 +12,14 @@
       {
         "source": "/index.html",
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "source": "/modules/portal/**",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "source": "/modules/settings/**",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
       }
     ]
   }

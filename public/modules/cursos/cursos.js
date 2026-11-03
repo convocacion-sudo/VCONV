@@ -1085,9 +1085,9 @@
       holder.appendChild(el('p', '', 'Sin contenido por ahora.'));
     }
     // Convierte automáticamente las URL de YouTube (youtu.be/ID y
-    // youtube.com/watch?v=ID) en reproductores iframe responsivos, cada una
-    // con su propio player, como en WordPress.
-    embedYouTubeLinks(holder);
+    // youtube.com/watch?v=ID) y los enlaces directos .mp3 en reproductores
+    // embebidos, cada uno con su propio player, como en WordPress.
+    embedMediaLinks(holder);
     stripLegacyTextColors(holder);
     c.appendChild(holder);
     // Los encabezados sin cerrar se tragan el cuerpo de la lección: se reparan
@@ -1143,35 +1143,122 @@
     return wrap;
   }
 
-  // Convierte automáticamente las URL de YouTube dentro del HTML del contenido
-  // (texto suelto y enlaces <a>) en reproductores iframe, cada URL con su
-  // propio player, exactamente igual que en WordPress. Soporta tanto
-  // `youtu.be/ID` como `youtube.com/watch?v=ID` (y v/, embed/, shorts/, live/).
-  function embedYouTubeLinks(root) {
-    var urlRe = /https?:\/\/[^\s"'<>[\](){}]+/gi;
+  // Devuelve la URL si es un enlace directo a un MP3 (por ejemplo los del
+  // Internet Archive) y null en caso contrario. Se admite query/hash final
+  // (?descarga=1, #t=30) sin perder la URL completa.
+  function mp3UrlFromUrl(url) {
+    if (!url) return null;
+    var u = String(url).trim();
+    return /^https?:\/\/[^\s"'<>[\](){}]+\.mp3(?:[?#][^\s"'<>[\](){}]*)?$/i.test(u) ? u : null;
+  }
 
-    // Si un bloque (párrafo, div…) contiene únicamente una URL de YouTube, se
-    // sustituye el bloque entero por el reproductor.
+  // Reproductor de audio HTML5 para una URL .mp3.
+  function buildAudioEmbed(src) {
+    var wrap = el('div', 'audio-embed');
+    var audio = document.createElement('audio');
+    audio.controls = true;
+    audio.preload = 'metadata';
+    audio.src = src;
+    audio.setAttribute('controlsList', 'nodownload noremoteplayback');
+    audio.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    audio.addEventListener('dragstart', function (e) { e.preventDefault(); });
+    wrap.appendChild(audio);
+    return wrap;
+  }
+
+  // Detecta enlaces de libros de Internet Archive (archive.org/embed/ID o
+  // archive.org/details/ID) y devuelve la URL del visor interactivo, o null si
+  // no es un enlace de Internet Archive.
+  function archiveEmbedUrl(url) {
+    if (!url) return null;
+    var m = String(url).trim().match(/^(?:https?:\/\/)?(?:www\.)?archive\.org\/(?:embed|details|stream)\/([A-Za-z0-9._-]+)/i);
+    return m ? 'https://archive.org/embed/' + m[1] : null;
+  }
+
+  // Visor interactivo para libros de Internet Archive. Se renderiza siempre
+  // como un <iframe> limpio del visor oficial (nunca como vídeo/audio), con
+  // ancho completo y altura de lectura.
+  function buildArchiveEmbed(src) {
+    var wrap = el('div', 'archive-embed');
+    var frame = document.createElement('iframe');
+    frame.src = src;
+    frame.title = 'Libro de Internet Archive';
+    frame.setAttribute('width', '100%');
+    frame.setAttribute('height', '650px');
+    frame.setAttribute('frameborder', '0');
+    frame.setAttribute('allow', 'fullscreen');
+    frame.setAttribute('allowfullscreen', '');
+    frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    frame.style.width = '100%';
+    frame.style.height = '650px';
+    frame.loading = 'lazy';
+    wrap.appendChild(frame);
+    return wrap;
+  }
+
+  // Devuelve el reproductor que corresponde a una URL (YouTube, Internet
+  // Archive o MP3) o null si la URL no es un recurso multimedia autoembebible.
+  function mediaEmbedForUrl(url) {
+    var ytId = youtubeIdFromUrl(url);
+    if (ytId) return buildYouTubeEmbed(ytId);
+    var archive = archiveEmbedUrl(url);
+    if (archive) return buildArchiveEmbed(archive);
+    var mp3 = mp3UrlFromUrl(url);
+    if (mp3) return buildAudioEmbed(mp3);
+    return null;
+  }
+
+  // Convierte automáticamente las URL de YouTube, los libros de Internet
+  // Archive y los enlaces .mp3 dentro del HTML del contenido (texto suelto y
+  // enlaces <a>) en reproductores, cada URL con su propio player, exactamente
+  // igual que en WordPress. Soporta tanto `youtu.be/ID` como
+  // `youtube.com/watch?v=ID` (y v/, embed/, shorts/, live/).
+  function embedMediaLinks(root) {
+    var urlRe = /https?:\/\/[^\s"'<>[\](){}]+/gi;
+    var onlyUrlRe = /^https?:\/\/[^\s"'<>[\](){}]+$/;
+
+    // 0) Códigos de inserción: si el contenido ya trae un <iframe> de Internet
+    // Archive (archive.org/embed/… o archive.org/details/…) se normaliza su src
+    // y se envuelve en el contenedor responsivo del visor de libros.
+    var frames = Array.prototype.slice.call(root.querySelectorAll('iframe'));
+    frames.forEach(function (frame) {
+      var src = archiveEmbedUrl(frame.getAttribute('src') || frame.src || '');
+      if (!src) return;
+      frame.setAttribute('src', src);
+      frame.setAttribute('width', '100%');
+      frame.setAttribute('height', '650px');
+      frame.setAttribute('frameborder', '0');
+      frame.setAttribute('allow', 'fullscreen');
+      frame.setAttribute('allowfullscreen', '');
+      frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+      frame.style.width = '100%';
+      frame.style.height = '650px';
+      frame.loading = 'lazy';
+      var parent = frame.parentNode;
+      if (parent && parent.classList && parent.classList.contains('archive-embed')) return;
+      var wrap = el('div', 'archive-embed');
+      if (parent) parent.insertBefore(wrap, frame);
+      wrap.appendChild(frame);
+    });
+
+    // Si un bloque (párrafo, div…) contiene únicamente una URL autoembebible,
+    // se sustituye el bloque entero por el reproductor.
     function replaceWholeIfOnlyUrl(node) {
       if (node.nodeType !== 1 || node.children.length) return false;
-      var text = node.textContent || '';
-      if (!text.trim()) return false;
-      var id = youtubeIdFromUrl(text.trim());
-      var rest = text.trim().replace(urlRe, '');
-      if (id && rest.trim() === '') {
-        node.replaceWith(buildYouTubeEmbed(id));
-        return true;
-      }
-      return false;
+      var text = (node.textContent || '').trim();
+      if (!text || !onlyUrlRe.test(text)) return false;
+      var embed = mediaEmbedForUrl(text);
+      if (!embed) return false;
+      node.replaceWith(embed);
+      return true;
     }
 
-    // 1) Enlaces <a> cuyo destino sea YouTube.
+    // 1) Enlaces <a> cuyo destino sea YouTube o un MP3.
     var anchors = Array.prototype.slice.call(root.querySelectorAll('a'));
     anchors.forEach(function (a) {
       var href = a.getAttribute('href') || a.href || '';
-      var id = youtubeIdFromUrl(a.href || href);
-      if (!id) return;
-      var embed = buildYouTubeEmbed(id);
+      var embed = mediaEmbedForUrl(href);
+      if (!embed) return;
       // Si el texto visible del enlace ES la URL, sustituye el enlace; si el
       // enlace tiene texto descriptivo, se conserva y el reproductor se añade
       // justo después.
@@ -1179,7 +1266,7 @@
       else a.after(embed);
     });
 
-    // 2) URL de YouTube sueltas dentro del texto plano.
+    // 2) URL autoembebibles sueltas dentro del texto plano.
     var nodes = [];
     var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     while (walker.nextNode()) nodes.push(walker.currentNode);
@@ -1196,14 +1283,16 @@
       if (!matches.length) return;
       var frag = document.createDocumentFragment();
       var last = 0;
+      var found = false;
       matches.forEach(function (mm) {
-        var id = youtubeIdFromUrl(mm[0]);
-        if (!id) return;
+        var embed = mediaEmbedForUrl(mm[0]);
+        if (!embed) return;
+        found = true;
         frag.appendChild(document.createTextNode(text.slice(last, mm.index)));
-        frag.appendChild(buildYouTubeEmbed(id));
+        frag.appendChild(embed);
         last = mm.index + mm[0].length;
       });
-      if (last > 0) {
+      if (found) {
         frag.appendChild(document.createTextNode(text.slice(last)));
         p.replaceChild(frag, node);
       }
@@ -1258,6 +1347,11 @@
       wrap.appendChild(sf);
       return wrap;
     }
+
+    // Libros de Internet Archive: siempre el visor interactivo en <iframe>,
+    // nunca un <video> ni un reproductor de media.
+    var archive = archiveEmbedUrl(leccion.media_url || '');
+    if (archive) return buildArchiveEmbed(archive);
 
     if (tipo === 'image') {
       var img = document.createElement('img');

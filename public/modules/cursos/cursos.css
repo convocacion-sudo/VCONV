@@ -234,7 +234,7 @@
   /* En móvil y tablet los reproductores se encogen con la tarjeta: ocupan el
      ancho disponible (menor a 800px) y nunca desbordan el contenedor. */
   .media-player-wrap { margin: 1.25rem auto; }
-  .yt-embed { margin: 1.75rem auto; }
+  .yt-embed, .archive-embed { margin: 1.75rem auto; }
   .media-player-wrap video { aspect-ratio: 16 / 9; }
   .media-player-wrap audio { height: 50px; }
 }
@@ -249,6 +249,30 @@
   position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000;
 }
 
+/* ── AUTOEMBED AUDIO (URL .mp3 en el texto del contenido) ── */
+.audio-embed {
+  width: 100%; max-width: 800px; margin: 2.5rem auto; box-sizing: border-box;
+}
+.audio-embed audio {
+  display: block; width: 100%; max-width: 100%; height: 54px; box-sizing: border-box;
+}
+
+/* ── AUTOEMBED INTERNET ARCHIVE (libro en visor interactivo) ── */
+.archive-embed {
+  position: relative; width: 100%; max-width: 800px; height: 650px;
+  margin: 2.5rem auto; border-radius: var(--radius-lg); overflow: hidden;
+  background: #000; border: 1px solid var(--border); box-sizing: border-box;
+}
+.archive-embed iframe,
+iframe[src*="archive.org"] {
+  display: block;
+  width: 100% !important; height: 650px !important;
+  min-width: 100% !important; min-height: 650px !important;
+  max-width: 100% !important; max-height: none !important;
+  border: 0; background: #000; box-sizing: border-box;
+}
+.archive-embed iframe { position: absolute; inset: 0; }
+
 /* ── WRAPPER RESPONSIVO DE MEDIA EN LECCIONES ─────────
    Contenedores donde se renderizan los iframes/players de YouTube y podcast
    en la vista de lección (generados en cursos.js: .yt-embed por
@@ -257,6 +281,8 @@
    centrados en el panel, y que en móvil/tablet se encogan al ancho disponible
    sin desbordar la tarjeta blanca de la lección. */
 #viewLesson .yt-embed,
+#viewLesson .archive-embed,
+#viewLesson .audio-embed,
 #viewLesson .media-player-wrap {
   width: 100%; max-width: 800px;
   margin-left: auto; margin-right: auto;
@@ -264,9 +290,11 @@
 }
 /* El iframe interno ocupa siempre el 100% de ancho y alto de su wrapper. */
 #viewLesson .yt-embed iframe,
+#viewLesson .archive-embed iframe,
 #viewLesson .media-player-wrap iframe {
   display: block; width: 100%; height: 100%; max-width: 100%; border: 0;
 }
+#viewLesson .archive-embed iframe { height: 650px; min-height: 650px; }
 /* YouTube dentro de .media-player-wrap: proporción fluida 16:9. */
 #viewLesson .media-player-wrap iframe { aspect-ratio: 16 / 9; }
 /* Spotify conserva su altura/ratio propios. */

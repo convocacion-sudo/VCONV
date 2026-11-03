@@ -128,6 +128,32 @@
   var FICHAS_COLLECTION = 'fichas';
   var fichasUnsub = null;
 
+  /* La opción «Posicionar obligatoriamente por encima» se guarda desde el
+     panel como `prioridadEncima` (settings.js también escribe los alias
+     `encimaEstaticas` y `prioridad`). Se aceptan además nombres antiguos. */
+  function esFichaEncima(f) {
+    return !!f && (
+      f.prioridadEncima === true ||
+      f.encimaEstaticas === true ||
+      f.prioridad === true ||
+      f.posicionarEncima === true ||
+      f.posicionarArriba === true
+    );
+  }
+
+  function compararOrdenFichas(a, b) {
+    var oa = typeof a.orden === 'number' ? a.orden : 9999;
+    var ob = typeof b.orden === 'number' ? b.orden : 9999;
+    if (oa !== ob) return oa - ob;
+    return String(a.titulo || '').localeCompare(String(b.titulo || ''));
+  }
+
+  function ordenarFichasPortal(fichas) {
+    var prioritarias = fichas.filter(esFichaEncima).sort(compararOrdenFichas);
+    var resto = fichas.filter(function (f) { return !esFichaEncima(f); }).sort(compararOrdenFichas);
+    return prioritarias.concat(resto);
+  }
+
   function renderFichasGrid(fichas) {
     var grid = $('portalFichasGrid');
     var section = $('portalFichas');
@@ -137,28 +163,36 @@
     if (!fichas.length) {
       // Sin fichas publicadas la sección no se muestra: es preferible un
       // hueco limpio que un bloque de texto vacío en mitad de la portada.
-      if (section) section.style.display = 'none';
+      if (section) {
+        section.style.display = 'none';
+        section.classList.remove('portal-fichas-full');
+      }
       return;
     }
     if (section) section.style.display = '';
 
-    // Ordenamiento con prioridad: si alguna ficha tiene prioridadEncima/prioridad
-    // se considera "por encima de la primera ficha estática" - forzamos su posición
-    var fichasOrdenadas = fichas.slice();
-    fichasOrdenadas.sort(function (a, b) {
-      var pa = (a.prioridadEncima === true || a.encimaEstaticas === true || a.prioridad === true) ? 1 : 0;
-      var pb = (b.prioridadEncima === true || b.encimaEstaticas === true || b.prioridad === true) ? 1 : 0;
-      if (pa !== pb) return pb - pa; // priority first
-      var oa = typeof a.orden === 'number' ? a.orden : 9999;
-      var ob = typeof b.orden === 'number' ? b.orden : 9999;
-      if (oa !== ob) return oa - ob;
-      return String(a.titulo || '').localeCompare(String(b.titulo || ''));
+    // Las fichas prioritarias se separan primero para garantizar que ocupen
+    // el inicio absoluto del array; después se ordena solo el resto.
+    var fichasOrdenadas = ordenarFichasPortal(fichas);
+
+    var fragmento = document.createDocumentFragment();
+
+    var hayAnchoPersonalizado = fichasOrdenadas.some(function (f) {
+      return (f.tamano || f.tamanio) === 'ancho';
     });
+    if (section) section.classList.toggle('portal-fichas-full', hayAnchoPersonalizado);
 
     fichasOrdenadas.forEach(function (f) {
       var card = el('article', 'portal-ficha');
+      if (esFichaEncima(f)) card.classList.add('portal-ficha-arriba');
       var tam = f.tamano || f.tamanio || '';
       if (tam) card.classList.add('portal-ficha-' + tam);
+
+      var anchoPersonalizado = Number(f.anchoPersonalizado) || Number(f.ancho) || 0;
+      if (tam === 'ancho' && anchoPersonalizado > 0) {
+        card.style.width = anchoPersonalizado + 'px';
+        card.style.maxWidth = '100%';
+      }
 
       var imagen = (V.imagenes && typeof V.imagenes.urlSegura === 'function')
         ? V.imagenes.urlSegura(f.imagen)
@@ -211,8 +245,10 @@
       }
 
       card.appendChild(body);
-      grid.appendChild(card);
+      fragmento.appendChild(card);
     });
+
+    grid.appendChild(fragmento);
   }
 
   function subscribeFichas() {
@@ -229,13 +265,7 @@
           if (f.publicado !== true) return;
           fichas.push(f);
         });
-        fichas.sort(function (a, b) {
-          var oa = typeof a.orden === 'number' ? a.orden : 9999;
-          var ob = typeof b.orden === 'number' ? b.orden : 9999;
-          if (oa !== ob) return oa - ob;
-          return String(a.titulo || '').localeCompare(String(b.titulo || ''));
-        });
-        renderFichasGrid(fichas);
+        renderFichasGrid(ordenarFichasPortal(fichas));
       }, function (err) {
         console.warn('No se pudieron leer las fichas:', err);
       });
