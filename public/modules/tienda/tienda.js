@@ -55,6 +55,9 @@
   var categoriaFiltro = '';
   var gestionando = false;
   var visor = null;
+  var tiendaEditId = '';
+  var creandoTienda = false;
+  var misTiendas = [];
 
   function $(id) { return V.$(id); }
   function el(tag, cls, text) { return V.el(tag, cls, text); }
@@ -415,18 +418,48 @@
   }
 
   function cargarPerfilTienda(cb) {
-    if (!V.db || !haySesion()) { perfilTienda = null; if (cb) cb(); return; }
+    if (!V.db || !haySesion() || !puedeGestionarTienda()) {
+      perfilTienda = null;
+      misTiendas = [];
+      tiendaEditId = '';
+      creandoTienda = false;
+      if (cb) cb();
+      return;
+    }
     var uid = uidActual();
-    V.db.collection(COL_TIENDAS).doc(uid).get()
-      .then(function (doc) {
-        if (uid !== uidActual()) return;
-        perfilTienda = doc.exists ? doc.data() : null;
-        if (cb) cb();
-      })
-      .catch(function () {
+    var legacy = V.db.collection(COL_TIENDAS).doc(uid).get()
+      .catch(function () { return null; });
+    var propias = V.db.collection(COL_TIENDAS).where('vendedorId', '==', uid).get()
+      .catch(function () { return null; });
+    Promise.all([legacy, propias]).then(function (res) {
+      if (uid !== uidActual()) return;
+      var map = {};
+      var docLegacy = res[0];
+      if (docLegacy && docLegacy.exists) {
+        var dataLegacy = docLegacy.data() || {};
+        dataLegacy.id = uid;
+        map[uid] = dataLegacy;
+      }
+      var snap = res[1];
+      if (snap) {
+        snap.forEach(function (d) {
+          var data = d.data() || {};
+          data.id = d.id;
+          map[d.id] = data;
+        });
+      }
+      misTiendas = Object.keys(map).map(function (id) { return map[id]; }).sort(porNombre);
+      if (creandoTienda) {
         perfilTienda = null;
-        if (cb) cb();
-      });
+      } else {
+        var elegida = (tiendaEditId && map[tiendaEditId])
+          ? map[tiendaEditId]
+          : (map[uid] || misTiendas[0] || null);
+        perfilTienda = elegida;
+        tiendaEditId = elegida ? elegida.id : '';
+      }
+      if (cb) cb();
+    });
   }
 
   /* ─── CATÁLOGO PÚBLICO ─────────────────────────────────────── */
@@ -526,7 +559,7 @@
         '🏪',
         'Todavía no hay tiendas vinculadas',
         (puedeCategorias() || puedeGestionarTienda())
-          ? 'Vincula tu tienda desde "Mi Tienda Externa" y aparecerá aquí al instante.'
+          ? 'Crea o vincula tu tienda desde "Mi Tienda Externa" y aparecerá aquí al instante.'
           : 'Pronto los vendedores de la comunidad publicarán sus tiendas. Vuelve pronto.'
       ));
       return;
@@ -899,13 +932,72 @@
     host.appendChild(formTiendaExterna());
   }
 
+  function iniciarNuevaTienda() {
+    if (!puedeVenderActivo()) {
+      V.toast('Tu cuenta no tiene el permiso "Vendedor Autorizado".', true);
+      return;
+    }
+    creandoTienda = true;
+    tiendaEditId = '';
+    perfilTienda = null;
+    gestionando = true;
+    actualizarBotonesCabecera();
+    renderAdmin();
+    var admin = $('tiendaAdmin');
+    if (admin) admin.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function seleccionarTienda(id) {
+    var elegida = null;
+    for (var i = 0; i < misTiendas.length; i++) {
+      if (misTiendas[i].id === id) { elegida = misTiendas[i]; break; }
+    }
+    if (!elegida) return;
+    creandoTienda = false;
+    tiendaEditId = id;
+    perfilTienda = elegida;
+    actualizarBotonesCabecera();
+    renderAdmin();
+  }
+
   function formTiendaExterna() {
-    var perfil = perfilTienda || {};
+    var perfil = creandoTienda ? {} : (perfilTienda || {});
     var card = adminCard(
-      'Mi Tienda Externa',
-      'Vincula tu tienda o red social. No creas productos aquí: el catálogo se muestra directamente desde tu plataforma.',
+      creandoTienda ? 'Nueva tienda externa' : 'Mi Tienda Externa',
+      creandoTienda
+        ? 'Completa los datos para dar de alta una tienda nueva e independiente en el marketplace.'
+        : 'Vincula tu tienda o red social. No creas productos aquí: el catálogo se muestra directamente desde tu plataforma.',
       '🏪'
     );
+
+    var barra = el('div', 'tienda-admin-toolbar');
+    if (misTiendas.length || creandoTienda) {
+      var selTienda = document.createElement('select');
+      selTienda.id = 'tiendaEditor';
+      selTienda.className = 'select';
+      misTiendas.forEach(function (t) {
+        var o = document.createElement('option');
+        o.value = t.id;
+        o.textContent = nombreTienda(t) + (esPublicado(t) ? '' : ' (borrador)');
+        selTienda.appendChild(o);
+      });
+      var optNueva = document.createElement('option');
+      optNueva.value = '__nueva__';
+      optNueva.textContent = '➕ Nueva tienda';
+      selTienda.appendChild(optNueva);
+      selTienda.value = creandoTienda ? '__nueva__' : (tiendaEditId || '');
+      selTienda.addEventListener('change', function () {
+        if (selTienda.value === '__nueva__') { iniciarNuevaTienda(); return; }
+        seleccionarTienda(selTienda.value);
+      });
+      barra.appendChild(campo('Tienda que estás gestionando', selTienda));
+    }
+    if (!creandoTienda) {
+      var btnNuevaForm = boton('➕ Nueva tienda', 'btn btn-outline', iniciarNuevaTienda);
+      btnNuevaForm.id = 'btnTiendaNuevaForm';
+      barra.appendChild(btnNuevaForm);
+    }
+    if (barra.childNodes.length) card.appendChild(barra);
 
     var r1 = fila();
     r1.appendChild(campo('Nombre del negocio', input('tiendaNombre', 'text', nombreTienda(perfil), 'Ej: Tejidos MP')));
@@ -982,7 +1074,10 @@
     card.appendChild(r5);
 
     var acciones = el('div', 'form-actions');
-    var btn = boton(perfil.id || perfil.nombre ? '💾 Actualizar tienda' : '💾 Vincular tienda', 'btn btn-primary', function () {
+    var etiquetaBtn = creandoTienda
+      ? '💾 Crear tienda'
+      : (tiendaEditId ? '💾 Actualizar tienda' : '💾 Vincular tienda');
+    var btn = boton(etiquetaBtn, 'btn btn-primary', function () {
       guardarTienda({
         nombre: $('tiendaNombre').value,
         plataforma: $('tiendaPlataforma').value,
@@ -1000,6 +1095,16 @@
       }, btn);
     });
     acciones.appendChild(btn);
+    if (creandoTienda) {
+      acciones.appendChild(boton('Cancelar', 'btn btn-outline', function () {
+        creandoTienda = false;
+        tiendaEditId = '';
+        cargarPerfilTienda(function () {
+          actualizarBotonesCabecera();
+          renderAdmin();
+        });
+      }));
+    }
     card.appendChild(acciones);
 
     if (perfilTienda) {
@@ -1068,22 +1173,38 @@
       facebookUrl: enlacesRed.facebookUrl,
       webUrl: enlacesRed.webUrl,
       publicado: !!datos.publicado,
+      vendedorId: uid,
       actualizado: new Date().toISOString()
     };
     // Conserva datos de contacto del perfil anterior, sin exponerlos en la
     // tarjeta: el modelo ahora se centra en la tienda externa.
     if (perfilTienda && perfilTienda.whatsapp) payload.whatsapp = perfilTienda.whatsapp;
 
-    var eraNueva = !(perfilTienda && (perfilTienda.nombre || perfilTienda.tiendaNombre));
+    var crearDocNuevo = creandoTienda === true;
+    var ref = crearDocNuevo
+      ? V.db.collection(COL_TIENDAS).doc()
+      : V.db.collection(COL_TIENDAS).doc(tiendaEditId || uid);
     if (btn) { btn.disabled = true; btn._t = btn.textContent; btn.textContent = '⏳ Guardando…'; }
-    var ref = V.db.collection(COL_TIENDAS).doc(uid);
-    return ref.get().then(function (doc) {
-      payload.creado = (doc.exists && doc.data().creado) || new Date().toISOString();
+
+    var preparar = crearDocNuevo
+      ? Promise.resolve()
+      : ref.get().then(function (doc) {
+          if (doc.exists && doc.data() && doc.data().creado) payload.creado = doc.data().creado;
+        }).catch(function () { /* si no se puede leer, se guarda igual */ });
+
+    return preparar.then(function () {
+      if (!payload.creado) payload.creado = new Date().toISOString();
       return ref.set(payload, { merge: true });
     }).then(function () {
+      payload.id = ref.id;
       perfilTienda = payload;
-      V.toast(eraNueva ? 'Tienda vinculada ✓' : 'Tienda actualizada ✓');
-      renderAdmin();
+      tiendaEditId = ref.id;
+      creandoTienda = false;
+      V.toast(crearDocNuevo ? 'Tienda creada ✓' : 'Tienda guardada ✓');
+      cargarPerfilTienda(function () {
+        actualizarBotonesCabecera();
+        renderAdmin();
+      });
     }).catch(function (e) {
       V.toast('No se pudo guardar la tienda: ' + e.message, true);
     }).then(function () {
@@ -1130,6 +1251,9 @@
       permisoVendedor = false;
       permisoCargado = true;
       perfilTienda = null;
+      tiendaEditId = '';
+      creandoTienda = false;
+      misTiendas = [];
       gestionando = false;
       actualizarBotonesCabecera();
     } else {
@@ -1168,6 +1292,10 @@
       btnGest.style.display = visible ? '' : 'none';
       btnGest.textContent = gestionando ? '👁 Ver tiendas' : '⚙ Mi Tienda Externa';
     }
+    var btnNueva = $('btnTiendaNueva');
+    if (btnNueva) {
+      btnNueva.style.display = puedeVenderActivo() ? '' : 'none';
+    }
     var sub = $('tiendaSub');
     if (sub) {
       sub.textContent = gestionando
@@ -1195,6 +1323,11 @@
         if (admin) admin.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
     });
+    var btnNueva = $('btnTiendaNueva');
+    if (btnNueva) btnNueva.addEventListener('click', function () {
+      if (!haySesion()) { if (V.openAuth) V.openAuth('login'); return; }
+      iniciarNuevaTienda();
+    });
     document.addEventListener('keydown', onEscape);
   }
 
@@ -1217,6 +1350,9 @@
     cerrarVisor();
     gestionando = false;
     perfilTienda = null;
+    tiendaEditId = '';
+    creandoTienda = false;
+    misTiendas = [];
     permisoVendedor = false;
     permisoCargado = false;
     reconstruirSuscripciones();
@@ -1230,6 +1366,8 @@
     }
     if (!puedeVenderActivo()) {
       gestionando = false;
+      creandoTienda = false;
+      tiendaEditId = '';
       cerrarVisor();
     }
     reconstruirSuscripciones();

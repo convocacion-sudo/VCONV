@@ -212,6 +212,13 @@
 .tienda-admin-subtitle { font-size: 0.92rem; font-weight: 800; margin: 0.6rem 0 0.1rem; color: var(--text-primary); }
 .tienda-admin-empty { font-size: 0.85rem; color: var(--text-muted); padding: 1rem 0; }
 
+.tienda-admin-toolbar {
+  display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end;
+  padding-bottom: 1rem; margin-bottom: 1.25rem; border-bottom: 1px dashed var(--border);
+}
+.tienda-admin-toolbar .field { flex: 1 1 240px; margin: 0; }
+.tienda-admin-toolbar .btn { flex: 0 0 auto; white-space: nowrap; }
+
 /* ── RESPONSIVE ───────────────────────────────────────────────── */
 @media (max-width: 760px) {
   .tienda-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem; }

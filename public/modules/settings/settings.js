@@ -363,6 +363,10 @@
         'Mientras esté activo, los visitantes y los estudiantes encontrarán una pantalla de aviso en lugar de la aplicación. El superadmin y el contable siguen entrando con normalidad para probarla.');
       var inMensajeMant = campo(cuerpoMant, 'Mensaje de mantenimiento', cfgMant.mensaje || MENSAJE_MANT_POR_DEFECTO, { tipo: 'area' });
 
+      var cfgTienda = (doc.tienda && typeof doc.tienda === 'object') ? doc.tienda : {};
+      var swTienda = interruptor(cuerpoMant, 'Tienda visible', cfgTienda.activa !== false,
+        'Con el interruptor apagado, la Tienda desaparece del menú lateral y de la portada pública, y su vista queda bloqueada hasta que la vuelvas a activar.');
+
       CAMPOS_PORTAL.forEach(function (g) {
         var body = grupo(container, g.titulo, g.descripcion, g.icono);
         g.items.forEach(function (it) {
@@ -450,13 +454,17 @@
           activo: swMant.checked === true,
           mensaje: String(inMensajeMant.value || '').trim() || MENSAJE_MANT_POR_DEFECTO
         };
-        return guardarDoc('portal', { copy: nuevo, mantenimiento: mant }).then(function () {
+        var tiendaCfg = { activa: swTienda.checked === true };
+        return guardarDoc('portal', { copy: nuevo, mantenimiento: mant, tienda: tiendaCfg }).then(function () {
           // Se aplica en esta misma sesión (y en las demás, por la escucha en
           // vivo de core/mantenimiento.js) sin tener que recargar.
           if (V.mantenimiento && typeof V.mantenimiento.guardar === 'function') {
             V.mantenimiento.guardar(mant);
           }
-          toast('Contenido de la portada guardado ✓' + (mant.activo ? ' · Modo mantenimiento ACTIVADO' : ''));
+          if (V.tiendaEstado && typeof V.tiendaEstado.guardar === 'function') {
+            V.tiendaEstado.guardar(tiendaCfg);
+          }
+          toast('Contenido de la portada guardado ✓' + (mant.activo ? ' · Modo mantenimiento ACTIVADO' : '') + (tiendaCfg.activa ? '' : ' · Tienda OCULTA'));
         });
       });
     }).catch(function (e) {

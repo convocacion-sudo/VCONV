@@ -664,15 +664,26 @@ service cloud.firestore {
         || (isRegistered() && resource.data.vendedorId == request.auth.uid);
     }
 
-    match /tienda_vendedores/{uid} {
+    match /tienda_vendedores/{storeId} {
       // Perfil PÚBLICO de la tienda externa (negocio, plataforma, categoría,
       // descripción y URL/embed): lo lee cualquier identidad para que el
       // marketplace funcione sin sesión. La ESCRITURA exige, además de ser el
       // dueño, el permiso explícito "Vendedor Autorizado" que concede el CRM
       // (usuarios/{uid}.vendedorAutorizado). El superadmin mantiene su bypass.
+      //
+      // Una misma cuenta puede tener VARIAS tiendas: las nuevas usan un id
+      // propio y se reconocen por el campo `vendedorId`. Los documentos
+      // antiguos siguen anclados a su UID (id == auth.uid) y se conservan sin
+      // migración.
       allow read: if esVisiblePublico() || signedIn();
-      allow write: if isAdmin()
-        || (isRegistered() && request.auth.uid == uid && esVendedorAutorizado());
+      allow create: if isAdmin()
+        || (isRegistered() && esVendedorAutorizado()
+            && (storeId == request.auth.uid
+                || request.resource.data.get('vendedorId', '') == request.auth.uid));
+      allow update, delete: if isAdmin()
+        || (isRegistered() && esVendedorAutorizado()
+            && (storeId == request.auth.uid
+                || resource.data.get('vendedorId', '') == request.auth.uid));
     }
 
     /* ── CONFIG (perfiles organizacionales) ────────────────── */

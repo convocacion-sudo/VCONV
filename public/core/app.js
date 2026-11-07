@@ -444,6 +444,10 @@
   // showTienda() solo enciende la vista, y con la portada delante el shell
   // seguiría oculto.
   function showGuestTienda() {
+    if (V.tiendaEstado && typeof V.tiendaEstado.activa === 'function' && !V.tiendaEstado.activa()) {
+      toast('La Tienda está desactivada temporalmente.', true);
+      return;
+    }
     if (isAnon && !appStarted) {
       vistaInvitadoPendiente = 'tienda';
       return;
@@ -1060,6 +1064,9 @@
       V.mantenimiento.aplicar();
       return;
     }
+    if (id === 'viewTienda' && V.tiendaEstado && typeof V.tiendaEstado.activa === 'function' && !V.tiendaEstado.activa()) {
+      id = 'viewDashboard';
+    }
     if (VISTAS_SOLO_SUPERADMIN.indexOf(id) !== -1 && !esAdmin()) {
       toast('Acceso restringido al super administrador.', true);
       id = 'viewDashboard';
@@ -1385,6 +1392,11 @@
   // panel "Mi Tienda Externa" del propio módulo depende de tener sesión y el
   // permiso Vendedor Autorizado.
   function showTienda() {
+    if (V.tiendaEstado && typeof V.tiendaEstado.activa === 'function' && !V.tiendaEstado.activa()) {
+      toast('La Tienda está desactivada temporalmente.', true);
+      goDashboard();
+      return;
+    }
     showView('viewTienda');
     try {
       if (typeof V.onTiendaShow === 'function') V.onTiendaShow();
@@ -2009,6 +2021,12 @@
       V.mantenimiento.aplicar();
       V.mantenimiento.cargar();
       V.mantenimiento.suscribir();
+    }
+
+    if (V.tiendaEstado && typeof V.tiendaEstado.aplicar === 'function') {
+      V.tiendaEstado.aplicar();
+      V.tiendaEstado.cargar();
+      V.tiendaEstado.suscribir();
     }
 
     if (isAnon) {
